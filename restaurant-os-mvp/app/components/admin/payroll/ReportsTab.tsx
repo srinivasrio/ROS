@@ -303,9 +303,7 @@ export default function ReportsTab({ restaurantId }: ReportsTabProps) {
                                                         <td className="px-4 py-3 text-center text-green-700 font-bold bg-green-50/20">{item.present_days}</td>
                                                         <td className="px-4 py-3 text-center text-amber-700 font-bold bg-amber-50/20">{item.half_days}</td>
                                                         <td className="px-4 py-3 text-center text-red-700 font-bold bg-red-50/20">{item.absent_days}</td>
-                                                        // Stand-in for leave as it computes no deduction but holds a record
                                                         <td className="px-4 py-3 text-center text-blue-700 font-bold bg-blue-50/20">
-                                                            {/* Count leave by querying directly or displaying standard stub */}
                                                             {30 - item.present_days - item.absent_days - item.half_days > 0 ? 30 - item.present_days - item.absent_days - item.half_days : 0}
                                                         </td>
                                                         <td className="px-4 py-3 text-center font-semibold font-mono text-black">{rate}%</td>
