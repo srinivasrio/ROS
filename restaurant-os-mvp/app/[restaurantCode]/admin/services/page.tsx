@@ -143,7 +143,7 @@ export default function AdminServicesPage() {
             };
 
             if (editingId) payload.id = editingId;
-            if (imageUrl) payload.service_image = imageUrl;
+            payload.service_image = imageUrl || imagePreview || '';
 
             await HomepageBuilderService.saveService(payload);
 

@@ -581,13 +581,18 @@ const HomepageBuilderService = {
             restaurant_id: service.restaurant_id,
             service_title: service.service_title || '',
             service_subtitle: service.service_subtitle || '',
-            service_image: service.service_image || '',
             service_icon: service.service_icon || '',
             service_key: service.service_key || '',
             display_order: service.display_order ?? 0,
             active: service.active !== false,
             countable: service.countable ?? false
         };
+
+        if (service.service_image !== undefined) {
+            payload.service_image = service.service_image;
+        } else {
+            payload.service_image = '';
+        }
 
         if (service.id && UUID_RE.test(service.id)) {
             payload.id = service.id;
