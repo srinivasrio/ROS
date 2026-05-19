@@ -79,12 +79,16 @@ export const UserService = {
     },
 
     async deleteUser(userId: string): Promise<void> {
-        const { error } = await supabase
-            .from('users')
-            .delete()
-            .eq('id', userId);
+        const res = await fetch('/api/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId }),
+        });
 
-        if (error) throw error;
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.error || 'Deletion failed');
+        }
     },
 
     async signOut(): Promise<void> {
