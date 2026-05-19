@@ -140,7 +140,7 @@ export default function WaiterMenuSelection() {
             || fallbackType === effectiveFilter
             || (effectiveFilter === 'Non-Veg' && fallbackType === 'Egg');
 
-        return matchesCategory && matchesSubCategory && item.is_available && typeMatch;
+        return matchesCategory && matchesSubCategory && item.is_available && item.active !== false && typeMatch;
     });
 
     const handlePlaceOrder = async () => {

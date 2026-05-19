@@ -176,7 +176,7 @@ export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: st
             || fallbackType === effectiveFilter
             || (effectiveFilter === 'Non-Veg' && fallbackType === 'Egg');
 
-        return matchesCategory && matchesSubCategory && matchesSearch && item.is_available && typeMatch;
+        return matchesCategory && matchesSubCategory && matchesSearch && item.is_available && item.active !== false && typeMatch;
     });
 
     if (tableNotFound && isVisible) {

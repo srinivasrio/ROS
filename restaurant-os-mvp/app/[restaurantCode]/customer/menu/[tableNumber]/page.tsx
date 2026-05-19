@@ -190,7 +190,7 @@ export default function CustomerMenu() {
             || fallbackType === effectiveFilter
             || (effectiveFilter === 'Non-Veg' && fallbackType === 'Egg');
 
-        return matchesCategory && matchesSubCategory && matchesSearch && item.is_available && typeMatch;
+        return matchesCategory && matchesSubCategory && matchesSearch && item.is_available && item.active !== false && typeMatch;
     });
 
     const getCategoryIcon = (name: string) => {

@@ -271,53 +271,137 @@ export const MenuService = {
      * Delete a menu item
      */
     async deleteMenuItem(id: number, restaurantId: string) {
+        // Delete dependent recipe mapping and specials first (safe to cascade delete)
+        await supabase
+            .from('menu_recipe_mapping')
+            .delete()
+            .eq('menu_item_id', id)
+            .eq('restaurant_id', restaurantId);
+
+        await supabase
+            .from('today_special_items')
+            .delete()
+            .eq('menu_item_id', id)
+            .eq('restaurant_id', restaurantId);
+
         const { error } = await supabase
             .from('menu_items')
             .delete()
             .eq('id', id)
             .eq('restaurant_id', restaurantId);
 
-        if (error) throw error;
+        if (error) {
+            // Soft-delete if referenced in orders
+            const { error: updateError } = await supabase
+                .from('menu_items')
+                .update({
+                    active: false,
+                    is_available: false,
+                    category_id: null,
+                    sub_category_id: null
+                })
+                .eq('id', id)
+                .eq('restaurant_id', restaurantId);
+
+            if (updateError) throw updateError;
+        }
+        this.clearCache();
     },
 
     /**
      * Delete a category
      */
     async deleteCategory(id: number, restaurantId: string) {
-        // Manual cascade delete items
-        const { error: itemsError } = await supabase
+        // Get all menu items in this category
+        const { data: items, error: fetchError } = await supabase
             .from('menu_items')
-            .delete()
+            .select('id')
             .eq('category_id', id)
             .eq('restaurant_id', restaurantId);
 
-        if (itemsError) throw itemsError;
+        if (fetchError) throw fetchError;
 
-        // Manual cascade delete subcategories
-        const { error: subError } = await supabase
+        // Loop through each menu item and try to delete or soft-delete it
+        if (items && items.length > 0) {
+            for (const item of items) {
+                // Delete dependent recipe mapping and specials first
+                await supabase
+                    .from('menu_recipe_mapping')
+                    .delete()
+                    .eq('menu_item_id', item.id)
+                    .eq('restaurant_id', restaurantId);
+
+                await supabase
+                    .from('today_special_items')
+                    .delete()
+                    .eq('menu_item_id', item.id)
+                    .eq('restaurant_id', restaurantId);
+
+                const { error: deleteError } = await supabase
+                    .from('menu_items')
+                    .delete()
+                    .eq('id', item.id)
+                    .eq('restaurant_id', restaurantId);
+
+                if (deleteError) {
+                    // Soft-delete if referenced in orders
+                    const { error: updateError } = await supabase
+                        .from('menu_items')
+                        .update({
+                            category_id: null,
+                            sub_category_id: null,
+                            active: false,
+                            is_available: false
+                        })
+                        .eq('id', item.id)
+                        .eq('restaurant_id', restaurantId);
+
+                    if (updateError) throw updateError;
+                }
+            }
+        }
+
+        // Set referencing items' sub_category_id to null for any subcategories
+        await supabase
+            .from('menu_items')
+            .update({ sub_category_id: null })
+            .eq('category_id', id)
+            .eq('restaurant_id', restaurantId);
+
+        // Delete subcategories
+        const { error: subDeleteError } = await supabase
             .from('sub_categories')
             .delete()
             .eq('category_id', id)
             .eq('restaurant_id', restaurantId);
 
-        if (subError) throw subError;
+        if (subDeleteError) throw subDeleteError;
 
-        // Then delete the category
-        const { error } = await supabase
+        // Finally delete the category itself
+        const { error: catDeleteError } = await supabase
             .from('categories')
             .delete()
             .eq('id', id)
             .eq('restaurant_id', restaurantId);
 
-        if (error) throw error;
+        if (catDeleteError) throw catDeleteError;
+
+        this.clearCache();
     },
 
     /**
      * Delete a subcategory
      */
     async deleteSubCategory(id: number, restaurantId: string) {
-        // Warning: This will set items' sub_category_id to NULL due to DB constraint (SET NULL)
-        // ...
+        // Set referencing items' sub_category_id to null first to avoid DB constraint issues
+        const { error: updateError } = await supabase
+            .from('menu_items')
+            .update({ sub_category_id: null })
+            .eq('sub_category_id', id)
+            .eq('restaurant_id', restaurantId);
+
+        if (updateError) throw updateError;
+
         const { error } = await supabase
             .from('sub_categories')
             .delete()
@@ -325,6 +409,8 @@ export const MenuService = {
             .eq('restaurant_id', restaurantId);
 
         if (error) throw error;
+        
+        this.clearCache();
     },
 
     /**
