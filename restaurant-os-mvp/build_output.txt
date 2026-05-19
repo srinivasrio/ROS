@@ -1,0 +1,25 @@
+
+> restaurant-os-mvp@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 8.0s
+  Running TypeScript ...
+Failed to compile.
+
+./app/[restaurantCode]/customer/home/[tableNumber]/page.tsx:125:13
+Type error: Type '{ mode: "customer"; restaurantId: any; tableNumber: any; profile: any; theme: any; sections: any; data: any; addToCart: (item: any, qty: number) => void; updateQuantity: (itemId: string, delta: number) => void; ... 5 more ...; onServicesHeaderClick: () => void; }' is not assignable to type 'IntrinsicAttributes & SharedHomepageProps'.
+  Property 'addToCart' does not exist on type 'IntrinsicAttributes & SharedHomepageProps'.
+
+[0m [90m 123 |[39m             sections[33m=[39m{sections}
+ [90m 124 |[39m             data[33m=[39m{data}
+[31m[1m>[22m[39m[90m 125 |[39m             addToCart[33m=[39m{addToCart}
+ [90m     |[39m             [31m[1m^[22m[39m
+ [90m 126 |[39m             updateQuantity[33m=[39m{updateQuantity}
+ [90m 127 |[39m             getItemQtyInCart[33m=[39m{getItemQtyInCart}
+ [90m 128 |[39m             addSpecialToCart[33m=[39m{addSpecialToCart}[0m
+Next.js build worker exited with code: 1 and signal: null

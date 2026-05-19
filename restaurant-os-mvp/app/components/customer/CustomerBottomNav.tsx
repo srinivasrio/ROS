@@ -1,96 +1,177 @@
 'use client';
 
-import { LucideUtensilsCrossed, LucideReceiptIndianRupee, LucideBellRing, Home, ShoppingBag } from 'lucide-react';
+import { 
+    Home, 
+    UtensilsCrossed, 
+    Bell, 
+    Clock, 
+    User,
+    Search,
+    ShoppingBag
+} from 'lucide-react';
 import { usePathname, useRouter, useParams } from 'next/navigation';
-import { cn } from '@/app/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRestaurant } from '@/app/context/RestaurantContext';
+import { useCartSafe } from '@/app/context/CartContext';
+import { useMemo, useEffect, useState } from 'react';
 
+/**
+ * Premium Customer Bottom Navigation - Soft Orange Edition
+ * Features:
+ * - Soft orange theme background
+ * - Liquid/Glass white active indicator
+ * - Flush bottom positioning
+ * - Smooth spring animations
+ */
 export function CustomerBottomNav() {
     const pathname = usePathname();
     const router = useRouter();
     const params = useParams();
-    const tableId = params.tableId as string;
+    const { restaurantId: resolvedRestaurantId } = useRestaurant();
+    const cartContext = useCartSafe();
+    const cartTableNumber = cartContext?.tableNumber;
 
-    if (!tableId) return null;
+    const restaurantCode = (params.restaurantCode || params.restaurantId || resolvedRestaurantId) as string;
+    const tableNumber = (params.tableNumber || params.tableId || cartTableNumber) as string;
 
-    const tabs = [
-        {
-            id: 'home',
-            label: 'Home',
-            icon: Home,
-            isActive: pathname.includes(`/home/${tableId}`),
-            onClick: () => router.push(`/home/${tableId}`)
+    // Enhanced Theme configuration for Soft Orange style
+    const theme = {
+        active: 'text-orange-600',
+        inactive: 'text-orange-300/80',
+        indicator: 'bg-white/90 backdrop-blur-md shadow-sm', // Liquid white effect
+        background: 'bg-orange-500', // Soft/vibrant orange base
+        border: 'border-orange-400/20',
+        shadow: 'shadow-[0_-4px_20px_0_rgba(249,115,22,0.15)]'
+    };
+
+    const navItems = useMemo(() => [
+        { 
+            id: 'home', 
+            label: 'Home', 
+            icon: Home, 
+            path: `/${restaurantCode}/customer/home/${tableNumber}`, 
+            active: pathname.includes('/customer/home/') 
         },
-        {
-            id: 'menu',
-            label: 'Menu',
-            icon: LucideUtensilsCrossed,
-            isActive: pathname.includes(`/menu/${tableId}`),
-            onClick: () => router.push(`/menu/${tableId}`)
+        { 
+            id: 'menu', 
+            label: 'Menu', 
+            icon: UtensilsCrossed, 
+            path: `/${restaurantCode}/customer/menu/${tableNumber}`, 
+            active: pathname.includes('/customer/menu/') 
         },
-        {
-            id: 'waiter',
-            label: 'Service',
-            icon: LucideBellRing,
-            isActive: pathname.includes(`/service/${tableId}`),
-            onClick: () => router.push(`/service/${tableId}`)
+        { 
+            id: 'service', 
+            label: 'Service', 
+            icon: Bell, 
+            path: `/${restaurantCode}/customer/service/${tableNumber}`, 
+            active: pathname.includes('/customer/service/') 
         },
-        {
-            id: 'orders',
-            label: 'My Orders',
-            icon: LucideReceiptIndianRupee,
-            isActive: pathname.includes(`/orders/${tableId}`),
-            onClick: () => router.push(`/orders/${tableId}`)
+        { 
+            id: 'orders', 
+            label: 'Orders', 
+            icon: Clock, 
+            path: `/${restaurantCode}/customer/myorders/${tableNumber}`, 
+            active: pathname.includes('/customer/myorders/') 
+        },
+        { 
+            id: 'profile', 
+            label: 'Profile', 
+            icon: User, 
+            path: `/${restaurantCode}/customer/profile/${tableNumber}`, 
+            active: pathname.includes('/customer/profile/') 
+        },
+    ], [restaurantCode, tableNumber, pathname]);
+
+    // Prefetch all nav routes for instant transition
+    useEffect(() => {
+        if (restaurantCode && tableNumber) {
+            navItems.forEach(item => {
+                router.prefetch(item.path);
+            });
         }
-    ];
+    }, [navItems, router, restaurantCode, tableNumber]);
+
+    const activeIndex = navItems.findIndex(item => item.active);
+    const [lastIndex, setLastIndex] = useState(activeIndex !== -1 ? activeIndex : 0);
+
+    useEffect(() => {
+        if (activeIndex !== -1) {
+            setLastIndex(activeIndex);
+        }
+    }, [activeIndex]);
+
+    if (!restaurantCode || !tableNumber) return null;
 
     return (
-        <div className="fixed bottom-4 inset-x-4 z-50 pointer-events-none flex justify-center">
-            <div className="pointer-events-auto w-full max-w-sm bg-white/90 backdrop-blur-xl border border-white/20 shadow-xl shadow-black/5 rounded-2xl p-1 flex items-stretch justify-between gap-1 overflow-hidden h-12">
-                {tabs.map((tab) => {
-                    const isActive = tab.isActive;
+        <nav className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md ${theme.background} border-t ${theme.border} ${theme.shadow} px-4 z-[100] rounded-t-[2rem] pt-3 pb-[max(12px,env(safe-area-inset-bottom,0px))]`}>
+            <div className="relative flex items-center justify-between w-full max-w-md mx-auto">
+                {/* Continuous Active Indicator - Persistent for smooth travel */}
+                <motion.div
+                    initial={false}
+                    animate={{
+                        x: `${lastIndex * 100}%`,
+                        opacity: activeIndex === -1 ? 0.6 : 1, // Dim slightly if no direct match, but don't jump
+                    }}
+                    transition={{ 
+                        type: "spring", 
+                        stiffness: 400, 
+                        damping: 35,
+                        mass: 1
+                    }}
+                    className="absolute inset-y-0 z-0 py-1.5"
+                    style={{
+                        width: `${100 / navItems.length}%`,
+                        pointerEvents: 'none'
+                    }}
+                >
+                    <div className={`mx-1 h-full rounded-2xl ${theme.indicator}`} />
+                </motion.div>
+
+                {navItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = item.active;
+
                     return (
                         <button
-                            key={tab.id}
-                            onClick={tab.onClick}
-                            className={cn(
-                                "relative flex items-center justify-center rounded-xl transition-all duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)] overflow-hidden",
-                                isActive ? "flex-[1.3] text-white" : "flex-1 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-                            )}
+                            key={item.id}
+                            onClick={() => {
+                                // Vibration feedback for premium feel
+                                if (typeof window !== 'undefined' && window.navigator.vibrate) {
+                                    window.navigator.vibrate(5);
+                                }
+                                router.push(item.path);
+                            }}
+                            className="relative flex-1 flex flex-col items-center justify-center py-2 tap-highlight-transparent outline-none transition-all duration-300"
                         >
-                            {isActive && (
-                                <motion.div
-                                    layoutId="activeTab"
-                                    className="absolute inset-0 bg-orange-500 rounded-xl"
-                                    initial={false}
-                                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                            {/* Floating Icon Wrapper */}
+                            <motion.div
+                                animate={{
+                                    y: isActive ? -2 : 0,
+                                    scale: isActive ? 1.1 : 1
+                                }}
+                                className={`relative z-10 transition-colors duration-300 ${isActive ? theme.active : theme.inactive}`}
+                            >
+                                <Icon 
+                                    size={20} 
+                                    strokeWidth={isActive ? 2.5 : 2} 
+                                    className={isActive ? 'drop-shadow-sm' : ''}
                                 />
-                            )}
-
-                            <div className={cn(
-                                "relative z-10 flex w-full h-full transition-all duration-300",
-                                isActive ? "flex-row items-center justify-center gap-1.5" : "flex-col items-center justify-center gap-0.5"
-                            )}>
-                                <tab.icon
-                                    size={isActive ? 16 : 16}
-                                    strokeWidth={isActive ? 2.5 : 2}
-                                    className="shrink-0 transition-all duration-300"
-                                />
-                                <span className={cn(
-                                    "font-bold whitespace-nowrap transition-all duration-300",
-                                    isActive ? "text-xs scale-100 opacity-100" : "text-[8px] font-medium opacity-70 scale-90"
-                                )}>
-                                    {tab.label}
-                                </span>
-
-                                {tab.id === 'waiter' && !isActive && (
-                                    <span className="absolute top-1 right-1 size-1.5 bg-red-500 rounded-full border border-white animate-pulse" />
-                                )}
-                            </div>
+                            </motion.div>
+                            
+                            {/* Animated Label */}
+                            <motion.span 
+                                animate={{
+                                    opacity: isActive ? 1 : 0.7,
+                                    scale: isActive ? 1 : 0.9,
+                                }}
+                                className={`text-[10px] font-bold mt-1 relative z-10 transition-colors duration-300 ${isActive ? theme.active : theme.inactive}`}
+                            >
+                                {item.label}
+                            </motion.span>
                         </button>
                     );
                 })}
             </div>
-        </div>
+        </nav>
     );
 }

@@ -1,0 +1,24 @@
+
+> restaurant-os-mvp@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.3s
+  Running TypeScript ...
+Failed to compile.
+
+./app/[restaurantCode]/staff/dashboard/page.tsx:30:56
+Type error: Expected 2 arguments, but got 1.
+
+[0m [90m 28 |[39m             [36mtry[39m {
+ [90m 29 |[39m                 [90m// Fetch staff record[39m
+[31m[1m>[22m[39m[90m 30 |[39m                 [36mconst[39m staffRecord [33m=[39m [36mawait[39m [33mOrderService[39m[33m.[39mgetWaiterRecord(user[33m.[39mid)[33m;[39m
+ [90m    |[39m                                                        [31m[1m^[22m[39m
+ [90m 31 |[39m                 setStaff(staffRecord)[33m;[39m
+ [90m 32 |[39m
+ [90m 33 |[39m                 [90m// Fetch initial tasks[39m[0m
+Next.js build worker exited with code: 1 and signal: null

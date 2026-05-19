@@ -1,6 +1,5 @@
-
 import { motion, AnimatePresence } from 'framer-motion';
-import { LucideAlertTriangle, LucideCheckCircle2, LucideX } from 'lucide-react';
+import { AlertTriangle as LucideAlertTriangle, CheckCircle2 as LucideCheckCircle2, X as LucideX } from 'lucide-react';
 
 interface ConfirmationModalProps {
     isOpen: boolean;
@@ -11,6 +10,7 @@ interface ConfirmationModalProps {
     confirmText?: string;
     cancelText?: string;
     isSuperDestructive?: boolean; // Red color
+    isAlert?: boolean; // Hide cancel button
 }
 
 export default function ConfirmationModal({
@@ -21,13 +21,14 @@ export default function ConfirmationModal({
     message,
     confirmText = 'Confirm',
     cancelText = 'Cancel',
-    isSuperDestructive = false
+    isSuperDestructive = false,
+    isAlert = false
 }: ConfirmationModalProps) {
     if (!isOpen) return null;
 
     return (
         <AnimatePresence>
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                 {/* Backdrop */}
                 <motion.div
                     initial={{ opacity: 0 }}
@@ -57,31 +58,33 @@ export default function ConfirmationModal({
 
                         {/* Text */}
                         <div className="space-y-2">
-                            <h3 className="text-xl font-black text-neutral-900">{title}</h3>
-                            <p className="text-neutral-500 font-medium text-sm leading-relaxed">
+                            <h3 className="text-xl font-black text-black">{title}</h3>
+                            <p className="text-black font-medium text-sm leading-relaxed">
                                 {message}
                             </p>
                         </div>
 
                         {/* Buttons */}
-                        <div className="grid grid-cols-2 gap-3 w-full pt-2">
-                            <button
-                                onClick={onClose}
-                                className="w-full py-3.5 bg-gray-100 text-neutral-600 font-bold rounded-xl hover:bg-gray-200 transition-colors text-sm"
-                            >
-                                {cancelText}
-                            </button>
+                        <div className={`grid ${isAlert ? 'grid-cols-1' : 'grid-cols-2'} gap-3 w-full pt-2`}>
+                            {!isAlert && (
+                                <button
+                                    onClick={onClose}
+                                    className="w-full py-3.5 bg-gray-100 text-black font-bold rounded-xl hover:bg-gray-200 transition-colors text-sm"
+                                >
+                                    {cancelText}
+                                </button>
+                            )}
                             <button
                                 onClick={() => {
                                     onConfirm();
-                                    onClose();
+                                    onClose(); // automatically close
                                 }}
                                 className={`w-full py-3.5 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95 text-sm ${isSuperDestructive
-                                        ? 'bg-red-500 shadow-red-500/30 hover:bg-red-600'
-                                        : 'bg-neutral-900 shadow-neutral-900/30 hover:bg-black'
+                                    ? 'bg-red-500 shadow-red-500/30 hover:bg-red-600'
+                                    : 'bg-neutral-900 shadow-neutral-900/30 hover:bg-black'
                                     }`}
                             >
-                                {confirmText}
+                                {isAlert ? 'OK' : confirmText}
                             </button>
                         </div>
                     </div>

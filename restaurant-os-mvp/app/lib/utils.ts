@@ -22,14 +22,15 @@ export function getCategoryMenuItemImage(name: string) {
     if (n.includes('soup')) return '/menu/tomato-basil-soup.png';
 
     if (n.includes('non-veg starter')) return '/menu/chicken-lollipop.jpeg';
-    if (n.includes('veg starter')) return '/menu/hara-bhara-kebab.jpeg';
-    if (n === 'starters') return '/menu/hara-bhara-kebab.jpeg'; // New Consolidated
+    if (n.includes('veg starter')) return '/menu/paneer-tikka.png';
+    if (n === 'starters') return '/menu/paneer-tikka.png'; // New Consolidated
 
     if (n.includes('non-veg curr')) return '/menu/mutton-rogan-josh.jpeg'; // Red gravy
     if (n.includes('veg curr')) return '/menu/palak-paneer.jpeg'; // Green gravy
     if (n === 'curries') return '/menu/palak-paneer.jpeg'; // New Consolidated
 
-    if (n.includes('biryani')) return '/menu/mutton-biryani.jpeg'; // Prioritize Biryani
+    if (n.includes('biryani')) return '/menu/mutton-biryani.jpeg';
+    if (n.includes('ghee rice')) return '/menu/ghee-rice.jpeg';
     if (n.includes('rice')) return '/menu/jeera-rice.jpeg';
 
     if (n.includes('chinese') || n.includes('noodles')) return '/menu/chicken-manchurian-gravy.jpeg';

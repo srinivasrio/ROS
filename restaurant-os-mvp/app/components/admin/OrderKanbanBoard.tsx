@@ -3,8 +3,11 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { OrderService, type Order, type OrderStatus, type TableMergeGroup } from '@/app/services/orders';
-import KitchenTicket from '@/app/kitchen/components/KitchenTicket';
-import { LucideTable, LucideChevronDown, LucideChefHat, LucideCheckCircle, LucideUtensils, LucideClock } from 'lucide-react';
+import KitchenTicket from '@/app/components/kitchen/KitchenTicket';
+import { Table as LucideTable, ChevronDown as LucideChevronDown, ChefHat as LucideChefHat, CheckCircle as LucideCheckCircle, Utensils as LucideUtensils, Clock as LucideClock } from 'lucide-react';
+import { useRestaurantId } from '@/app/hooks/useRestaurantId';
+import { useParams } from 'next/navigation';
+import { UserService } from '@/app/services/users';
 
 interface OrderKanbanBoardProps {
     isReadOnly?: boolean;
@@ -13,17 +16,21 @@ interface OrderKanbanBoardProps {
 }
 
 export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen Display System', density = 'comfortable' }: OrderKanbanBoardProps) {
+    const { restaurantId, loading: profileLoading } = useRestaurantId();
     const [orders, setOrders] = useState<Order[]>([]);
     const [mergeGroups, setMergeGroups] = useState<TableMergeGroup[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Initial Fetch & Real-time Subscription
     useEffect(() => {
+        if (profileLoading || !restaurantId) return;
+
         const loadOrders = async () => {
+            if (!restaurantId) return;
             try {
                 const [data, groups] = await Promise.all([
-                    OrderService.fetchActiveOrders(),
-                    OrderService.fetchMergeGroups()
+                    OrderService.fetchActiveOrders(restaurantId),
+                    OrderService.fetchMergeGroups(restaurantId)
                 ]);
                 setOrders(data || []);
                 setMergeGroups(groups || []);
@@ -36,13 +43,13 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
 
         loadOrders();
 
-        const subscription = OrderService.subscribeToOrders((payload) => {
+        const subscription = OrderService.subscribeToOrders(restaurantId, (payload) => {
             if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
                 loadOrders();
             }
         });
 
-        const itemSubscription = OrderService.subscribeToOrderItems((payload) => {
+        const itemSubscription = OrderService.subscribeToOrderItems(restaurantId, (payload) => {
             if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
                 loadOrders();
             }
@@ -52,26 +59,38 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
             subscription.unsubscribe();
             itemSubscription.unsubscribe();
         };
-    }, []);
+    }, [profileLoading, restaurantId]);
 
 
     const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
-        if (isReadOnly) return;
+        if (isReadOnly || !restaurantId) return;
+        
         // Optimistic update
         setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
         try {
-            await OrderService.updateOrderStatus(orderId, newStatus);
+            const profile = await UserService.getCurrentProfile();
+            await OrderService.updateOrderStatus(orderId, restaurantId, newStatus, profile?.id);
         } catch (err) {
             console.error('Failed to update status', err);
         }
     };
 
     const handleItemStatusChange = async (itemId: string, newStatus: OrderStatus) => {
-        if (isReadOnly) return;
+        if (isReadOnly || !restaurantId) return;
         try {
-            await OrderService.updateOrderItemStatus(itemId, newStatus);
+            const profile = await UserService.getCurrentProfile();
+            await OrderService.updateOrderItemStatus(itemId, restaurantId, newStatus, profile?.id);
         } catch (err) {
             console.error('Failed to update item status', err);
+        }
+    };
+
+    const handleExtendTimer = async (itemId: string, minutes: number) => {
+        if (isReadOnly) return;
+        try {
+            await OrderService.extendOrderItemTimer(itemId, minutes);
+        } catch (err) {
+            console.error('Failed to extend timer:', err);
         }
     };
 
@@ -87,7 +106,7 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
                     <div className="flex flex-col md:flex-row h-full min-h-0 md:overflow-x-auto md:overflow-y-hidden overflow-y-auto custom-scrollbar">
 
                         {/* Column 1: Incoming (Placed) */}
-                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[320px] xl:min-w-[350px] h-full">
+                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[240px] xl:min-w-[280px] h-full">
                             <KDSColumn
                                 title="Incoming"
                                 icon={<LucideClock size={18} />}
@@ -96,6 +115,7 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
                                 mergeGroups={mergeGroups}
                                 onStatusChange={handleStatusChange}
                                 onItemStatusChange={handleItemStatusChange}
+                                onExtendTimer={handleExtendTimer}
                                 isReadOnly={isReadOnly}
                                 density={density}
                                 isFirst={true}
@@ -103,7 +123,7 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
                         </div>
 
                         {/* Column 2: Preparing */}
-                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[320px] xl:min-w-[350px] h-full">
+                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[240px] xl:min-w-[280px] h-full">
                             <KDSColumn
                                 title="Preparing"
                                 icon={<LucideChefHat size={18} />}
@@ -112,13 +132,14 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
                                 mergeGroups={mergeGroups}
                                 onStatusChange={handleStatusChange}
                                 onItemStatusChange={handleItemStatusChange}
+                                onExtendTimer={handleExtendTimer}
                                 isReadOnly={isReadOnly}
                                 density={density}
                             />
                         </div>
 
                         {/* Column 3: Ready */}
-                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[320px] xl:min-w-[350px] h-full">
+                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[240px] xl:min-w-[280px] h-full">
                             <KDSColumn
                                 title="Ready"
                                 icon={<LucideCheckCircle size={18} />}
@@ -127,13 +148,14 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
                                 mergeGroups={mergeGroups}
                                 onStatusChange={handleStatusChange}
                                 onItemStatusChange={handleItemStatusChange}
+                                onExtendTimer={handleExtendTimer}
                                 isReadOnly={isReadOnly}
                                 density={density}
                             />
                         </div>
 
                         {/* Column 4: Dining */}
-                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[320px] xl:min-w-[350px] h-full">
+                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[240px] xl:min-w-[280px] h-full">
                             <KDSColumn
                                 title="Dining"
                                 icon={<LucideUtensils size={18} />}
@@ -142,6 +164,7 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
                                 mergeGroups={mergeGroups}
                                 onStatusChange={handleStatusChange}
                                 onItemStatusChange={handleItemStatusChange}
+                                onExtendTimer={handleExtendTimer}
                                 isReadOnly={isReadOnly}
                                 density={density}
                                 isLast={true}
@@ -155,7 +178,7 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
     );
 }
 
-function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, onItemStatusChange, isReadOnly, density, isFirst = false, isLast = false }: { title: string, icon: React.ReactNode, color: string, orders: Order[], mergeGroups: TableMergeGroup[], onStatusChange: (id: string, status: OrderStatus) => void, onItemStatusChange: (itemId: string, status: OrderStatus) => void, isReadOnly: boolean, density: 'compact' | 'comfortable', isFirst?: boolean, isLast?: boolean }) {
+function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, onItemStatusChange, onExtendTimer, isReadOnly, density, isFirst = false, isLast = false }: { title: string, icon: React.ReactNode, color: string, orders: Order[], mergeGroups: TableMergeGroup[], onStatusChange: (id: string, status: OrderStatus) => void, onItemStatusChange: (itemId: string, status: OrderStatus) => void, onExtendTimer: (itemId: string, minutes: number) => void, isReadOnly: boolean, density: 'compact' | 'comfortable', isFirst?: boolean, isLast?: boolean }) {
     const isCompact = density === 'compact';
 
     // Advanced Professional UI: Full height panels
@@ -170,7 +193,7 @@ function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, on
         blue: 'bg-blue-100/50 text-blue-900 border-blue-100',
         orange: 'bg-orange-100/50 text-orange-900 border-orange-100',
         green: 'bg-green-100/50 text-green-900 border-green-100',
-        gray: 'bg-neutral-100/50 text-neutral-900 border-neutral-100',
+        gray: 'bg-neutral-100/50 text-black border-neutral-100',
     };
 
     const iconStyles = {
@@ -195,9 +218,15 @@ function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, on
     }, {} as Record<string | number, Order[]>);
 
     const sortedTableIds = Object.keys(groupedOrders).sort((a, b) => {
-        const dateA = new Date(groupedOrders[a as any][0].created_at).getTime();
-        const dateB = new Date(groupedOrders[b as any][0].created_at).getTime();
-        return dateA - dateB; // FIFO
+        // Resolve display names for numeric sorting
+        const nameA = (typeof a === 'string' && isNaN(Number(a))
+            ? mergeGroups.find(g => g.id === a)?.display_name || 'Merged'
+            : a).toString();
+        const nameB = (typeof b === 'string' && isNaN(Number(b))
+            ? mergeGroups.find(g => g.id === b)?.display_name || 'Merged'
+            : b).toString();
+
+        return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
     });
 
     return (
@@ -217,7 +246,7 @@ function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, on
             {/* Table Group List */}
             <div className={`flex-1 overflow-y-auto ${isCompact ? 'p-3 space-y-3' : 'p-4 space-y-4'} custom-scrollbar bg-white/20`}>
                 {orders.length === 0 && (
-                    <div className="h-full flex flex-col items-center justify-center text-neutral-400 gap-3 opacity-40">
+                    <div className="h-full flex flex-col items-center justify-center text-black gap-3 opacity-40">
                         <div className="p-4 rounded-full bg-neutral-200/50 scale-110">
                             {icon}
                         </div>
@@ -234,6 +263,7 @@ function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, on
                             mergeGroups={mergeGroups}
                             onStatusChange={onStatusChange}
                             onItemStatusChange={onItemStatusChange}
+                            onExtendTimer={onExtendTimer}
                             color={color}
                             isReadOnly={isReadOnly}
                             density={density}
@@ -248,14 +278,14 @@ function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, on
     );
 }
 
-function KDSTableGroup({ tableId, orders, mergeGroups, onStatusChange, onItemStatusChange, color, isReadOnly, density }: { tableId: number | string, orders: Order[], mergeGroups: TableMergeGroup[], onStatusChange: (id: string, status: OrderStatus) => void, onItemStatusChange: (itemId: string, status: OrderStatus) => void, color: string, isReadOnly: boolean, density: 'compact' | 'comfortable' }) {
+function KDSTableGroup({ tableId, orders, mergeGroups, onStatusChange, onItemStatusChange, onExtendTimer, color, isReadOnly, density }: { tableId: number | string, orders: Order[], mergeGroups: TableMergeGroup[], onStatusChange: (id: string, status: OrderStatus) => void, onItemStatusChange: (itemId: string, status: OrderStatus) => void, onExtendTimer: (itemId: string, minutes: number) => void, color: string, isReadOnly: boolean, density: 'compact' | 'comfortable' }) {
     const [isOpen, setIsOpen] = useState(true);
     const sortedOrders = [...orders].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const isCompact = density === 'compact';
 
     const tableName = typeof tableId === 'string' && isNaN(Number(tableId))
         ? mergeGroups.find(g => g.id === tableId)?.display_name || 'Merged'
-        : `Table ${tableId}`;
+        : orders[0]?.table_number ? `Table ${orders[0].table_number}` : `Table ${tableId}`;
 
     // Interactive Table Colors
     const groupStyles = {
@@ -269,8 +299,8 @@ function KDSTableGroup({ tableId, orders, mergeGroups, onStatusChange, onItemSta
         blue: isOpen ? 'bg-blue-600 text-white' : 'bg-white text-blue-600',
         orange: isOpen ? 'bg-orange-600 text-white' : 'bg-white text-orange-600',
         green: isOpen ? 'bg-green-600 text-white' : 'bg-white text-green-600',
-        gray: isOpen ? 'bg-neutral-800 text-white' : 'bg-white text-neutral-800',
-    }[color] || (isOpen ? 'bg-neutral-800 text-white' : 'bg-white text-neutral-800');
+        gray: isOpen ? 'bg-neutral-800 text-white' : 'bg-white text-black',
+    }[color] || (isOpen ? 'bg-neutral-800 text-white' : 'bg-white text-black');
 
     const cardBorder = {
         blue: isOpen ? 'border-blue-200 ring-blue-100/50' : 'border-blue-100',
@@ -304,7 +334,7 @@ function KDSTableGroup({ tableId, orders, mergeGroups, onStatusChange, onItemSta
                 <motion.div
                     animate={{ rotate: isOpen ? 180 : 0 }}
                     transition={{ duration: 0.3, ease: "easeOut" }}
-                    className={`${isOpen ? 'bg-white/20 text-white' : 'bg-neutral-100 text-neutral-400'} p-1 rounded-full`}
+                    className={`${isOpen ? 'bg-white/20 text-white' : 'bg-neutral-100 text-black'} p-1 rounded-full`}
                 >
                     <LucideChevronDown size={14} />
                 </motion.div>
@@ -330,6 +360,7 @@ function KDSTableGroup({ tableId, orders, mergeGroups, onStatusChange, onItemSta
                                     order={order}
                                     onStatusChange={onStatusChange}
                                     onItemStatusChange={onItemStatusChange}
+                                    onExtendTimer={onExtendTimer}
                                     isReadOnly={isReadOnly}
                                     density={density}
                                 />

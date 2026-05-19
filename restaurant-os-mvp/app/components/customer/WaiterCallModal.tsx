@@ -1,7 +1,7 @@
 'use client';
 
 import { OrderService } from '@/app/services/orders';
-import { LucideX, LucideGlassWater, LucideReceipt, LucideUtensils, LucideHandPlatter } from 'lucide-react';
+import { X as LucideX, GlassWater as LucideGlassWater, Receipt as LucideReceipt, Utensils as LucideUtensils, HandPlatter as LucideHandPlatter } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { cn } from '@/app/lib/utils';
@@ -10,9 +10,10 @@ interface WaiterCallModalProps {
     isOpen: boolean;
     onClose: () => void;
     tableId: number;
+    restaurantId?: string;
 }
 
-export function WaiterCallModal({ isOpen, onClose, tableId }: WaiterCallModalProps) {
+export function WaiterCallModal({ isOpen, onClose, tableId, restaurantId }: WaiterCallModalProps) {
     const [loading, setLoading] = useState(false);
 
     if (!isOpen) return null;
@@ -25,7 +26,7 @@ export function WaiterCallModal({ isOpen, onClose, tableId }: WaiterCallModalPro
                 statusToSend = 'call_waiter';
             }
 
-            await OrderService.setTableAlert(tableId, statusToSend);
+            await OrderService.setTableAlert(tableId, statusToSend, restaurantId || '');
 
             toast.success('Waiter notified!', {
                 description: 'Someone will be with you shortly.',
@@ -56,7 +57,7 @@ export function WaiterCallModal({ isOpen, onClose, tableId }: WaiterCallModalPro
             sub: 'Ready to Pay',
             icon: LucideReceipt,
             bg: 'bg-neutral-50 hover:bg-neutral-100',
-            text: 'text-neutral-900',
+            text: 'text-black',
             border: 'border-neutral-200'
         },
         {
@@ -87,12 +88,12 @@ export function WaiterCallModal({ isOpen, onClose, tableId }: WaiterCallModalPro
             <div className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-10 duration-300">
                 <div className="px-6 py-5 border-b border-neutral-100 flex justify-between items-center bg-white/80 backdrop-blur-sm sticky top-0 z-10">
                     <div>
-                        <h3 className="text-xl font-black text-neutral-900 tracking-tight">Assistance</h3>
-                        <p className="text-sm text-neutral-500 font-medium">How can we help you?</p>
+                        <h3 className="text-xl font-black text-black tracking-tight">Assistance</h3>
+                        <p className="text-sm text-black font-medium">How can we help you?</p>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 -mr-2 rounded-full hover:bg-neutral-100 text-neutral-400 hover:text-neutral-900 transition-colors"
+                        className="p-2 -mr-2 rounded-full hover:bg-neutral-100 text-black hover:text-black transition-colors"
                     >
                         <LucideX size={24} />
                     </button>
@@ -118,14 +119,14 @@ export function WaiterCallModal({ isOpen, onClose, tableId }: WaiterCallModalPro
                             </div>
                             <div className="text-center">
                                 <span className={cn("block font-bold text-sm", opt.text)}>{opt.label}</span>
-                                <span className="block text-[10px] uppercase font-bold tracking-wider text-neutral-400 mt-1">{opt.sub}</span>
+                                <span className="block text-[10px] uppercase font-bold tracking-wider text-black mt-1">{opt.sub}</span>
                             </div>
                         </button>
                     ))}
                 </div>
 
                 <div className="p-6 pt-2 pb-8 bg-gradient-to-t from-white to-white/0">
-                    <p className="text-center text-xs text-neutral-400 font-medium px-8 leading-relaxed">
+                    <p className="text-center text-xs text-black font-medium px-8 leading-relaxed">
                         Tap an option above to instantly notify our staff. We'll be right with you!
                     </p>
                 </div>

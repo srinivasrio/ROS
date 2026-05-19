@@ -1,0 +1,27 @@
+
+> restaurant-os-mvp@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.8s
+  Running TypeScript ...
+Failed to compile.
+
+./app/[restaurantCode]/admin/menu/page.tsx:709:17
+Type error: Type 'PriceVariant[]' is not assignable to type '{ name: string; price: string; }[]'.
+  Type 'PriceVariant' is not assignable to type '{ name: string; price: string; }'.
+    Types of property 'price' are incompatible.
+      Type 'number' is not assignable to type 'string'.
+
+[0m [90m 707 |[39m                 isAvailable[33m:[39m item[33m.[39mis_available[33m,[39m
+ [90m 708 |[39m                 menuItemType[33m:[39m item[33m.[39mmenu_item_type [33m||[39m [32m'food'[39m[33m,[39m
+[31m[1m>[22m[39m[90m 709 |[39m                 priceVariants[33m:[39m item[33m.[39mprice_variants [33m||[39m [][33m,[39m
+ [90m     |[39m                 [31m[1m^[22m[39m
+ [90m 710 |[39m                 stockMl[33m:[39m item[33m.[39mstock_ml[33m?[39m[33m.[39mtoString() [33m||[39m [32m''[39m[33m,[39m
+ [90m 711 |[39m                 ingredients[33m:[39m mappings[33m.[39mmap(m [33m=>[39m ({
+ [90m 712 |[39m                     inventory_item_id[33m:[39m m[33m.[39minventory_item_id[33m,[39m[0m
+Next.js build worker exited with code: 1 and signal: null

@@ -1,0 +1,69 @@
+
+> restaurant-os-mvp@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.6s
+  Running TypeScript ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/9) ...
+  Generating static pages using 7 workers (2/9) 
+  Generating static pages using 7 workers (4/9) 
+  Generating static pages using 7 workers (6/9) 
+✓ Generating static pages using 7 workers (9/9) in 122.2ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /[restaurantCode]/admin/about
+├ ƒ /[restaurantCode]/admin/analytics
+├ ƒ /[restaurantCode]/admin/customers
+├ ƒ /[restaurantCode]/admin/dashboard
+├ ƒ /[restaurantCode]/admin/history
+├ ƒ /[restaurantCode]/admin/inventory
+├ ƒ /[restaurantCode]/admin/inventory/alerts
+├ ƒ /[restaurantCode]/admin/inventory/calendar
+├ ƒ /[restaurantCode]/admin/inventory/recipes
+├ ƒ /[restaurantCode]/admin/live-kitchen
+├ ƒ /[restaurantCode]/admin/menu
+├ ƒ /[restaurantCode]/admin/offers
+├ ƒ /[restaurantCode]/admin/orders
+├ ƒ /[restaurantCode]/admin/services
+├ ƒ /[restaurantCode]/admin/settings
+├ ƒ /[restaurantCode]/admin/specials
+├ ƒ /[restaurantCode]/admin/staff
+├ ƒ /[restaurantCode]/admin/tables
+├ ƒ /[restaurantCode]/customer/cart/[tableNumber]
+├ ƒ /[restaurantCode]/customer/home/[tableNumber]
+├ ƒ /[restaurantCode]/customer/menu/[tableNumber]
+├ ƒ /[restaurantCode]/customer/myorders/[tableNumber]
+├ ƒ /[restaurantCode]/customer/service/[tableNumber]
+├ ƒ /[restaurantCode]/customer/status/[tableNumber]/[orderId]
+├ ƒ /[restaurantCode]/kds
+├ ƒ /[restaurantCode]/manager
+├ ƒ /[restaurantCode]/staff/dashboard
+├ ƒ /[restaurantCode]/waiter/alerts
+├ ƒ /[restaurantCode]/waiter/dashboard
+├ ƒ /[restaurantCode]/waiter/kitchen
+├ ƒ /[restaurantCode]/waiter/login
+├ ƒ /[restaurantCode]/waiter/menu/[tableId]
+├ ƒ /[restaurantCode]/waiter/order/[tableId]
+├ ƒ /[restaurantCode]/waiter/profile
+├ ƒ /api/lookup-phone
+├ ƒ /auth/callback
+├ ○ /login
+├ ○ /portal
+├ ○ /register
+└ ○ /waiting-approval
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
