@@ -1580,24 +1580,73 @@ export const OrderService = {
             actualTableId = physicalTable.id;
         }
 
-        const { error } = await supabase
+        // Check if a pending request of this type already exists for this table to prevent constraint violations
+        const { data: existingRequest } = await supabase
             .from('service_requests')
-            .insert({
-                table_id: actualTableId,
-                request_type: type,
-                status: 'pending',
-                quantity: quantity,
-                restaurant_id: actualRestaurantId
-            });
+            .select('id, quantity')
+            .eq('table_id', actualTableId)
+            .eq('request_type', type)
+            .eq('status', 'pending')
+            .maybeSingle();
 
-        if (error) {
-            console.error('Failed to submit service request:', {
-                message: error.message,
-                details: error.details,
-                hint: error.hint,
-                code: error.code
-            });
-            throw error;
+        if (existingRequest) {
+            const { error } = await supabase
+                .from('service_requests')
+                .update({ quantity: (existingRequest.quantity || 0) + quantity })
+                .eq('id', existingRequest.id);
+
+            if (error) {
+                console.error('Failed to update service request quantity:', {
+                    message: error.message,
+                    details: error.details,
+                    hint: error.hint,
+                    code: error.code
+                });
+                throw error;
+            }
+        } else {
+            const { error } = await supabase
+                .from('service_requests')
+                .insert({
+                    table_id: actualTableId,
+                    request_type: type,
+                    status: 'pending',
+                    quantity: quantity,
+                    restaurant_id: actualRestaurantId
+                });
+
+            if (error) {
+                // In case of a race condition where it was created in the interim, update the quantity
+                if (error.code === '23505') {
+                    const { data: retryReq } = await supabase
+                        .from('service_requests')
+                        .select('id, quantity')
+                        .eq('table_id', actualTableId)
+                        .eq('request_type', type)
+                        .eq('status', 'pending')
+                        .maybeSingle();
+                    if (retryReq) {
+                        await supabase
+                            .from('service_requests')
+                            .update({ quantity: (retryReq.quantity || 0) + quantity })
+                            .eq('id', retryReq.id);
+                        
+                        await supabase
+                            .from('tables')
+                            .update({ alert_status: type })
+                            .eq('id', actualTableId);
+                        return;
+                    }
+                }
+
+                console.error('Failed to submit service request:', {
+                    message: error.message,
+                    details: error.details,
+                    hint: error.hint,
+                    code: error.code
+                });
+                throw error;
+            }
         }
 
         await supabase
