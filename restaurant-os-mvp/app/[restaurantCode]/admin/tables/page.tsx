@@ -129,12 +129,15 @@ export default function TableManagement() {
             if (order.status === 'placed') return 'NEW';
         }
 
-        if (!order) return 'EMPTY';
+        // Even if table.status is free/empty, if there is a served/paid order, it's still eating/occupied until clearTable
+        if (order && (order.status === 'served' || order.status === 'paid')) return 'EATING';
 
-        // Even if table.status is free, if there is a served/paid order, it's still eating/occupied until clearTable
-        if (order.status === 'served' || order.status === 'paid') return 'EATING';
+        // Map new table statuses to EATING (Occupied) phase
+        if (table.status === 'billing' || table.status === 'cleaning' || table.status === 'customer_present' || table.status === 'ordering' || table.status === 'eating' || table.status === 'reserved') {
+            return 'EATING';
+        }
 
-        if (table.status === 'free') return 'EMPTY';
+        if (table.status === 'free' || table.status === 'empty') return 'EMPTY';
         return 'EMPTY';
     };
 

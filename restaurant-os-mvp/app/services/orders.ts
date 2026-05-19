@@ -116,6 +116,316 @@ export const OrderService = {
     },
 
     /**
+     * Finds the active waiter with the lowest workload score.
+     * workload_score = (active_tables_count * 1.5) + (pending_requests_count * 0.5)
+     * If there is a tie, breaks it using last_assigned_at (least recently assigned first).
+     */
+    async getLeastBusyWaiter(restaurantId: string) {
+        const actualRestaurantId = await this.resolveRestaurantId(restaurantId);
+        if (!actualRestaurantId) return null;
+
+        // 1. Fetch all staff who are waiters and active/available
+        const { data: staffData, error: staffError } = await supabase
+            .from('staff')
+            .select('*')
+            .eq('restaurant_id', actualRestaurantId)
+            .ilike('role', 'waiter')
+            .in('availability_status', ['available', 'busy']);
+
+        if (staffError) {
+            console.error('[getLeastBusyWaiter] Error fetching staff:', staffError);
+            return null;
+        }
+
+        if (!staffData || staffData.length === 0) {
+            return null;
+        }
+
+        // 2. Fetch all physical tables assigned to waiters at this restaurant
+        const { data: tablesData, error: tablesError } = await supabase
+            .from('tables')
+            .select('id, assigned_waiter_id, status')
+            .eq('restaurant_id', actualRestaurantId)
+            .not('assigned_waiter_id', 'is', null);
+
+        if (tablesError) {
+            console.error('[getLeastBusyWaiter] Error fetching tables:', tablesError);
+            return null;
+        }
+
+        // 3. Fetch all active merge groups
+        const { data: groupsData, error: groupsError } = await supabase
+            .from('table_merge_groups')
+            .select('id, assigned_waiter_id, status')
+            .eq('restaurant_id', actualRestaurantId)
+            .not('assigned_waiter_id', 'is', null);
+
+        if (groupsError) {
+            console.error('[getLeastBusyWaiter] Error fetching merge groups:', groupsError);
+            return null;
+        }
+
+        // 4. Fetch all active service requests
+        const { data: requestsData, error: requestsError } = await supabase
+            .from('service_requests')
+            .select('id, assigned_staff_id, status')
+            .eq('restaurant_id', actualRestaurantId)
+            .in('status', ['pending', 'accepted']);
+
+        if (requestsError) {
+            console.error('[getLeastBusyWaiter] Error fetching service requests:', requestsError);
+            return null;
+        }
+
+        // 5. Calculate active tables and service requests counts per waiter
+        const tablesCount: Record<string, number> = {};
+        const requestsCount: Record<string, number> = {};
+
+        // Initialize maps
+        staffData.forEach(s => {
+            tablesCount[s.id] = 0;
+            requestsCount[s.id] = 0;
+        });
+
+        // Count active tables (exclude 'empty' status)
+        tablesData.forEach(t => {
+            if (t.assigned_waiter_id && tablesCount[t.assigned_waiter_id] !== undefined) {
+                if (t.status !== 'empty' && t.status !== 'free') {
+                    tablesCount[t.assigned_waiter_id]++;
+                }
+            }
+        });
+
+        // Count active merge groups (exclude 'empty' status)
+        groupsData.forEach(g => {
+            if (g.assigned_waiter_id && tablesCount[g.assigned_waiter_id] !== undefined) {
+                if (g.status !== 'empty' && g.status !== 'free') {
+                    tablesCount[g.assigned_waiter_id]++;
+                }
+            }
+        });
+
+        // Count pending service requests
+        requestsData.forEach(r => {
+            const waiterId = r.assigned_staff_id;
+            if (waiterId && requestsCount[waiterId] !== undefined) {
+                requestsCount[waiterId]++;
+            }
+        });
+
+        // 6. Map and sort staff by workload score and last_assigned_at
+        const waitersWithWorkload = staffData.map(waiter => {
+            const activeTables = tablesCount[waiter.id] || 0;
+            const activeRequests = requestsCount[waiter.id] || 0;
+            const workloadScore = (activeTables * 1.5) + (activeRequests * 0.5);
+
+            return {
+                waiter,
+                workloadScore,
+                lastAssigned: waiter.last_assigned_at ? new Date(waiter.last_assigned_at).getTime() : 0
+            };
+        });
+
+        waitersWithWorkload.sort((a, b) => {
+            if (a.workloadScore !== b.workloadScore) {
+                return a.workloadScore - b.workloadScore;
+            }
+            return a.lastAssigned - b.lastAssigned;
+        });
+
+        return waitersWithWorkload[0].waiter;
+    },
+
+    /**
+     * Tracks customer presence at a table/group based on interactions.
+     * Transitions status from empty/free to customer_present and updates timestamps.
+     * Performs auto-waiter assignment if no waiter is assigned.
+     */
+    async trackCustomerPresence(tableIdentifier: string | number, restaurantId: string, customStatus?: string, forcedWaiterId?: string) {
+        const actualRestaurantId = await this.resolveRestaurantId(restaurantId);
+        if (!actualRestaurantId) return;
+
+        const physicalTable = await this.findTableAnywhere(tableIdentifier, actualRestaurantId);
+        if (!physicalTable) {
+            console.warn(`[trackCustomerPresence] Could not resolve table: ${tableIdentifier}`);
+            return;
+        }
+
+        const isGroup = 'display_name' in physicalTable;
+        const recordId = physicalTable.id;
+        const currentStatus = physicalTable.status;
+        const now = new Date().toISOString();
+
+        // 1. Determine status change
+        let nextStatus = currentStatus;
+        if (customStatus) {
+            nextStatus = customStatus;
+        } else if (currentStatus === 'empty' || currentStatus === 'free') {
+            nextStatus = 'customer_present';
+        }
+
+        // 2. Resolve/Assign waiter if not already assigned
+        let assignedWaiterId = forcedWaiterId || physicalTable.assigned_waiter_id;
+        let waiterAssignedJustNow = false;
+        if (!assignedWaiterId) {
+            const leastBusyWaiter = await this.getLeastBusyWaiter(actualRestaurantId);
+            if (leastBusyWaiter) {
+                assignedWaiterId = leastBusyWaiter.id;
+                waiterAssignedJustNow = true;
+            }
+        }
+
+        // 3. Update table/group status and presence timestamps
+        const updateData: any = {
+            status: nextStatus,
+            customer_present_at: physicalTable.customer_present_at || now,
+            last_activity_at: now
+        };
+
+        if (assignedWaiterId) {
+            updateData.assigned_waiter_id = assignedWaiterId;
+        }
+
+        if (isGroup) {
+            // Update merge group
+            const { error: groupError } = await supabase
+                .from('table_merge_groups')
+                .update(updateData)
+                .eq('id', recordId);
+
+            if (groupError) {
+                console.error('[trackCustomerPresence] Failed to update merge group:', groupError);
+            }
+
+            // Also update all constituent physical tables
+            const { data: memberTables } = await supabase
+                .from('tables')
+                .select('id')
+                .eq('merged_group_id', recordId);
+
+            if (memberTables && memberTables.length > 0) {
+                const memberIds = memberTables.map(t => t.id);
+                await supabase
+                    .from('tables')
+                    .update(updateData)
+                    .in('id', memberIds);
+            }
+        } else {
+            // Update individual physical table
+            const { error: tableError } = await supabase
+                .from('tables')
+                .update(updateData)
+                .eq('id', recordId);
+
+            if (tableError) {
+                console.error('[trackCustomerPresence] Failed to update physical table:', tableError);
+            }
+        }
+
+        // 4. Update waiter's last_assigned_at if they were newly assigned to prevent race condition ties
+        if (waiterAssignedJustNow && assignedWaiterId) {
+            await supabase
+                .from('staff')
+                .update({ last_assigned_at: now })
+                .eq('id', assignedWaiterId);
+        }
+    },
+
+    /**
+     * Checks all tables and merge groups for inactivity.
+     * If a table has been inactive for more than 4 hours, auto-resets it.
+     */
+    async checkAndResetStaleTables(restaurantId: string) {
+        const actualRestaurantId = await this.resolveRestaurantId(restaurantId);
+        if (!actualRestaurantId) return;
+
+        // 4 hours ago threshold
+        const threshold = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+
+        // 1. Check stale tables
+        const { data: staleTables, error: tablesError } = await supabase
+            .from('tables')
+            .select('*')
+            .eq('restaurant_id', actualRestaurantId)
+            .eq('is_merged', false)
+            .not('last_activity_at', 'is', null)
+            .lt('last_activity_at', threshold);
+
+        if (tablesError) {
+            console.error('[checkAndResetStaleTables] Error checking tables:', tablesError);
+        } else if (staleTables && staleTables.length > 0) {
+            for (const table of staleTables) {
+                console.log(`[checkAndResetStaleTables] Resetting stale table ${table.table_number}`);
+                // Archive pending orders
+                await supabase
+                    .from('orders')
+                    .update({ is_completed: true })
+                    .eq('table_id', table.id)
+                    .eq('restaurant_id', actualRestaurantId)
+                    .eq('is_completed', false);
+
+                // Delete pending alerts/service requests
+                await supabase
+                    .from('service_requests')
+                    .delete()
+                    .eq('table_id', table.id);
+
+                // Reset table properties
+                await supabase
+                    .from('tables')
+                    .update({
+                        status: 'empty',
+                        assigned_waiter_id: null,
+                        customer_present_at: null,
+                        last_activity_at: null,
+                        alert_status: null
+                    })
+                    .eq('id', table.id);
+            }
+        }
+
+        // 2. Check stale merge groups
+        const { data: staleGroups, error: groupsError } = await supabase
+            .from('table_merge_groups')
+            .select('*')
+            .eq('restaurant_id', actualRestaurantId)
+            .not('last_activity_at', 'is', null)
+            .lt('last_activity_at', threshold);
+
+        if (groupsError) {
+            console.error('[checkAndResetStaleTables] Error checking merge groups:', groupsError);
+        } else if (staleGroups && staleGroups.length > 0) {
+            for (const group of staleGroups) {
+                console.log(`[checkAndResetStaleTables] Resetting stale merge group ${group.id}`);
+                // Archive pending orders
+                await supabase
+                    .from('orders')
+                    .update({ is_completed: true })
+                    .eq('merge_group_id', group.id)
+                    .eq('restaurant_id', actualRestaurantId)
+                    .eq('is_completed', false);
+
+                // Get constituent tables to clear their alerts
+                const { data: memberTables } = await supabase
+                    .from('tables')
+                    .select('id')
+                    .eq('merged_group_id', group.id);
+
+                if (memberTables && memberTables.length > 0) {
+                    const memberIds = memberTables.map(t => t.id);
+                    await supabase
+                        .from('service_requests')
+                        .delete()
+                        .in('table_id', memberIds);
+                }
+
+                // Reset merge group status and unmerge tables
+                await this.clearTable(group.id, actualRestaurantId);
+            }
+        }
+    },
+
+    /**
      * Fetch all active orders (placed, preparing, ready) with their items.
      */
     async fetchActiveOrders(restaurantId: string, waiterId?: string) {
@@ -362,6 +672,12 @@ export const OrderService = {
     async fetchTables(restaurantId: string, waiterId?: string) {
         const actualId = await this.resolveRestaurantId(restaurantId);
 
+        try {
+            await this.checkAndResetStaleTables(actualId);
+        } catch (resetErr) {
+            console.error('Failed to reset stale tables:', resetErr);
+        }
+
         let query = supabase
             .from('tables')
             .select('*')
@@ -388,6 +704,12 @@ export const OrderService = {
      */
     async fetchMergeGroups(restaurantId: string, waiterId?: string) {
         const actualId = await this.resolveRestaurantId(restaurantId);
+
+        try {
+            await this.checkAndResetStaleTables(actualId);
+        } catch (resetErr) {
+            console.error('Failed to reset stale merge groups:', resetErr);
+        }
 
         let query = supabase
             .from('table_merge_groups')
@@ -497,13 +819,16 @@ export const OrderService = {
             throw new Error('Cannot unmerge: there are still active orders (bill not closed).');
         }
 
-        // 2. Clear tables back to free & unmerged
+        // 2. Clear tables back to empty & unmerged
         const { error: tablesError } = await supabase
             .from('tables')
             .update({
-                status: 'free',
+                status: 'empty',
                 is_merged: false,
-                merged_group_id: null
+                merged_group_id: null,
+                assigned_waiter_id: null,
+                customer_present_at: null,
+                last_activity_at: null
             })
             .eq('merged_group_id', mergeGroupId)
             .eq('restaurant_id', restaurantId);
@@ -845,6 +1170,16 @@ export const OrderService = {
         // 0. Resolve restaurantId slug → actual ID
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
 
+        // Track customer presence first, which will auto-assign a waiter if none is assigned
+        let finalWaiterId = waiterId;
+        if (initialStatus !== 'queued') {
+            await this.trackCustomerPresence(tableIdentifier, actualRestaurantId, 'eating', waiterId);
+            const updatedTable = await this.findTableAnywhere(tableIdentifier, actualRestaurantId);
+            if (updatedTable) {
+                finalWaiterId = waiterId || updatedTable.assigned_waiter_id;
+            }
+        }
+
         let identifierColumn = 'table_id';
         let identifierValue: string | number = tableIdentifier;
         let isMerged = false;
@@ -911,7 +1246,7 @@ export const OrderService = {
                 total_amount: finalTotal,
                 amount_paid: 0,
                 is_completed: false,
-                waiter_id: waiterId || null,
+                waiter_id: finalWaiterId || null,
                 restaurant_id: actualRestaurantId,
                 coupon_code: couponCode || null,
                 discount_amount: discountAmount || 0,
@@ -942,21 +1277,9 @@ export const OrderService = {
         const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
         if (itemsError) throw itemsError;
 
-        // 5. Mark the table as occupied
+        // 5. Mark the table status (already updated via trackCustomerPresence)
         if (initialStatus !== 'queued') {
-            if (isMerged) {
-                await supabase
-                    .from('table_merge_groups')
-                    .update({ status: 'occupied' })
-                    .eq('id', identifierValue)
-                    .eq('restaurant_id', actualRestaurantId);
-            } else {
-                await supabase
-                    .from('tables')
-                    .update({ status: 'occupied' })
-                    .eq('id', identifierValue)
-                    .eq('restaurant_id', actualRestaurantId);
-            }
+            // Checked and handled above
         }
 
         return { id: orderId };
@@ -1209,7 +1532,7 @@ export const OrderService = {
         // 1. Fetch latest total from DB to ensure we don't use stale frontend data
         const { data: order, error: fetchError } = await supabase
             .from('orders')
-            .select('total_amount, discount_amount')
+            .select('total_amount, discount_amount, table_id, merge_group_id')
             .eq('id', orderId)
             .eq('restaurant_id', restaurantId)
             .single();
@@ -1230,6 +1553,25 @@ export const OrderService = {
             .eq('restaurant_id', restaurantId);
 
         if (error) throw error;
+
+        // 4. Update table status to 'cleaning' and update activity timestamp
+        const now = new Date().toISOString();
+        if (order.merge_group_id) {
+            await supabase
+                .from('table_merge_groups')
+                .update({ status: 'cleaning', last_activity_at: now })
+                .eq('id', order.merge_group_id);
+
+            await supabase
+                .from('tables')
+                .update({ status: 'cleaning', last_activity_at: now })
+                .eq('merged_group_id', order.merge_group_id);
+        } else if (order.table_id) {
+            await supabase
+                .from('tables')
+                .update({ status: 'cleaning', last_activity_at: now })
+                .eq('id', order.table_id);
+        }
 
         // 3. Mark all items as paid
         const { error: itemsError } = await supabase
@@ -1419,11 +1761,16 @@ export const OrderService = {
 
             const { error: tableError } = await supabase
                 .from('tables')
-                .update({ status: 'free' })
+                .update({
+                    status: 'empty',
+                    assigned_waiter_id: null,
+                    customer_present_at: null,
+                    last_activity_at: null
+                })
                 .eq('id', actualTableId)
                 .eq('restaurant_id', actualRestaurantId);
 
-            if (tableError) throw tableError;
+            if (tableError) console.error('Failed to clear table:', tableError);
 
             const { error: orderError } = await supabase
                 .from('orders')
@@ -1580,6 +1927,14 @@ export const OrderService = {
             actualTableId = physicalTable.id;
         }
 
+        // Track customer presence (which will auto-assign waiter if none is assigned)
+        const customStatus = type === 'bill_requested' ? 'billing' : undefined;
+        await this.trackCustomerPresence(tableId, actualRestaurantId, customStatus);
+
+        // Fetch updated table to get the assigned waiter
+        const updatedTable = await this.findTableAnywhere(tableId, actualRestaurantId);
+        const assignedWaiterId = updatedTable?.assigned_waiter_id || null;
+
         // Check if a pending request of this type already exists for this table to prevent constraint violations
         const { data: existingRequest } = await supabase
             .from('service_requests')
@@ -1612,7 +1967,8 @@ export const OrderService = {
                     request_type: type,
                     status: 'pending',
                     quantity: quantity,
-                    restaurant_id: actualRestaurantId
+                    restaurant_id: actualRestaurantId,
+                    assigned_staff_id: assignedWaiterId
                 });
 
             if (error) {

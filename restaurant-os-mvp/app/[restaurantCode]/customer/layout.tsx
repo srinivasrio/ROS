@@ -29,6 +29,19 @@ export default function CustomerLayout({
     const restaurantCode = (params?.restaurantCode as string) || '';
     const tableNumber = (params?.tableNumber as string) || '';
 
+    useEffect(() => {
+        const trackPresence = async () => {
+            if (restaurantId && tableNumber) {
+                try {
+                    await OrderService.trackCustomerPresence(tableNumber, restaurantId);
+                } catch (err) {
+                    console.error('Failed to track customer presence:', err);
+                }
+            }
+        };
+        trackPresence();
+    }, [pathname, restaurantId, tableNumber]);
+
     // Define persistent tabs
     const isPersistentTab = pathname.includes('/customer/home/') || 
                           pathname.includes('/customer/menu/') || 

@@ -277,6 +277,22 @@ export default function WaiterAlertSystem() {
     const isFirstLoad = useRef(true);
     const params = useParams();
     const staffMobile = params?.staffMobile as string;
+    const [currentWaiter, setCurrentWaiter] = useState<any>(null);
+
+    // Fetch logged-in waiter profile
+    useEffect(() => {
+        const fetchWaiter = async () => {
+            if (restaurantId && staffMobile) {
+                try {
+                    const waiter = await OrderService.getStaffByMobile(staffMobile, restaurantId);
+                    setCurrentWaiter(waiter);
+                } catch (err) {
+                    console.error('[WaiterAlertSystem] Failed to fetch waiter profile:', err);
+                }
+            }
+        };
+        fetchWaiter();
+    }, [restaurantId, staffMobile]);
 
     // Initialize Audio
     useEffect(() => {
@@ -327,7 +343,7 @@ export default function WaiterAlertSystem() {
         const fetchAlerts = async () => {
             if (!restaurantId || !active) return;
             try {
-                const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId);
+                const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter?.id);
                 if (active && activeRequests) {
                     setAlerts(activeRequests);
                 }
@@ -407,7 +423,7 @@ export default function WaiterAlertSystem() {
             sub.unsubscribe();
             itemSub.unsubscribe();
         };
-    }, [restaurantId, restaurantLoading]);
+    }, [restaurantId, restaurantLoading, currentWaiter?.id]);
 
     const handleDismissGroup = async (requestIds: number[]) => {
         // Only Hide locally. Do NOT resolve in DB.

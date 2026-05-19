@@ -11,7 +11,7 @@ import { Bell as LucideBell, Receipt as LucideReceipt, GlassWater as LucideGlass
 
 const supabase = createClient();
 
-type TableViewStatus = 'ready' | 'cooking' | 'eating' | 'empty' | 'alert';
+type TableViewStatus = 'ready' | 'cooking' | 'eating' | 'empty' | 'alert' | 'customer_present' | 'ordering' | 'billing' | 'cleaning' | 'reserved';
 
 interface Table {
     id: number;
@@ -38,7 +38,14 @@ const getComputedStatus = (table: any, orders: Order[]): TableViewStatus => {
     );
     if (isCooking) return 'cooking';
 
-    const isEating = tableOrders.length > 0 || table.status !== 'free';
+    if (table.status === 'billing') return 'billing';
+    if (table.status === 'cleaning') return 'cleaning';
+    if (table.status === 'ordering') return 'ordering';
+    if (table.status === 'customer_present') return 'customer_present';
+    if (table.status === 'reserved') return 'reserved';
+    if (table.status === 'eating') return 'eating';
+
+    const isEating = tableOrders.length > 0 || (table.status !== 'free' && table.status !== 'empty');
     if (isEating) return 'eating';
 
     return 'empty';
@@ -95,22 +102,33 @@ const RenderTableCard = memo(({
     let cardBg = 'bg-white';
     let borderColor = 'border-divider';
 
-    const displayStatus = activeTab === 'all' ? table.computedStatus : activeTab;
+    // Show the actual computed status of the table to preserve accurate visual states
+    const displayStatus = table.computedStatus;
     const isAssignedToMe = table.assigned_waiter_id === currentWaiterId;
     const assignedWaiterName = table.activeOrders?.[0]?.waiter_name; // Fallback to order's waiter if table not explicitly assigned
 
     switch (displayStatus) {
         case 'ready':
-            statusColor = 'green'; statusText = 'Ready'; icon = 'table_restaurant'; cardBg = 'bg-green-500'; borderColor = 'border-green-600'; break;
+            statusColor = 'green'; statusText = 'Ready'; icon = 'table_restaurant'; cardBg = 'bg-emerald-500'; borderColor = 'border-emerald-600'; break;
         case 'cooking':
             statusColor = 'orange'; statusText = 'Cooking'; icon = 'skillet'; cardBg = 'bg-orange-500'; borderColor = 'border-orange-600'; break;
         case 'eating':
             statusColor = 'blue'; statusText = 'Eating'; icon = 'restaurant'; cardBg = 'bg-blue-500'; borderColor = 'border-blue-600'; break;
+        case 'customer_present':
+            statusColor = 'sky'; statusText = 'Present'; icon = 'person_pin'; cardBg = 'bg-sky-500'; borderColor = 'border-sky-600'; break;
+        case 'ordering':
+            statusColor = 'yellow'; statusText = 'Ordering'; icon = 'menu_book'; cardBg = 'bg-yellow-500'; borderColor = 'border-yellow-600'; break;
+        case 'billing':
+            statusColor = 'purple'; statusText = 'Billing'; icon = 'receipt'; cardBg = 'bg-purple-500'; borderColor = 'border-purple-600'; break;
+        case 'cleaning':
+            statusColor = 'teal'; statusText = 'Cleaning'; icon = 'cleaning_services'; cardBg = 'bg-teal-500'; borderColor = 'border-teal-600'; break;
+        case 'reserved':
+            statusColor = 'indigo'; statusText = 'Reserved'; icon = 'bookmark'; cardBg = 'bg-indigo-500'; borderColor = 'border-indigo-600'; break;
         case 'empty':
             statusColor = 'gray'; statusText = 'Empty'; icon = 'event_seat'; cardBg = 'bg-white'; borderColor = 'border-gray-200'; break;
     }
 
-    const isDark = ['ready', 'cooking', 'eating'].includes(displayStatus);
+    const isDark = ['ready', 'cooking', 'eating', 'customer_present', 'ordering', 'billing', 'cleaning', 'reserved'].includes(displayStatus);
     const textColor = isDark ? 'text-white' : 'text-charcoal';
     const subTextColor = isDark ? 'text-green-50' : 'text-black';
     const iconColor = isDark ? 'text-white' : `text-${statusColor}-600`;
@@ -375,7 +393,7 @@ export default function WaiterDashboard() {
                 (o.items && o.items.some((i: any) => i.status === 'preparing')) ||
                 ((!o.items || o.items.length === 0) && o.status === 'preparing')
             );
-            const isEatingCheck = tableOrders.length > 0 || table.status !== 'free';
+            const isEatingCheck = tableOrders.length > 0 || (table.status !== 'free' && table.status !== 'empty');
 
             const computedStatus = getComputedStatus(table, orders);
 
