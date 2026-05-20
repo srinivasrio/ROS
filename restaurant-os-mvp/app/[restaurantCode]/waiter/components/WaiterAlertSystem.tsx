@@ -18,9 +18,10 @@ interface ServiceRequest {
     table_id: number;
     tables: { table_number: string };
     request_type: string;
-    status: string;
+    request_status: string;
     created_at: string;
     quantity?: number;
+    assigned_waiter_id?: string;
 }
 
 
@@ -365,14 +366,17 @@ export default function WaiterAlertSystem() {
 
         if (!restaurantId) return;
 
-        console.log("[WaiterAlertSystem] Setting up subscriptions for:", restaurantId);
+        let sub: { unsubscribe: () => void } | null = null;
+        if (currentWaiter?.id) {
+            console.log("[WaiterAlertSystem] Setting up subscriptions for:", restaurantId, "waiter:", currentWaiter.id);
 
-        // 1. Subscribe to service_requests changes
-        const sub = OrderService.subscribeToServiceRequests(restaurantId, (payload) => {
-            console.log("[WaiterAlertSystem] Service Request Change:", payload.eventType);
-            isFirstLoad.current = false;
-            debouncedRefresh();
-        });
+            // 1. Subscribe to service_requests changes specific to this waiter
+            sub = OrderService.subscribeToServiceRequests(restaurantId, (payload) => {
+                console.log("[WaiterAlertSystem] Service Request Change:", payload.eventType);
+                isFirstLoad.current = false;
+                debouncedRefresh();
+            }, currentWaiter.id);
+        }
 
         // 2. Kitchen Ready: Subscribe to order_items status changes to auto-generate alerts
         const notifiedItemIds = new Set<string>();
@@ -396,21 +400,10 @@ export default function WaiterAlertSystem() {
             const tableId = fullOrder.table_id;
             if (!tableId) return;
 
-            // Upsert an order_ready service request for this table
+            // Submit an order_ready service request for this table
             // This ensures that even if the itemSub triggers multiple times, we only have one 'pending' alert per table
             try {
-                const { createClient } = await import('@/lib/supabase');
-                const sb = createClient();
-                await sb.from('service_requests').upsert(
-                    {
-                        table_id: tableId,
-                        request_type: 'order_ready',
-                        status: 'pending',
-                        quantity: 1,
-                        restaurant_id: restaurantId,
-                    },
-                    { onConflict: 'restaurant_id,table_id,request_type,status' }
-                );
+                await OrderService.submitServiceRequest(tableId, 'order_ready', restaurantId);
             } catch (err) {
                 console.error("[WaiterAlertSystem] Failed to upsert order_ready alert:", err);
             }
@@ -420,7 +413,7 @@ export default function WaiterAlertSystem() {
             console.log("[WaiterAlertSystem] Cleaning up subscriptions");
             active = false;
             clearTimeout(debounceTimer);
-            sub.unsubscribe();
+            if (sub) sub.unsubscribe();
             itemSub.unsubscribe();
         };
     }, [restaurantId, restaurantLoading, currentWaiter?.id]);
@@ -435,10 +428,13 @@ export default function WaiterAlertSystem() {
     };
 
     const handleAcceptGroup = async (requestIds: number[]) => {
-        if (!restaurantId) return;
-        // Mark as accepted only. Do NOT hide locally.
-        requestIds.forEach(id => OrderService.acceptServiceRequest(id, restaurantId));
-        // No setHiddenRequests here
+        if (!restaurantId || !currentWaiter?.id) return;
+        try {
+            await Promise.all(requestIds.map(id => OrderService.acceptServiceRequest(id, restaurantId, currentWaiter.id)));
+        } catch (err: any) {
+            console.error("Failed to accept some requests:", err);
+            alert(err.message || "Failed to accept service request.");
+        }
     };
 
     const handleServedGroup = async (requestIds: number[]) => {
@@ -477,7 +473,7 @@ export default function WaiterAlertSystem() {
         visibleAlerts.reduce((acc, alert) => {
             // Group by Table + Type + Status
             // This splits "Pending" and "Accepted" requests into separate cards
-            const key = `${alert.table_id}-${alert.request_type}-${alert.status}`;
+            const key = `${alert.table_id}-${alert.request_type}-${alert.request_status}`;
             if (!acc[key]) {
                 acc[key] = { ...alert, count: 0, ids: [] };
             }
@@ -521,8 +517,8 @@ export default function WaiterAlertSystem() {
                             }
 
                             const details = getServiceRequestDetails(request.request_type);
-                            const isAccepted = request.status === 'accepted';
-                            const isDelivered = request.status === 'delivered';
+                            const isAccepted = request.request_status === 'accepted';
+                            const isDelivered = request.request_status === 'completed';
 
                             return (
                                 <motion.div

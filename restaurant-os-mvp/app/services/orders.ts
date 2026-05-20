@@ -168,9 +168,9 @@ export const OrderService = {
         // 4. Fetch all active service requests
         const { data: requestsData, error: requestsError } = await supabase
             .from('service_requests')
-            .select('id, assigned_staff_id, status')
+            .select('id, assigned_waiter_id, request_status')
             .eq('restaurant_id', actualRestaurantId)
-            .in('status', ['pending', 'accepted']);
+            .in('request_status', ['pending', 'accepted']);
 
         if (requestsError) {
             console.error('[getLeastBusyWaiter] Error fetching service requests:', requestsError);
@@ -207,7 +207,7 @@ export const OrderService = {
 
         // Count pending service requests
         requestsData.forEach(r => {
-            const waiterId = r.assigned_staff_id;
+            const waiterId = r.assigned_waiter_id;
             if (waiterId && requestsCount[waiterId] !== undefined) {
                 requestsCount[waiterId]++;
             }
@@ -1050,10 +1050,13 @@ export const OrderService = {
             if (tableIdsToClear.length > 0) {
                 await supabase
                     .from('service_requests')
-                    .delete()
+                    .update({
+                        request_status: 'completed',
+                        completed_at: new Date().toISOString()
+                    })
                     .in('table_id', tableIdsToClear)
                     .eq('request_type', 'order_ready')
-                    .eq('status', 'pending');
+                    .eq('request_status', 'pending');
             }
         }
     },
@@ -1630,13 +1633,15 @@ export const OrderService = {
 
             if (order && order.restaurant_id) {
                 // Always create a FRESH alert to notify the waiter again.
-                // 1. Remove ANY existing pending 'order_ready' requests for this table
                 const { error: deleteError } = await supabase
                     .from('service_requests')
-                    .delete()
+                    .update({
+                        request_status: 'completed',
+                        completed_at: new Date().toISOString()
+                    })
                     .eq('table_id', order.table_id)
                     .eq('request_type', 'order_ready')
-                    .eq('status', 'pending');
+                    .eq('request_status', 'pending');
 
                 if (deleteError) {
                     console.error('Failed to cleanup old order_ready alerts:', deleteError);
@@ -1801,7 +1806,10 @@ export const OrderService = {
     async completeServiceRequest(requestId: number, restaurantId: string) {
         const { error } = await supabase
             .from('service_requests')
-            .delete()
+            .update({
+                request_status: 'completed',
+                completed_at: new Date().toISOString()
+            })
             .eq('id', requestId)
             .eq('restaurant_id', restaurantId);
 
@@ -1813,16 +1821,45 @@ export const OrderService = {
     /**
      * Accept a service request (Mark as in-progress/accepted).
      */
-    async acceptServiceRequest(requestId: number, restaurantId: string) {
-        const { error } = await supabase
+    async acceptServiceRequest(requestId: number, restaurantId: string, waiterId: string) {
+        const { data, error } = await supabase
             .from('service_requests')
-            .update({ status: 'accepted' })
+            .update({
+                request_status: 'accepted',
+                accepted_by: waiterId,
+                accepted_at: new Date().toISOString()
+            })
             .eq('id', requestId)
-            .eq('restaurant_id', restaurantId);
+            .eq('restaurant_id', restaurantId)
+            .eq('request_status', 'pending')
+            .eq('assigned_waiter_id', waiterId)
+            .select();
 
         if (error) {
             console.error('Error accepting service request:', error);
+            throw error;
         }
+
+        if (!data || data.length === 0) {
+            const { data: currentReq } = await supabase
+                .from('service_requests')
+                .select('request_status, assigned_waiter_id')
+                .eq('id', requestId)
+                .maybeSingle();
+
+            if (!currentReq) {
+                throw new Error('Service request not found.');
+            }
+            if (currentReq.request_status !== 'pending') {
+                throw new Error(`This request has already been ${currentReq.request_status}.`);
+            }
+            if (currentReq.assigned_waiter_id !== waiterId) {
+                throw new Error('This request is assigned to another waiter.');
+            }
+            throw new Error('Could not accept service request.');
+        }
+
+        return data[0];
     },
 
     /**
@@ -1831,7 +1868,10 @@ export const OrderService = {
     async markRequestDelivered(requestId: number, restaurantId: string) {
         const { error } = await supabase
             .from('service_requests')
-            .update({ status: 'delivered' })
+            .update({
+                request_status: 'completed',
+                completed_at: new Date().toISOString()
+            })
             .eq('id', requestId)
             .eq('restaurant_id', restaurantId);
 
@@ -1868,7 +1908,10 @@ export const OrderService = {
             const tableIds = tables.map(t => t.id);
 
             await supabase.from('service_requests')
-                .delete()
+                .update({
+                    request_status: 'completed',
+                    completed_at: new Date().toISOString()
+                })
                 .in('table_id', tableIds);
 
             await supabase.from('tables')
@@ -1885,7 +1928,10 @@ export const OrderService = {
             .eq('id', actualTableId);
 
         await supabase.from('service_requests')
-            .delete()
+            .update({
+                request_status: 'completed',
+                completed_at: new Date().toISOString()
+            })
             .eq('table_id', actualTableId);
     },
 
@@ -1933,7 +1979,44 @@ export const OrderService = {
 
         // Fetch updated table to get the assigned waiter
         const updatedTable = await this.findTableAnywhere(tableId, actualRestaurantId);
-        const assignedWaiterId = updatedTable?.assigned_waiter_id || null;
+        let assignedWaiterId = updatedTable?.assigned_waiter_id || null;
+
+        // CRITICAL FALLBACK / EXPLICIT ENFORCEMENT:
+        // If trackCustomerPresence failed to assign a waiter or table has no waiter assigned
+        if (!assignedWaiterId) {
+            const leastBusyWaiter = await this.getLeastBusyWaiter(actualRestaurantId);
+            if (leastBusyWaiter) {
+                assignedWaiterId = leastBusyWaiter.id;
+                // Save it immediately to the table/group
+                if (isGroup) {
+                    await supabase
+                        .from('table_merge_groups')
+                        .update({ 
+                            assigned_waiter_id: assignedWaiterId,
+                            last_activity_at: new Date().toISOString()
+                        })
+                        .eq('id', physicalTable.id);
+                } else {
+                    await supabase
+                        .from('tables')
+                        .update({ 
+                            assigned_waiter_id: assignedWaiterId,
+                            last_activity_at: new Date().toISOString()
+                        })
+                        .eq('id', actualTableId);
+                }
+                // Update the waiter's last assigned timestamp
+                await supabase
+                    .from('staff')
+                    .update({ last_assigned_at: new Date().toISOString() })
+                    .eq('id', assignedWaiterId);
+            }
+        }
+
+        if (!assignedWaiterId) {
+            console.error('No waiter available to assign to this table.');
+            return;
+        }
 
         // Check if a pending request of this type already exists for this table to prevent constraint violations
         const { data: existingRequest } = await supabase
@@ -1941,7 +2024,7 @@ export const OrderService = {
             .select('id, quantity')
             .eq('table_id', actualTableId)
             .eq('request_type', type)
-            .eq('status', 'pending')
+            .eq('request_status', 'pending')
             .maybeSingle();
 
         if (existingRequest) {
@@ -1965,10 +2048,10 @@ export const OrderService = {
                 .insert({
                     table_id: actualTableId,
                     request_type: type,
-                    status: 'pending',
+                    request_status: 'pending',
                     quantity: quantity,
                     restaurant_id: actualRestaurantId,
-                    assigned_staff_id: assignedWaiterId
+                    assigned_waiter_id: assignedWaiterId
                 });
 
             if (error) {
@@ -1979,7 +2062,7 @@ export const OrderService = {
                         .select('id, quantity')
                         .eq('table_id', actualTableId)
                         .eq('request_type', type)
-                        .eq('status', 'pending')
+                        .eq('request_status', 'pending')
                         .maybeSingle();
                     if (retryReq) {
                         await supabase
@@ -2047,13 +2130,18 @@ export const OrderService = {
 
         if (orderError) console.error('Bulk Transfer Error (Orders):', orderError);
 
-        // 4. Update Pending Service Requests
+        // 4. Update Pending and Accepted Service Requests
         const { error: serviceError } = await supabase
             .from('service_requests')
-            .update({ assigned_staff_id: toWaiterId })
+            .update({ 
+                assigned_waiter_id: toWaiterId,
+                request_status: 'pending',
+                accepted_by: null,
+                accepted_at: null
+            })
             .eq('restaurant_id', actualId)
-            .eq('assigned_staff_id', fromWaiterId)
-            .eq('status', 'pending');
+            .eq('assigned_waiter_id', fromWaiterId)
+            .in('request_status', ['pending', 'accepted']);
 
         if (serviceError) console.error('Bulk Transfer Error (Services):', serviceError);
 
@@ -2080,14 +2168,11 @@ export const OrderService = {
                 )
             `)
             .eq('restaurant_id', actualId)
-            .in('status', ['pending', 'accepted'])
+            .in('request_status', ['pending', 'accepted'])
             .order('created_at', { ascending: true });
 
         if (waiterId) {
-            // Filter: Either specifically assigned to me, or unassigned but table belongs to me, or both unassigned
-            // Actually, if waiterId is provided, we usually want to see what's assigned to us OR what is unassigned for OUR tables.
-            // For now, let's keep it simple: assigned to me OR (unassigned AND table's waiter is me or null)
-            query = query.or(`assigned_staff_id.eq.${waiterId},assigned_staff_id.is.null`);
+            query = query.eq('assigned_waiter_id', waiterId);
         }
 
         const { data, error } = await query;
@@ -2095,22 +2180,6 @@ export const OrderService = {
         if (error) {
             console.error('Failed to fetch service requests:', error);
             throw error;
-        }
-
-        // Post-filter if needed (Supabase .or across joined tables is tricky)
-        if (waiterId) {
-            return (data || []).filter(req => {
-                // If it's specifically assigned to someone else, hide it
-                if (req.assigned_staff_id && req.assigned_staff_id !== waiterId) return false;
-                
-                // If it's unassigned, check table ownership
-                if (!req.assigned_staff_id) {
-                    const tableWaiter = req.tables?.assigned_waiter_id;
-                    if (tableWaiter && tableWaiter !== waiterId) return false;
-                }
-                
-                return true;
-            });
         }
 
         return data || [];
@@ -2148,7 +2217,7 @@ export const OrderService = {
                 .select('*, tables(table_number)')
                 .in('table_id', tableIds)
                 .eq('restaurant_id', actualRestaurantId)
-                .in('status', ['pending', 'accepted', 'delivered'])
+                .in('request_status', ['pending', 'accepted', 'completed'])
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -2161,7 +2230,7 @@ export const OrderService = {
             .select('*, tables(table_number)')
             .eq('table_id', physicalTable.id)
             .eq('restaurant_id', actualRestaurantId)
-            .in('status', ['pending', 'accepted', 'delivered'])
+            .in('request_status', ['pending', 'accepted', 'completed'])
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -2185,10 +2254,13 @@ export const OrderService = {
 
         if (!request) return;
 
-        // 2. Delete Request (Hard Delete)
+        // 2. Update Request Status to 'completed'
         const { error } = await supabase
             .from('service_requests')
-            .delete()
+            .update({
+                request_status: 'completed',
+                completed_at: new Date().toISOString()
+            })
             .eq('id', requestId);
 
         if (error) {
@@ -2219,7 +2291,7 @@ export const OrderService = {
                 .from('service_requests')
                 .select('request_type')
                 .eq('table_id', request.table_id)
-                .eq('status', 'pending')
+                .eq('request_status', 'pending')
                 .order('created_at', { ascending: false }) // Get latest
                 .limit(1)
                 .maybeSingle();
@@ -2243,14 +2315,17 @@ export const OrderService = {
             .select('table_id')
             .in('id', requestIds);
 
-        // 2. Hard Delete as per user request
+        // 2. Update status to completed
         const { error } = await supabase
             .from('service_requests')
-            .delete()
+            .update({
+                request_status: 'completed',
+                completed_at: new Date().toISOString()
+            })
             .in('id', requestIds);
 
         if (error) {
-            console.error('Failed to delete multiple requests:', error);
+            console.error('Failed to resolve multiple requests:', error);
             throw error;
         }
 
@@ -2264,7 +2339,7 @@ export const OrderService = {
                     .from('service_requests')
                     .select('request_type')
                     .eq('table_id', tableId)
-                    .eq('status', 'pending')
+                    .eq('request_status', 'pending')
                     .order('created_at', { ascending: false })
                     .limit(1)
                     .maybeSingle();
@@ -2284,16 +2359,20 @@ export const OrderService = {
     /**
      * Subscribe to real-time changes on service_requests.
      */
-    subscribeToServiceRequests(restaurantId: string, onChange: (payload: RealtimePostgresChangesPayload<any>) => void) {
+    subscribeToServiceRequests(restaurantId: string, onChange: (payload: RealtimePostgresChangesPayload<any>) => void, waiterId?: string) {
+        const filter = waiterId 
+            ? `assigned_waiter_id=eq.${waiterId}` 
+            : `restaurant_id=eq.${restaurantId}`;
+
         const channel = supabase
-            .channel(`service-requests-channel-${restaurantId}`)
+            .channel(`service-requests-channel-${restaurantId}-${waiterId || 'all'}`)
             .on(
                 'postgres_changes',
                 { 
                     event: '*', 
                     schema: 'public', 
                     table: 'service_requests',
-                    filter: `restaurant_id=eq.${restaurantId}`
+                    filter: filter
                 },
                 (payload) => onChange(payload)
             );
@@ -2455,17 +2534,22 @@ export const OrderService = {
     /**
      * Transfer a specific service request to another waiter.
      */
-    async transferServiceRequest(requestId: string, newWaiterId: string, restaurantId: string) {
+    async transferServiceRequest(requestId: string | number, newWaiterId: string, restaurantId: string) {
         // Fetch current waiter to log who it was transferred from
         const { data: currentReq } = await supabase
             .from('service_requests')
-            .select('assigned_staff_id')
+            .select('assigned_waiter_id')
             .eq('id', requestId)
             .single();
 
         const { error } = await supabase
             .from('service_requests')
-            .update({ assigned_staff_id: newWaiterId })
+            .update({ 
+                assigned_waiter_id: newWaiterId,
+                request_status: 'pending',
+                accepted_by: null,
+                accepted_at: null
+            })
             .eq('id', requestId)
             .eq('restaurant_id', restaurantId);
 
@@ -2476,7 +2560,7 @@ export const OrderService = {
             .from('service_assignments')
             .insert({
                 service_request_id: requestId,
-                from_waiter_id: currentReq?.assigned_staff_id,
+                from_waiter_id: currentReq?.assigned_waiter_id,
                 to_waiter_id: newWaiterId,
                 restaurant_id: restaurantId,
                 status: 'transferred'
@@ -2512,9 +2596,9 @@ export const OrderService = {
         // 4. Update pending service requests
         await supabase
             .from('service_requests')
-            .update({ assigned_staff_id: toWaiterId })
-            .eq('assigned_staff_id', fromWaiterId)
+            .update({ assigned_waiter_id: toWaiterId })
+            .eq('assigned_waiter_id', fromWaiterId)
             .eq('restaurant_id', restaurantId)
-            .eq('status', 'pending');
+            .eq('request_status', 'pending');
     }
 };

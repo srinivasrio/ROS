@@ -18,10 +18,10 @@ interface ServiceRequest {
         assigned_waiter_id: string | null;
     };
     request_type: string;
-    status: string;
+    request_status: string;
     created_at: string;
     quantity?: number;
-    assigned_staff_id?: string | null;
+    assigned_waiter_id?: string | null;
 }
 
 // ...
@@ -120,17 +120,20 @@ export default function WaiterAlerts() {
         preloadServiceOptions();
 
         // Subscribe to Service Requests
-        const sub = OrderService.subscribeToServiceRequests(restaurantId, (payload) => {
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-                loadAlerts(); // Refresh list
-            }
-        });
+        let sub: { unsubscribe: () => void } | null = null;
+        if (waiterRecord?.id) {
+            sub = OrderService.subscribeToServiceRequests(restaurantId, (payload) => {
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                    loadAlerts(); // Refresh list
+                }
+            }, waiterRecord.id);
+        }
 
         const cacheSub = subscribeServiceOptionsCache();
 
         return () => {
             activeRef.current = false;
-            sub.unsubscribe();
+            if (sub) sub.unsubscribe();
             cacheSub.unsubscribe();
         };
     }, [restaurantId, restaurantLoading, waiterRecord?.id]);
@@ -138,7 +141,7 @@ export default function WaiterAlerts() {
     // Group alerts by table and request type
     const groupedAlerts = Object.values(
         alerts.reduce((acc, alert) => {
-            const key = `${alert.table_id}-${alert.request_type}-${alert.status}`;
+            const key = `${alert.table_id}-${alert.request_type}-${alert.request_status}`;
             if (!acc[key]) {
                 acc[key] = { ...alert, count: 0, ids: [] };
             }
@@ -162,16 +165,20 @@ export default function WaiterAlerts() {
     };
 
     const handleAcceptRequest = async (requestIds: number[]) => {
+        if (!waiterRecord?.id) {
+            toast.error('Waiter profile loading, please try again.');
+            return;
+        }
         try {
             // Optimistic update - set status of these requests to 'accepted'
-            setAlerts(prev => prev.map(a => requestIds.includes(a.id) ? { ...a, status: 'accepted' } : a));
+            setAlerts(prev => prev.map(a => requestIds.includes(a.id) ? { ...a, request_status: 'accepted' } : a));
             for (const id of requestIds) {
-                await OrderService.acceptServiceRequest(id, String(restaurantId));
+                await OrderService.acceptServiceRequest(id, String(restaurantId), waiterRecord.id);
             }
             toast.success('Request Accepted');
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            toast.error('Failed to accept request');
+            toast.error(error.message || 'Failed to accept request');
             loadAlerts(); // Revert on error
         }
     };
@@ -286,7 +293,7 @@ export default function WaiterAlerts() {
                                         <span className={`text-xs font-bold uppercase tracking-wider text-black`}>
                                             Table {alert.tables?.table_number || '?'}
                                         </span>
-                                        {alert.status === 'accepted' && (
+                                        {alert.request_status === 'accepted' && (
                                             <>
                                                 <span className="text-[10px] text-black">•</span>
                                                 <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
@@ -320,7 +327,7 @@ export default function WaiterAlerts() {
                                     >
                                         <LucideTransfer size={18} />
                                     </button>
-                                    {alert.status === 'accepted' ? (
+                                    {alert.request_status === 'accepted' ? (
                                         <button
                                             onClick={() => handleMarkServed(alert.ids)}
                                             className="px-4 py-2 bg-green-500 hover:bg-green-600 active:bg-green-700 text-white text-xs font-bold rounded-full shadow-lg shadow-green-500/20 active:scale-[0.98] transition-all flex items-center gap-2"

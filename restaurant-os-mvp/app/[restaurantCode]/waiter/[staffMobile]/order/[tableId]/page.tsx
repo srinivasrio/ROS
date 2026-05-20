@@ -31,6 +31,7 @@ export default function OrderDetails() {
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(true);
     const [serviceRequests, setServiceRequests] = useState<any[]>([]);
+    const [waiterRecord, setWaiterRecord] = useState<any>(null);
 
     const loadOrder = async () => {
         if (!tableId || !restaurantId) return;
@@ -53,6 +54,19 @@ export default function OrderDetails() {
             console.error('Failed to load service requests:', err);
         }
     };
+
+    useEffect(() => {
+        const loadWaiter = async () => {
+            if (!restaurantId || !staffMobile) return;
+            try {
+                const waiter = await OrderService.getStaffByMobile(staffMobile as string, restaurantId);
+                if (activeRef.current) setWaiterRecord(waiter);
+            } catch (error) {
+                console.error('Failed to load waiter:', error);
+            }
+        };
+        loadWaiter();
+    }, [staffMobile, restaurantId]);
 
     useEffect(() => {
         activeRef.current = true;
@@ -95,7 +109,11 @@ export default function OrderDetails() {
         if (!restaurantId) return;
         try {
             if (action === 'accept') {
-                await OrderService.acceptServiceRequest(requestId, restaurantId);
+                if (!waiterRecord?.id) {
+                    alert('Waiter profile loading, please try again.');
+                    return;
+                }
+                await OrderService.acceptServiceRequest(requestId, restaurantId, waiterRecord.id);
                 setServiceRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'accepted' } : r));
             } else if (action === 'deliver') {
                 await OrderService.markRequestDelivered(requestId, restaurantId);
