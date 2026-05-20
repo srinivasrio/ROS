@@ -15,7 +15,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 
 
-const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number | string, restaurantId: string }) => {
+const ActiveRequestsList = ({ tableNumber, tableId, restaurantId }: { tableNumber: number | string, tableId: number | null, restaurantId: string }) => {
     const [requests, setRequests] = useState<any[]>([]);
     const [deliveredIds, setDeliveredIds] = useState<number[]>([]);
     const requestsRef = useRef<any[]>([]);
@@ -28,8 +28,9 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
     };
 
     const fetchRequests = async () => {
+        if (!tableId) return;
         try {
-            const data = await OrderService.fetchServiceRequestsForTable(tableNumber, restaurantId);
+            const data = await OrderService.fetchServiceRequestsForTable(tableId, restaurantId);
             updateRequests(data || []);
         } catch (error) {
             console.error(error);
@@ -37,6 +38,7 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
     };
 
     useEffect(() => {
+        if (!tableId) return;
         fetchRequests();
 
         // Subscribe to changes
@@ -46,7 +48,7 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                 const match = requestsRef.current.find(r => String(r.id) === String(deletedId));
 
                 if (match) {
-                    if (match.status === 'accepted' || match.status === 'delivered') {
+                    if (match.request_status === 'accepted' || match.request_status === 'completed' || match.request_status === 'delivered') {
                         // Mark as delivered first to show success state briefly
                         setDeliveredIds(prev => [...prev, deletedId]);
 
@@ -62,7 +64,7 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                 }
             } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                 const newRecord = payload.new;
-                if (String(newRecord.table_id) === String(tableNumber)) {
+                if (String(newRecord.table_id) === String(tableId)) {
                     fetchRequests();
 
                     // Show Popup/Toast for Order Ready (User requested popup only, no list item)
@@ -75,12 +77,12 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                     }
                 }
             }
-        });
+        }, undefined, tableId);
 
         return () => {
             sub.unsubscribe();
         };
-    }, [tableNumber, restaurantId]);
+    }, [tableNumber, tableId, restaurantId]);
 
     if (requests.length === 0) return null;
 
@@ -91,8 +93,8 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                 <AnimatePresence mode='popLayout'>
                     {requests.map((req) => {
                         const details = getServiceRequestDetails(req.request_type);
-                        const isDelivered = deliveredIds.includes(req.id) || req.status === 'delivered';
-                        const isAccepted = req.status === 'accepted'; // Check DB status
+                        const isDelivered = deliveredIds.includes(req.id) || req.request_status === 'completed' || req.request_status === 'delivered';
+                        const isAccepted = req.request_status === 'accepted'; // Check DB status
 
                         // Determine Visual State
                         let stateBgColor = '#ffffff';
@@ -157,15 +159,33 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                                         )}
                                     </div>
                                 </div>
-                                <div className={cn(
-                                    "text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 flex items-center gap-1",
-                                    statusColor
-                                )}>
-                                    {(isDelivered || isAccepted) ? (
-                                        <>Successfully Served <LucideCheckCircle size={12} /></>
-                                    ) : (
-                                        'Pending'
+                                <div className="flex items-center gap-2 relative z-10">
+                                    {!isAccepted && !isDelivered && (
+                                        <button
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                try {
+                                                    await OrderService.cancelServiceRequest(req.id, restaurantId);
+                                                    toast.success('Request Cancelled');
+                                                } catch (err) {
+                                                    toast.error('Failed to cancel request');
+                                                }
+                                            }}
+                                            className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-full transition-all active:scale-95 border border-red-100 shrink-0"
+                                        >
+                                            Cancel
+                                        </button>
                                     )}
+                                    <div className={cn(
+                                        "text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 flex items-center gap-1 shrink-0",
+                                        statusColor
+                                    )}>
+                                        {(isDelivered || isAccepted) ? (
+                                            <>Successfully Served <LucideCheckCircle size={12} /></>
+                                        ) : (
+                                            'Pending'
+                                        )}
+                                    </div>
                                 </div>
                             </motion.div>
                         );
@@ -184,6 +204,7 @@ export default function ServicePage() {
     const [loading, setLoading] = useState(false);
     const [isValidTable, setIsValidTable] = useState<boolean | null>(null);
     const [restaurantId, setRestaurantId] = useState<string | null>(null);
+    const [tableId, setTableId] = useState<number | null>(null);
 
     const [selectedOption, setSelectedOption] = useState<any>(null);
     const [quantity, setQuantity] = useState(1);
@@ -200,6 +221,7 @@ export default function ServicePage() {
                     }
                     setIsValidTable(true);
                     setRestaurantId(tableData.restaurant_id);
+                    setTableId(tableData.id);
                     
                     if (tableData.restaurant_id) {
                         const optionsData = await ServiceOptionsService.fetchActive(tableData.restaurant_id);
@@ -287,7 +309,7 @@ export default function ServicePage() {
                 </div>
 
                 {/* Active Requests */}
-                <ActiveRequestsList tableNumber={tableNumber} restaurantId={urlRestaurantId} />
+                <ActiveRequestsList tableNumber={tableNumber} tableId={tableId} restaurantId={urlRestaurantId} />
 
                 <div className="grid grid-cols-3 gap-3">
                     {options.filter(opt => opt.service_key !== 'order_ready').map((opt) => (

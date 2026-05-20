@@ -429,32 +429,65 @@ export default function WaiterAlertSystem() {
 
     const handleAcceptGroup = async (requestIds: number[]) => {
         if (!restaurantId || !currentWaiter?.id) return;
+
+        // Optimistically update status to 'accepted' in local state
+        setAlerts(prev =>
+            prev.map(alert =>
+                requestIds.includes(alert.id)
+                    ? { ...alert, request_status: 'accepted' }
+                    : alert
+            )
+        );
+
         try {
             await Promise.all(requestIds.map(id => OrderService.acceptServiceRequest(id, restaurantId, currentWaiter.id)));
         } catch (err: any) {
             console.error("Failed to accept some requests:", err);
+            // Revert optimistic update on error by re-fetching
+            try {
+                const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id);
+                if (activeRequests) setAlerts(activeRequests);
+            } catch (fetchErr) {
+                console.error("Failed to revert optimistic update:", fetchErr);
+            }
             alert(err.message || "Failed to accept service request.");
         }
     };
 
     const handleServedGroup = async (requestIds: number[]) => {
         if (!restaurantId) return;
-        // 1. Mark as Delivered (DB)
-        requestIds.forEach(id => OrderService.markRequestDelivered(id, restaurantId));
 
-        // 2. Hide locally effectively immediately for UI feedback (optional, but good for "Done" feel)
-        // OR rely on status change if we want to show "Checked" state?
-        // User said: "after 2 seconds of delivery delete".
-        // Let's keep it visible but maybe show "Completed" state for 2 seconds?
-        // If we update status to 'delivered', the card will re-render with 'delivered' status?
-        // If fetched alerts include 'delivered', yes.
-        // Assuming fetchActiveServiceRequests includes 'delivered' (or we update local state optimistically).
+        // Optimistically update status to 'completed' in local state
+        setAlerts(prev =>
+            prev.map(alert =>
+                requestIds.includes(alert.id)
+                    ? { ...alert, request_status: 'completed' }
+                    : alert
+            )
+        );
 
-        // 3. Auto Delete after 2 seconds
-        setTimeout(() => {
-            if (!restaurantId) return;
-            requestIds.forEach(id => OrderService.completeServiceRequest(id, restaurantId));
-        }, 2000);
+        try {
+            // 1. Mark as Delivered (DB)
+            await Promise.all(requestIds.map(id => OrderService.markRequestDelivered(id, restaurantId)));
+
+            // 2. Auto Delete after 2 seconds
+            setTimeout(async () => {
+                if (!restaurantId) return;
+                try {
+                    await Promise.all(requestIds.map(id => OrderService.completeServiceRequest(id, restaurantId)));
+                } catch (err) {
+                    console.error("Failed to complete requests:", err);
+                }
+            }, 2000);
+        } catch (err: any) {
+            console.error("Failed to mark requests delivered:", err);
+            // Revert on error
+            if (currentWaiter?.id) {
+                const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id).catch(() => null);
+                if (activeRequests) setAlerts(activeRequests);
+            }
+            alert(err.message || "Failed to deliver service request.");
+        }
     };
 
     const visibleAlerts = alerts.filter(req => {

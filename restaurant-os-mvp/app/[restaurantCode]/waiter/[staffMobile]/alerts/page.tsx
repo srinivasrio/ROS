@@ -74,23 +74,10 @@ export default function WaiterAlerts() {
     const [selectedRequestIds, setSelectedRequestIds] = useState<number[]>([]);
     const activeRef = useRef(true);
 
-    useEffect(() => {
-        const loadWaiter = async () => {
-            if (!restaurantId || !staffMobile) return;
-            try {
-                const waiter = await OrderService.getStaffByMobile(staffMobile as string, restaurantId);
-                if (activeRef.current) setWaiterRecord(waiter);
-            } catch (error) {
-                console.error('Failed to load waiter:', error);
-            }
-        };
-        loadWaiter();
-    }, [staffMobile, restaurantId]);
-
-    const loadAlerts = async () => {
-        if (!restaurantId) return;
+    const loadAlerts = async (wRecord = waiterRecord) => {
+        if (!restaurantId || !wRecord?.id) return;
         try {
-            const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, waiterRecord?.id);
+            const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, wRecord.id);
             if (activeRef.current && activeRequests) {
                 setAlerts(activeRequests);
             }
@@ -101,11 +88,11 @@ export default function WaiterAlerts() {
         }
     };
 
-    const loadStaff = async () => {
-        if (!restaurantId) return;
+    const loadStaff = async (wRecord = waiterRecord) => {
+        if (!restaurantId || !wRecord?.id) return;
         try {
             const staff = await OrderService.fetchStaffWithWorkload(restaurantId);
-            if (activeRef.current) setStaffList(staff.filter(s => s.id !== waiterRecord?.id));
+            if (activeRef.current) setStaffList(staff.filter(s => s.id !== wRecord.id));
         } catch (error) {
             console.error('Failed to load staff:', error);
         }
@@ -113,30 +100,51 @@ export default function WaiterAlerts() {
 
     useEffect(() => {
         activeRef.current = true;
-        if (restaurantLoading || !restaurantId) return;
-        
-        loadAlerts();
-        loadStaff();
-        preloadServiceOptions();
+        if (restaurantLoading || !restaurantId || !staffMobile) return;
 
-        // Subscribe to Service Requests
         let sub: { unsubscribe: () => void } | null = null;
-        if (waiterRecord?.id) {
-            sub = OrderService.subscribeToServiceRequests(restaurantId, (payload) => {
-                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-                    loadAlerts(); // Refresh list
-                }
-            }, waiterRecord.id);
-        }
-
         const cacheSub = subscribeServiceOptionsCache();
+
+        const initializeData = async () => {
+            try {
+                // 1. Fetch waiter record
+                const waiter = await OrderService.getStaffByMobile(staffMobile as string, restaurantId);
+                if (!activeRef.current) return;
+                setWaiterRecord(waiter);
+
+                if (waiter?.id) {
+                    // 2. Fetch alerts and staff workload
+                    await Promise.all([
+                        loadAlerts(waiter),
+                        loadStaff(waiter)
+                    ]);
+
+                    // 3. Subscribe to service requests
+                    sub = OrderService.subscribeToServiceRequests(restaurantId, (payload) => {
+                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                            loadAlerts(waiter);
+                        }
+                    }, waiter.id);
+                } else {
+                    // Stop loading spinner if waiter not found
+                    setLoading(false);
+                }
+                
+                preloadServiceOptions();
+            } catch (error) {
+                console.error('Initialization failed:', error);
+                if (activeRef.current) setLoading(false);
+            }
+        };
+
+        initializeData();
 
         return () => {
             activeRef.current = false;
             if (sub) sub.unsubscribe();
             cacheSub.unsubscribe();
         };
-    }, [restaurantId, restaurantLoading, waiterRecord?.id]);
+    }, [restaurantId, restaurantLoading, staffMobile]);
 
     // Group alerts by table and request type
     const groupedAlerts = Object.values(
@@ -212,6 +220,23 @@ export default function WaiterAlerts() {
             <div className="flex flex-col items-center justify-center h-full bg-white">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2"></div>
                 <p className="text-black text-xs font-bold uppercase tracking-wider">Checking Alerts...</p>
+            </div>
+        );
+    }
+
+    if (!waiterRecord) {
+        return (
+            <div className="flex flex-col h-full min-h-screen bg-white">
+                <header className="flex items-center bg-white p-4 pb-2 justify-between border-b border-gray-100 shrink-0">
+                    <h2 className="text-charcoal text-lg font-bold leading-tight tracking-tight flex-1 text-center">Alerts</h2>
+                </header>
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 pb-20">
+                    <div className="size-20 bg-red-50 rounded-full flex items-center justify-center mb-4 text-red-500">
+                        <LucideX size={32} />
+                    </div>
+                    <h3 className="text-charcoal font-bold text-lg mb-2">Staff Profile Not Found</h3>
+                    <p className="text-black text-sm">We couldn't find a staff record associated with this mobile number.</p>
+                </div>
             </div>
         );
     }

@@ -1973,21 +1973,13 @@ export const OrderService = {
             actualTableId = physicalTable.id;
         }
 
-        // Track customer presence (which will auto-assign waiter if none is assigned)
-        const customStatus = type === 'bill_requested' ? 'billing' : undefined;
-        await this.trackCustomerPresence(tableId, actualRestaurantId, customStatus);
-
-        // Fetch updated table to get the assigned waiter
-        const updatedTable = await this.findTableAnywhere(tableId, actualRestaurantId);
-        let assignedWaiterId = updatedTable?.assigned_waiter_id || null;
-
-        // CRITICAL FALLBACK / EXPLICIT ENFORCEMENT:
-        // If trackCustomerPresence failed to assign a waiter or table has no waiter assigned
+        // Determine/Assign waiter
+        let assignedWaiterId = physicalTable?.assigned_waiter_id || null;
         if (!assignedWaiterId) {
             const leastBusyWaiter = await this.getLeastBusyWaiter(actualRestaurantId);
             if (leastBusyWaiter) {
                 assignedWaiterId = leastBusyWaiter.id;
-                // Save it immediately to the table/group
+                // Save it immediately to the table/group in database
                 if (isGroup) {
                     await supabase
                         .from('table_merge_groups')
@@ -1996,6 +1988,22 @@ export const OrderService = {
                             last_activity_at: new Date().toISOString()
                         })
                         .eq('id', physicalTable.id);
+
+                    // Also update constituent tables
+                    const { data: memberTables } = await supabase
+                        .from('tables')
+                        .select('id')
+                        .eq('merged_group_id', physicalTable.id);
+                    if (memberTables && memberTables.length > 0) {
+                        const memberIds = memberTables.map(t => t.id);
+                        await supabase
+                            .from('tables')
+                            .update({ 
+                                assigned_waiter_id: assignedWaiterId,
+                                last_activity_at: new Date().toISOString()
+                            })
+                            .in('id', memberIds);
+                    }
                 } else {
                     await supabase
                         .from('tables')
@@ -2017,6 +2025,10 @@ export const OrderService = {
             console.error('No waiter available to assign to this table.');
             return;
         }
+
+        // Track customer presence (which will now preserve or enforce the assignedWaiterId)
+        const customStatus = type === 'bill_requested' ? 'billing' : undefined;
+        await this.trackCustomerPresence(tableId, actualRestaurantId, customStatus, assignedWaiterId);
 
         // Check if a pending request of this type already exists for this table to prevent constraint violations
         const { data: existingRequest } = await supabase
@@ -2155,10 +2167,14 @@ export const OrderService = {
      * Fetch active service requests (Pending + Recently Resolved).
      * Includes resolved requests from the last 1 hour to keep them visible.
      */
-    async fetchActiveServiceRequests(restaurantId: string, waiterId?: string) {
+    async fetchActiveServiceRequests(restaurantId: string, waiterId: string) {
+        if (!waiterId) {
+            console.warn('[fetchActiveServiceRequests] Omitted waiterId. Returning empty.');
+            return [];
+        }
         const actualId = await this.resolveRestaurantId(restaurantId);
 
-        let query = supabase
+        const { data, error } = await supabase
             .from('service_requests')
             .select(`
                 *,
@@ -2168,14 +2184,9 @@ export const OrderService = {
                 )
             `)
             .eq('restaurant_id', actualId)
+            .eq('assigned_waiter_id', waiterId)
             .in('request_status', ['pending', 'accepted'])
             .order('created_at', { ascending: true });
-
-        if (waiterId) {
-            query = query.eq('assigned_waiter_id', waiterId);
-        }
-
-        const { data, error } = await query;
 
         if (error) {
             console.error('Failed to fetch service requests:', error);
@@ -2188,7 +2199,7 @@ export const OrderService = {
     /**
      * Fetch active service requests for a specific table.
      */
-    async fetchServiceRequestsForTable(tableId: number | string, restaurantId: string) {
+    async fetchServiceRequestsForTable(tableId: number | string, restaurantId: string, waiterId?: string) {
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
 
         // Resolve the table identifier to the actual DB id
@@ -2212,7 +2223,7 @@ export const OrderService = {
             if (!tables || tables.length === 0) return [];
 
             const tableIds = tables.map(t => t.id);
-            const { data, error } = await supabase
+            let query = supabase
                 .from('service_requests')
                 .select('*, tables(table_number)')
                 .in('table_id', tableIds)
@@ -2220,18 +2231,29 @@ export const OrderService = {
                 .in('request_status', ['pending', 'accepted', 'completed'])
                 .order('created_at', { ascending: false });
 
+            if (waiterId) {
+                query = query.eq('assigned_waiter_id', waiterId);
+            }
+
+            const { data, error } = await query;
             if (error) throw error;
             return data;
         }
 
         // Plain physical table — use its actual DB id
-        const { data, error } = await supabase
+        let query = supabase
             .from('service_requests')
             .select('*, tables(table_number)')
             .eq('table_id', physicalTable.id)
             .eq('restaurant_id', actualRestaurantId)
             .in('request_status', ['pending', 'accepted', 'completed'])
             .order('created_at', { ascending: false });
+
+        if (waiterId) {
+            query = query.eq('assigned_waiter_id', waiterId);
+        }
+
+        const { data, error } = await query;
 
         if (error) {
             console.error('Failed to fetch table service requests:', error);
@@ -2359,13 +2381,23 @@ export const OrderService = {
     /**
      * Subscribe to real-time changes on service_requests.
      */
-    subscribeToServiceRequests(restaurantId: string, onChange: (payload: RealtimePostgresChangesPayload<any>) => void, waiterId?: string) {
+    subscribeToServiceRequests(
+        restaurantId: string, 
+        onChange: (payload: RealtimePostgresChangesPayload<any>) => void, 
+        waiterId?: string,
+        tableId?: number | string
+    ) {
+        if (!waiterId && !tableId) {
+            console.error('[subscribeToServiceRequests] Must provide either waiterId or tableId to avoid global broadcasts.');
+            return { unsubscribe: () => {} };
+        }
+
         const filter = waiterId 
             ? `assigned_waiter_id=eq.${waiterId}` 
-            : `restaurant_id=eq.${restaurantId}`;
+            : `table_id=eq.${tableId}`;
 
         const channel = supabase
-            .channel(`service-requests-channel-${restaurantId}-${waiterId || 'all'}`)
+            .channel(`service-requests-channel-${restaurantId}-${waiterId ? `waiter-${waiterId}` : `table-${tableId}`}`)
             .on(
                 'postgres_changes',
                 { 
@@ -2565,6 +2597,32 @@ export const OrderService = {
                 restaurant_id: restaurantId,
                 status: 'transferred'
             });
+    },
+
+    /**
+     * Cancel a service request by customer.
+     */
+    async cancelServiceRequest(requestId: number, restaurantId: string) {
+        const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
+        const { data, error } = await supabase
+            .from('service_requests')
+            .update({
+                request_status: 'cancelled',
+                completed_at: new Date().toISOString()
+            })
+            .eq('id', requestId)
+            .eq('restaurant_id', actualRestaurantId)
+            .eq('request_status', 'pending')
+            .select();
+
+        if (error) {
+            console.error('Error cancelling service request:', error);
+            throw error;
+        }
+
+        if (!data || data.length === 0) {
+            throw new Error('Request already accepted or served');
+        }
     },
 
     /**

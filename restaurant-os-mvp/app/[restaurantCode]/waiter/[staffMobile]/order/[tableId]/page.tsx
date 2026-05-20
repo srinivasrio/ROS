@@ -46,9 +46,9 @@ export default function OrderDetails() {
     };
 
     const loadServiceRequests = async () => {
-        if (!tableId || !restaurantId) return;
+        if (!restaurantId || !waiterRecord?.id) return;
         try {
-            const data = await OrderService.fetchServiceRequestsForTable(tableId as string | number, restaurantId);
+            const data = await OrderService.fetchServiceRequestsForTable(tableId as string | number, restaurantId, waiterRecord.id);
             if (activeRef.current) setServiceRequests(data || []);
         } catch (err) {
             console.error('Failed to load service requests:', err);
@@ -70,7 +70,7 @@ export default function OrderDetails() {
 
     useEffect(() => {
         activeRef.current = true;
-        if (!restaurantLoading && restaurantId) {
+        if (!restaurantLoading && restaurantId && waiterRecord?.id) {
             loadOrder();
             loadServiceRequests();
             preloadServiceOptions();
@@ -91,7 +91,7 @@ export default function OrderDetails() {
                         loadServiceRequests();
                     }
                 }
-            });
+            }, waiterRecord.id);
 
             const cacheSub = subscribeServiceOptionsCache();
 
@@ -103,7 +103,7 @@ export default function OrderDetails() {
             };
         }
         return () => { activeRef.current = false; };
-    }, [tableId, restaurantId, restaurantLoading]);
+    }, [tableId, restaurantId, restaurantLoading, waiterRecord?.id]);
 
     const handleAction = async (requestId: number, action: 'accept' | 'deliver') => {
         if (!restaurantId) return;

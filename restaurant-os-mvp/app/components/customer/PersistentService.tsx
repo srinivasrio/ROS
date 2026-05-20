@@ -12,7 +12,7 @@ import { getServiceRequestDetails } from '@/app/lib/service-utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CustomerCache } from '@/app/services/homepage-cache.service';
 
-const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number | string, restaurantId: string }) => {
+const ActiveRequestsList = ({ tableNumber, tableId, restaurantId }: { tableNumber: number | string, tableId: number | null, restaurantId: string }) => {
     const [requests, setRequests] = useState<any[]>([]);
     const [deliveredIds, setDeliveredIds] = useState<number[]>([]);
     const requestsRef = useRef<any[]>([]);
@@ -24,15 +24,17 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
     };
 
     const fetchRequests = useCallback(async () => {
+        if (!tableId) return;
         try {
-            const data = await OrderService.fetchServiceRequestsForTable(tableNumber, restaurantId);
+            const data = await OrderService.fetchServiceRequestsForTable(tableId, restaurantId);
             updateRequests(data || []);
         } catch (error) {
             console.error(error);
         }
-    }, [tableNumber, restaurantId]);
+    }, [tableId, restaurantId]);
 
     useEffect(() => {
+        if (!tableId) return;
         fetchRequests();
 
         const sub = OrderService.subscribeToServiceRequests(restaurantId, (payload) => {
@@ -40,7 +42,7 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                 const deletedId = payload.old.id;
                 const match = requestsRef.current.find(r => String(r.id) === String(deletedId));
                 if (match) {
-                    if (match.status === 'accepted' || match.status === 'delivered') {
+                    if (match.request_status === 'accepted' || match.request_status === 'completed' || match.request_status === 'delivered') {
                         setDeliveredIds(prev => [...prev, deletedId]);
                         setTimeout(() => {
                             updateRequests(requestsRef.current.filter(r => r.id !== deletedId));
@@ -52,7 +54,7 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                 }
             } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                 const newRecord = payload.new;
-                if (String(newRecord.table_id) === String(tableNumber)) {
+                if (String(newRecord.table_id) === String(tableId)) {
                     fetchRequests();
                     if (newRecord.request_type === 'order_ready') {
                         toast.success('Order Ready!', {
@@ -63,10 +65,10 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                     }
                 }
             }
-        });
+        }, undefined, tableId);
 
         return () => { sub.unsubscribe(); };
-    }, [fetchRequests, restaurantId, tableNumber]);
+    }, [fetchRequests, restaurantId, tableNumber, tableId]);
 
     if (requests.length === 0) return null;
 
@@ -77,8 +79,8 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                 <AnimatePresence mode='popLayout'>
                     {requests.map((req) => {
                         const details = getServiceRequestDetails(req.request_type);
-                        const isDelivered = deliveredIds.includes(req.id) || req.status === 'delivered';
-                        const isAccepted = req.status === 'accepted';
+                        const isDelivered = deliveredIds.includes(req.id) || req.request_status === 'completed' || req.request_status === 'delivered';
+                        const isAccepted = req.request_status === 'accepted';
 
                         let stateBgColor = '#ffffff';
                         let borderColor = '#f3f4f6';
@@ -131,13 +133,31 @@ const ActiveRequestsList = ({ tableNumber, restaurantId }: { tableNumber: number
                                         </p>
                                     </div>
                                 </div>
-                                <div className={cn("text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 flex items-center gap-1", statusColor)}>
-                                    {(isDelivered || isAccepted) ? (
-                                        <>Successfully Served <LucideCheckCircle size={12} /></>
-                                    ) : (
-                                        'Pending'
-                                    )}
-                                </div>
+                                <div className="flex items-center gap-2 relative z-10">
+                                     {!isAccepted && !isDelivered && (
+                                        <button
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                try {
+                                                    await OrderService.cancelServiceRequest(req.id, restaurantId);
+                                                    toast.success('Request Cancelled');
+                                                } catch (err) {
+                                                    toast.error('Failed to cancel request');
+                                                }
+                                            }}
+                                            className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-full transition-all active:scale-95 border border-red-100 shrink-0"
+                                        >
+                                            Cancel
+                                        </button>
+                                     )}
+                                     <div className={cn("text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 flex items-center gap-1 shrink-0", statusColor)}>
+                                         {(isDelivered || isAccepted) ? (
+                                             <>Successfully Served <LucideCheckCircle size={12} /></>
+                                         ) : (
+                                             'Pending'
+                                         )}
+                                     </div>
+                                 </div>
                             </motion.div>
                         );
                     })}
@@ -157,6 +177,7 @@ export function PersistentService({ restaurantId, tableNumber }: { restaurantId:
     const [selectedOption, setSelectedOption] = useState<any>(null);
     const [quantity, setQuantity] = useState(1);
     const [isValidTable, setIsValidTable] = useState<boolean | null>(true);
+    const [tableId, setTableId] = useState<number | null>(null);
 
     const scrollPos = useRef(0);
     const isFirstRun = useRef(true);
@@ -165,6 +186,7 @@ export function PersistentService({ restaurantId, tableNumber }: { restaurantId:
         try {
             const tableData = await OrderService.verifyTableExists(restaurantId, tableNumber);
             if (tableData) {
+                setTableId(tableData.id);
                 const optionsData = await ServiceOptionsService.fetchActive(restaurantId);
                 setOptions(optionsData);
                 CustomerCache.set(restaurantId, 'service', { options: optionsData }, tableNumber);
@@ -222,7 +244,7 @@ export function PersistentService({ restaurantId, tableNumber }: { restaurantId:
                     <p className="text-black">Tap a button below to notify us instantly.</p>
                 </div>
 
-                <ActiveRequestsList tableNumber={tableNumber} restaurantId={restaurantId} />
+                <ActiveRequestsList tableNumber={tableNumber} tableId={tableId} restaurantId={restaurantId} />
 
                 <div className="grid grid-cols-3 gap-3">
                     {options.filter(opt => opt.service_key !== 'order_ready').map((opt) => (

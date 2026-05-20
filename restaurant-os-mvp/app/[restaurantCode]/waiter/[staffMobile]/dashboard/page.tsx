@@ -290,11 +290,17 @@ export default function WaiterDashboard() {
                 setWaiterRecord(currentWaiter);
             }
 
+            if (!currentWaiter?.id) {
+                if (!isBackground) setLoading(false);
+                setIsRefreshing(false);
+                return;
+            }
+
             const [fetchedTables, fetchedOrders, fetchedMergeGroups, requests] = await Promise.all([
-                OrderService.fetchTables(restaurantId, currentWaiter?.id),
-                OrderService.fetchActiveOrders(restaurantId, currentWaiter?.id),
-                OrderService.fetchMergeGroups(restaurantId, currentWaiter?.id),
-                OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter?.id)
+                OrderService.fetchTables(restaurantId, currentWaiter.id),
+                OrderService.fetchActiveOrders(restaurantId, currentWaiter.id),
+                OrderService.fetchMergeGroups(restaurantId, currentWaiter.id),
+                OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id)
             ]);
             
             // Batch state updates
@@ -335,7 +341,11 @@ export default function WaiterDashboard() {
         const tableSub = OrderService.subscribeToTables(restaurantId, () => debouncedRefresh());
         const itemSub = OrderService.subscribeToOrderItems(restaurantId, () => debouncedRefresh());
         const mergeSub = OrderService.subscribeToMergeGroups(restaurantId, () => debouncedRefresh());
-        const serviceSub = OrderService.subscribeToServiceRequests(restaurantId, () => debouncedRefresh());
+        
+        let serviceSub: { unsubscribe: () => void } | null = null;
+        if (waiterRecord?.id) {
+            serviceSub = OrderService.subscribeToServiceRequests(restaurantId, () => debouncedRefresh(), waiterRecord.id);
+        }
 
         return () => {
             active = false;
@@ -343,7 +353,7 @@ export default function WaiterDashboard() {
             tableSub.unsubscribe();
             itemSub.unsubscribe();
             mergeSub.unsubscribe();
-            serviceSub.unsubscribe();
+            if (serviceSub) serviceSub.unsubscribe();
             clearTimeout(refreshTimer);
         };
     }, [restaurantLoading, restaurantId, loadData, waiterRecord?.id]);
