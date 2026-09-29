@@ -1,25 +1,32 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { SpecialsService, TodaySpecial, CreateSpecialInput } from '@/app/services/specials.service';
-import { MenuService, MenuItem, Category } from '@/app/services/menu';
+import { SpecialsService, TodaySpecial, CreateSpecialInput } from '@/services/specials.service';
+import { MenuService, MenuItem, Category } from '@/services/menu.service';
 import { Plus as LucidePlus, Trash2 as LucideTrash2, Edit as LucideEdit, Star as LucideStar, X as LucideX, Check as LucideCheck, Search as LucideSearch, Calendar as LucideCalendar, Tag as LucideTag, Package as LucidePackage, ToggleLeft as LucideToggleLeft, ToggleRight as LucideToggleRight, Sparkles as LucideSparkles, ChevronDown as LucideChevronDown, Filter as LucideFilter, Upload as LucideUpload, Loader2 as LucideLoader2, Image as LucideImage } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { getCached, setCache } from '@/app/lib/data-cache';
-import { compressImage, validateImageFile } from '@/app/lib/image-compress';
-
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { compressImage, validateImageFile } from '@/lib/image-compress';
+import { useParams } from 'next/navigation';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
 
 export default function AdminSpecialsPage() {
+    const params = useParams();
+    const urlRestaurantCode = (params?.restaurantCode as string) || '';
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
-    const cached = getCached<any>(`specials-${restaurantId}`);
+    const activeResId = restaurantId || urlRestaurantCode;
+    const cacheKey = `specials-${activeResId}`;
+    const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`specials-${urlRestaurantCode}`) : null);
+
     const [specials, setSpecials] = useState<TodaySpecial[]>(cached?.specials || []);
     const [menuItems, setMenuItems] = useState<MenuItem[]>(cached?.menuItems || []);
     const [categories, setCategories] = useState<Category[]>(cached?.categories || []);
     const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
     const [dietFilter, setDietFilter] = useState<'all' | 'veg' | 'nonveg'>('all');
-    const [loading, setLoading] = useState(!cached);
+    const [loading, setLoading] = useState(!cached && specials.length === 0);
+    const [isRevalidating, setIsRevalidating] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [editingSpecial, setEditingSpecial] = useState<TodaySpecial | null>(null);
 
@@ -49,28 +56,43 @@ export default function AdminSpecialsPage() {
     }, [showItemDropdown]);
 
     useEffect(() => {
-        if (!restaurantLoading && restaurantId) {
-            loadData();
+        if (!restaurantLoading && activeResId) {
+            loadData(false);
         }
-    }, [restaurantId, restaurantLoading]);
+    }, [activeResId, restaurantLoading]);
 
-    async function loadData() {
-        if (!restaurantId) return;
+    async function loadData(force = false) {
+        const targetResId = restaurantId || urlRestaurantCode;
+        if (!targetResId) return;
+        const currentCacheKey = `specials-${targetResId}`;
+
+        if (!force && hasFreshCache(currentCacheKey)) {
+            const cachedData = getCached<any>(currentCacheKey);
+            if (cachedData) {
+                if (cachedData.specials) setSpecials(cachedData.specials);
+                if (cachedData.menuItems) setMenuItems(cachedData.menuItems);
+                if (cachedData.categories) setCategories(cachedData.categories);
+                setLoading(false);
+                return;
+            }
+        }
+
+        setIsRevalidating(true);
         try {
             const [specialsData, menuData] = await Promise.all([
-                SpecialsService.fetchAllSpecials(restaurantId),
-                MenuService.fetchMenuItems(restaurantId),
+                SpecialsService.fetchAllSpecials(targetResId),
+                MenuService.fetchMenuItems(targetResId),
             ]);
             
             // For the item selector, we only want available items
-            const availableItems = menuData.filter(m => m.is_available);
+            const availableItems = menuData.filter((m: MenuItem) => m.is_available);
             setMenuItems(availableItems);
             setSpecials(specialsData);
 
             // Extract categories directly from menu items to guarantee ID match
             // Use ALL menu items (even unavailable) to ensure categories exist if needed
             const catMap = new Map<number, string>();
-            menuData.forEach(item => {
+            menuData.forEach((item: MenuItem) => {
                 if (item.category_id && item.category) {
                     const catName = (item.category as any).name || '';
                     if (catName && !catMap.has(item.category_id)) {
@@ -86,18 +108,25 @@ export default function AdminSpecialsPage() {
             setCategories(derivedCategories as Category[]);
 
             // Cache for instant display on next visit
-            setCache(`specials-${restaurantId}`, {
+            const payload = {
                 specials: specialsData,
                 menuItems: availableItems,
                 categories: derivedCategories
-            });
+            };
+            setCache(currentCacheKey, payload);
+            if (restaurantId && urlRestaurantCode && restaurantId !== urlRestaurantCode) {
+                setCache(`specials-${restaurantId}`, payload);
+                setCache(`specials-${urlRestaurantCode}`, payload);
+            }
 
             console.log('[SPECIALS] Loaded', specialsData.length, 'specials,', availableItems.length, 'available menu items');
         } catch (err) {
             console.error('Failed to load specials data:', err);
             toast.error('Failed to load data. Please refresh.');
+        } finally {
+            setLoading(false);
+            setIsRevalidating(false);
         }
-        setLoading(false);
     }
 
     function openCreateModal() {
@@ -170,12 +199,12 @@ export default function AdminSpecialsPage() {
         setIsUploading(true);
         try {
             const compressed = await compressImage(file);
-            const uploadedUrl = await MenuService.uploadMenuImage(compressed.file);
+            const uploadedUrl = await MenuService.uploadMenuImage(compressed.file, undefined, restaurantId || undefined);
             setImageUrl(uploadedUrl);
             toast.success('Image uploaded successfully');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Upload failed:', error);
-            toast.error('Failed to upload image');
+            toast.error(error?.message || 'Failed to upload image');
         } finally {
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -275,7 +304,10 @@ export default function AdminSpecialsPage() {
         <div className="p-8 flex flex-col h-screen space-y-7 overflow-hidden">
             <div className="flex justify-between items-center shrink-0">
                 <div>
-                    <h2 className="text-2xl font-black text-black tracking-tight">Today's Specials</h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-2xl font-black text-black tracking-tight">Today's Specials</h2>
+                        <SyncIndicator isRevalidating={isRevalidating} />
+                    </div>
                     <p className="text-sm font-medium text-black mt-1">Create and manage daily special offers, combos, and spotlight items.</p>
                 </div>
                 <button

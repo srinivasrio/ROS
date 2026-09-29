@@ -1,16 +1,44 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus as LucidePlus, Edit2 as LucideEdit2, Trash2 as LucideTrash2, Search as LucideSearch, IndianRupee as LucideIndianRupee, X as LucideX, GripVertical as LucideGripVertical, GripHorizontal as LucideGripHorizontal, AlertTriangle as LucideAlertTriangle, Camera as LucideCamera, Image as LucideImage } from 'lucide-react';
+import { 
+    Plus as LucidePlus, 
+    Edit2 as LucideEdit2, 
+    Trash2 as LucideTrash2, 
+    Search as LucideSearch, 
+    IndianRupee as LucideIndianRupee, 
+    X as LucideX, 
+    GripVertical as LucideGripVertical, 
+    GripHorizontal as LucideGripHorizontal, 
+    AlertTriangle as LucideAlertTriangle, 
+    Camera as LucideCamera, 
+    Image as LucideImage, 
+    Flame as LucideFlame,
+    Sparkles as LucideSparkles,
+    Tag as LucideTag,
+    Package as LucidePackage,
+    Calendar as LucideCalendar,
+    Percent as LucidePercent,
+    ToggleLeft as LucideToggleLeft,
+    ToggleRight as LucideToggleRight,
+    Loader2 as LucideLoader2,
+    Upload as LucideUpload,
+    Layers as LucideLayers
+} from 'lucide-react';
 import { motion, LayoutGroup } from 'framer-motion';
-import { MenuService, Category, MenuItem, SubCategory } from '@/app/services/menu';
-import { InventoryService, InventoryItem, InventoryCategory } from '@/app/services/inventory.service';
-import { RecipeService } from '@/app/services/recipe.service';
-import { compressImage, validateImageFile, CompressResult } from '@/app/lib/image-compress';
-import ConfirmationModal from '@/app/components/ui/ConfirmationModal';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { useRestaurant } from '@/app/context/RestaurantContext';
-import { getCached, setCache } from '@/app/lib/data-cache';
+import { toast } from 'sonner';
+import { MenuService, Category, MenuItem, SubCategory } from '@/services/menu.service';
+import { SpecialsService, TodaySpecial, CreateSpecialInput } from '@/services/specials.service';
+import { RestaurantService } from '@/services/restaurant.service';
+import { InventoryService, InventoryItem, InventoryCategory } from '@/services/inventory.service';
+import { RecipeService } from '@/services/recipe.service';
+import { compressImage, validateImageFile, CompressResult } from '@/lib/image-compress';
+import ConfirmationModal from '@/components/ui/ConfirmationModal';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { useRestaurant } from '@/context/RestaurantContext';
+import { getCached, setCache, clearCache, hasFreshCache, adminCacheManager } from '@/lib/data-cache';
+import { useParams } from 'next/navigation';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
 import {
     DndContext,
     closestCenter,
@@ -94,7 +122,7 @@ function SortableCategoryRow({
     } = useSortable({ id: category.id });
 
     const style = {
-        transform: CSS.Transform.toString(transform),
+        transform: CSS.Translate.toString(transform),
         transition,
         zIndex: isDragging ? 50 : 'auto',
         opacity: isDragging ? 0.5 : 1,
@@ -112,11 +140,8 @@ function SortableCategoryRow({
                 }`}
         >
             {isSelected && (
-                <motion.div
-                    layoutId="active-category"
-                    className="absolute inset-0 bg-blue-600 rounded-lg shadow-md shadow-blue-600/20"
-                    initial={false}
-                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                <div
+                    className="absolute inset-0 bg-blue-600 rounded-lg shadow-md shadow-blue-600/20 transition-all duration-150"
                 />
             )}
 
@@ -187,7 +212,7 @@ function SortableSubCategoryTab({
     } = useSortable({ id: subCategory.id });
 
     const style = {
-        transform: CSS.Transform.toString(transform),
+        transform: CSS.Translate.toString(transform),
         transition,
         zIndex: isDragging ? 50 : 'auto',
         opacity: isDragging ? 0.5 : 1,
@@ -242,7 +267,7 @@ function SortableMenuItemRow({
     } = useSortable({ id: item.id });
 
     const style = {
-        transform: CSS.Transform.toString(transform),
+        transform: CSS.Translate.toString(transform),
         transition,
         zIndex: isDragging ? 50 : 'auto',
         opacity: isDragging ? 0.5 : 1,
@@ -275,15 +300,49 @@ function SortableMenuItemRow({
                         )}
                     </div>
                     <div>
-                        <p className="font-bold text-black text-base leading-tight">{item.name}</p>
+                        <div className="flex items-center gap-2">
+                            <p className="font-bold text-black text-base leading-tight">{item.name}</p>
+                            {item.is_today_special && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-black uppercase">
+                                    <LucideFlame size={10} className="text-amber-600 fill-amber-500" />
+                                    Special
+                                </span>
+                            )}
+                        </div>
                         <p className="text-xs text-black mt-0.5 max-w-xs line-clamp-1">{item.description || 'No description'}</p>
                     </div>
                 </div>
             </td>
             <td className="px-6 py-4 font-bold text-black">
-                <div className="flex items-center">
-                    <LucideIndianRupee size={12} className="mr-0.5" />
-                    {item.price}
+                {item.is_today_special && item.special_price != null ? (
+                    <div>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-emerald-600 font-black flex items-center">
+                                <LucideIndianRupee size={12} className="mr-0.5" />
+                                {item.special_price}
+                            </span>
+                            <span className="text-slate-400 line-through text-xs font-semibold flex items-center">
+                                <LucideIndianRupee size={10} className="mr-0.2" />
+                                {item.price}
+                            </span>
+                        </div>
+                        {item.special_expiry_datetime && (
+                            <span className="text-[10px] text-amber-600 font-medium block mt-0.5">
+                                Exp: {new Date(item.special_expiry_datetime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                            </span>
+                        )}
+                    </div>
+                ) : (
+                    <div className="flex items-center">
+                        <LucideIndianRupee size={12} className="mr-0.5" />
+                        {item.price}
+                    </div>
+                )}
+                <div className="text-[11px] font-semibold text-slate-500 mt-1">
+                    GST {item.gst_percentage ?? item.tax_percent ?? 5}%
+                    <span className="text-[10px] text-slate-400 font-normal block">
+                        (CGST {item.cgst_percentage ?? (((item.gst_percentage ?? item.tax_percent ?? 5)) / 2)}% + SGST {item.sgst_percentage ?? (((item.gst_percentage ?? item.tax_percent ?? 5)) / 2)}%)
+                    </span>
                 </div>
             </td>
             <td className="px-6 py-4">
@@ -355,17 +414,46 @@ function SortableMenuItemRow({
 
 export default function MenuManagement() {
     // Initial Data Fetch
+    const params = useParams();
+    const urlRestaurantCode = (params?.restaurantCode as string) || '';
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
     const { businessType, featureFlags } = useRestaurant();
-    const cached = getCached<any>(`menu-${restaurantId}`);
+    const activeResId = restaurantId || urlRestaurantCode;
+    const cacheKey = `menu-${activeResId}`;
+    const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`menu-${urlRestaurantCode}`) : null);
     const [categories, setCategories] = useState<Category[]>(cached?.categories || []);
     const [items, setItems] = useState<MenuItem[]>(cached?.items || []);
     const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
+    const [specials, setSpecials] = useState<TodaySpecial[]>(cached?.specials || []);
 
     const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(cached?.selectedCategoryId || null);
     const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<number | null>(null);
+    const [selectedSpecialView, setSelectedSpecialView] = useState<'combos' | 'specials' | null>(null);
+    const [specialStatusFilter, setSpecialStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
-    const [loading, setLoading] = useState(!cached);
+    // Special / Combo Modal State
+    const [showSpecialModal, setShowSpecialModal] = useState(false);
+    const [specialModalType, setSpecialModalType] = useState<'combo' | 'special'>('combo');
+    const [editingSpecial, setEditingSpecial] = useState<TodaySpecial | null>(null);
+    const [specialFormTitle, setSpecialFormTitle] = useState('');
+    const [specialFormDesc, setSpecialFormDesc] = useState('');
+    const [specialFormPrice, setSpecialFormPrice] = useState('');
+    const [specialFormValidTo, setSpecialFormValidTo] = useState('');
+    const [specialFormImageUrl, setSpecialFormImageUrl] = useState('');
+    const [specialFormItems, setSpecialFormItems] = useState<Array<{ menu_item_id: number; quantity: number; name: string; price: number }>>([]);
+    const [specialItemSearch, setSpecialItemSearch] = useState('');
+    const [showSpecialItemDropdown, setShowSpecialItemDropdown] = useState(false);
+    const [isSavingSpecial, setIsSavingSpecial] = useState(false);
+    const [isUploadingSpecialImage, setIsUploadingSpecialImage] = useState(false);
+    const specialImageInputRef = useRef<HTMLInputElement>(null);
+
+    // Special category images state
+    const [specialCategoryImages, setSpecialCategoryImages] = useState<{ combos?: string; specials?: string }>({});
+    const [uploadingSpecialCatType, setUploadingSpecialCatType] = useState<'combos' | 'specials' | null>(null);
+    const specialCatImageInputRef = useRef<HTMLInputElement>(null);
+
+    const [loading, setLoading] = useState(!cached && items.length === 0);
+    const [isRevalidating, setIsRevalidating] = useState(false);
 
     // Active Tab for Restaurant+Bar (Food vs Liquor)
     const [activeMenuTab, setActiveMenuTab] = useState<'food' | 'alcohol'>(
@@ -432,6 +520,8 @@ export default function MenuManagement() {
     const [categoryImagePreview, setCategoryImagePreview] = useState<string | null>(null);
     const [uploadingCategoryId, setUploadingCategoryId] = useState<number | null>(null);
 
+    const [restaurantGst, setRestaurantGst] = useState<{ gst: number; cgst: number; sgst: number }>({ gst: 5, cgst: 2.5, sgst: 2.5 });
+
     // Form State
     const [newItem, setNewItem] = useState({
         name: '',
@@ -441,7 +531,10 @@ export default function MenuManagement() {
         subCategoryId: '',
         itemType: 'Veg', // Default
         preparationTime: '15',
-        taxPercent: '0',
+        taxPercent: '5',
+        gstPercentage: '5',
+        cgstPercentage: '2.5',
+        sgstPercentage: '2.5',
         isAvailable: true,
         isPopular: false,
         active: true,
@@ -449,33 +542,35 @@ export default function MenuManagement() {
         menuItemType: 'food' as 'food' | 'alcohol',
         priceVariants: [] as Array<{ name: string; price: string }>,
         stockMl: '',
-        ingredients: [] as Array<{ inventory_item_id: string; quantity_required: string; unit?: string }>
+        ingredients: [] as Array<{ inventory_item_id: string; quantity_required: string; unit?: string }>,
+        is_today_special: false,
+        special_price: '',
+        special_expiry_datetime: ''
     });
 
     useEffect(() => {
         if (!restaurantLoading) {
-            loadData();
+            loadData(false);
         }
     }, [restaurantId, restaurantLoading]);
 
-    // Load subcategories when category changes
+    const displayCategories = categories.filter(cat => {
+        if (businessType === 'restaurant') return cat.category_type === 'food';
+        if (businessType === 'bar') return cat.category_type === 'alcohol';
+        return cat.category_type === activeMenuTab;
+    });
+
+    // Sync selected category when category list changes
     useEffect(() => {
-        if (categories.length > 0) {
-            const filtered = categories.filter(cat => {
-                if (businessType === 'restaurant') return cat.category_type === 'food';
-                if (businessType === 'bar') return cat.category_type === 'alcohol';
-                return cat.category_type === activeMenuTab;
-            });
-            if (filtered.length > 0) {
-                // If current selected category is not in the filtered list, select the first one
-                if (!filtered.find(c => c.id === selectedCategoryId)) {
-                    setSelectedCategoryId(filtered[0].id);
-                }
-            } else {
-                setSelectedCategoryId(null);
+        if (selectedSpecialView) return;
+        if (displayCategories.length > 0) {
+            if (!selectedCategoryId || !displayCategories.some(c => c.id === selectedCategoryId)) {
+                setSelectedCategoryId(displayCategories[0].id);
             }
+        } else {
+            setSelectedCategoryId(null);
         }
-    }, [activeMenuTab, businessType, categories]);
+    }, [categories, activeMenuTab, businessType, selectedSpecialView]);
 
     useEffect(() => {
         if (selectedCategoryId) {
@@ -486,32 +581,75 @@ export default function MenuManagement() {
         }
     }, [selectedCategoryId]);
 
-    const loadData = async () => {
-        if (!restaurantId) return;
+    const loadData = async (force = false) => {
+        const targetResId = restaurantId || urlRestaurantCode;
+        if (!targetResId) return;
+        const menuCacheKey = `menu-${targetResId}`;
+
+        if (!force && hasFreshCache(menuCacheKey)) {
+            const cachedData = getCached<any>(menuCacheKey);
+            if (cachedData) {
+                if (cachedData.categories) setCategories(cachedData.categories);
+                if (cachedData.items) setItems(cachedData.items);
+                if (cachedData.specials) setSpecials(cachedData.specials);
+                if (cachedData.specialCategoryImages) setSpecialCategoryImages(cachedData.specialCategoryImages);
+                if (cachedData.selectedCategoryId && !selectedCategoryId && !selectedSpecialView) {
+                    setSelectedCategoryId(cachedData.selectedCategoryId);
+                }
+                setLoading(false);
+                return;
+            }
+        }
+
+        setIsRevalidating(true);
         try {
-            const [cats, menuItems, invItems, invCats] = await Promise.all([
-                MenuService.fetchCategories(restaurantId),
-                MenuService.fetchMenuItems(restaurantId),
-                InventoryService.fetchItems(restaurantId),
-                InventoryService.fetchCategories(restaurantId)
+            const [cats, menuItems, invItems, invCats, gstConfig, allSpecials, specialCatImgs] = await Promise.all([
+                MenuService.fetchCategories(targetResId),
+                MenuService.fetchMenuItems(targetResId),
+                InventoryService.fetchItems(targetResId),
+                InventoryService.fetchCategories(targetResId),
+                RestaurantService.getGstSettings(targetResId),
+                SpecialsService.fetchAllSpecials(targetResId),
+                SpecialsService.getSpecialCategoryImages(targetResId)
             ]);
             setCategories(cats);
             setItems(menuItems);
             setInventoryItems(invItems);
             setInventoryCategories(invCats);
-            if (cats.length > 0 && !selectedCategoryId) {
+            setSpecials(allSpecials || []);
+            if (specialCatImgs) {
+                setSpecialCategoryImages(specialCatImgs);
+            }
+            if (gstConfig) {
+                setRestaurantGst({
+                    gst: gstConfig.gst_percentage,
+                    cgst: gstConfig.cgst_percentage,
+                    sgst: gstConfig.sgst_percentage
+                });
+            }
+            if (cats.length > 0 && !selectedCategoryId && !selectedSpecialView) {
                 setSelectedCategoryId(cats[0].id);
             }
             // Cache for instant display on next visit
-            setCache(`menu-${restaurantId}`, {
+            const payload = {
                 categories: cats,
                 items: menuItems,
+                inventoryItems: invItems,
+                inventoryCategories: invCats,
+                specials: allSpecials || [],
+                specialCategoryImages: specialCatImgs || {},
                 selectedCategoryId: selectedCategoryId || (cats.length > 0 ? cats[0].id : null)
-            });
+            };
+            setCache(menuCacheKey, payload);
+            if (restaurantId && urlRestaurantCode && restaurantId !== urlRestaurantCode) {
+                setCache(`menu-${restaurantId}`, payload);
+                setCache(`menu-${urlRestaurantCode}`, payload);
+            }
         } catch (error) {
             console.error('Error loading menu data:', error);
         } finally {
             setLoading(false);
+            setIsRevalidating(false);
         }
     };
 
@@ -534,7 +672,7 @@ export default function MenuManagement() {
             if (categoryImageFile) {
                 try {
                     const compressed = await compressImage(categoryImageFile);
-                    catImageUrl = await MenuService.uploadMenuImage(compressed.file);
+                    catImageUrl = await MenuService.uploadMenuImage(compressed.file, undefined, restaurantId || undefined);
                 } catch (imgErr) {
                     console.error('Category image upload failed:', imgErr);
                 }
@@ -547,7 +685,7 @@ export default function MenuManagement() {
             loadData();
         } catch (error: any) {
             console.error('Error adding category:', error);
-            const errMsg = error?.message || error?.details || JSON.stringify(error) || 'Unknown error';
+            const errMsg = error?.message || error?.details || error?.hint || (error instanceof Error ? error.message : (typeof error === 'object' && Object.keys(error).length > 0 ? JSON.stringify(error) : String(error))) || 'Unknown error';
             setConfirmModal({ isOpen: true, title: 'Error', message: `Failed to add category: ${errMsg}`, isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
         }
     };
@@ -566,7 +704,7 @@ export default function MenuManagement() {
         }
         try {
             const compressed = await compressImage(file);
-            const imageUrl = await MenuService.uploadMenuImage(compressed.file, uploadingCategoryId);
+            const imageUrl = await MenuService.uploadMenuImage(compressed.file, uploadingCategoryId, restaurantId || undefined);
             await MenuService.updateCategoryImage(uploadingCategoryId, restaurantId!, imageUrl);
             loadData();
         } catch (err) {
@@ -574,6 +712,48 @@ export default function MenuManagement() {
             setConfirmModal({ isOpen: true, title: 'Error', message: 'Failed to upload category image', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
         } finally {
             setUploadingCategoryId(null);
+        }
+    };
+
+    const triggerSpecialCategoryUpload = (type: 'combos' | 'specials') => {
+        setUploadingSpecialCatType(type);
+        specialCatImageInputRef.current?.click();
+    };
+
+    const processSpecialCategoryImageUpload = async (file: File) => {
+        if (!uploadingSpecialCatType) return;
+        const type = uploadingSpecialCatType;
+        const validationError = validateImageFile(file);
+        if (validationError) {
+            setConfirmModal({
+                isOpen: true,
+                title: 'Invalid Image',
+                message: validationError,
+                isAlert: true,
+                isSuperDestructive: false,
+                confirmText: 'OK',
+                onConfirm: () => { }
+            });
+            return;
+        }
+
+        try {
+            toast.loading(`Uploading ${type === 'combos' ? 'Combos & Offers' : "Today's Specials"} category image...`, { id: 'special-cat-upload' });
+            const compressed = await compressImage(file);
+            const imageUrl = await MenuService.uploadMenuImage(compressed.file, undefined, restaurantId || undefined);
+            const success = await SpecialsService.updateSpecialCategoryImage(restaurantId!, type, imageUrl);
+            if (success) {
+                setSpecialCategoryImages(prev => ({ ...prev, [type]: imageUrl }));
+                toast.success(`${type === 'combos' ? 'Combos & Offers' : "Today's Specials"} category image updated!`, { id: 'special-cat-upload' });
+                loadData(true);
+            } else {
+                throw new Error('Failed to update category image in database');
+            }
+        } catch (err: any) {
+            console.error('Special category image upload failed:', err);
+            toast.error(`Failed to upload ${type} category image: ${err?.message || 'Unknown error'}`, { id: 'special-cat-upload' });
+        } finally {
+            setUploadingSpecialCatType(null);
         }
     };
 
@@ -594,13 +774,27 @@ export default function MenuManagement() {
 
     const handleSaveItem = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!newItem.name.trim()) {
+            setConfirmModal({ isOpen: true, title: 'Validation Error', message: 'Item name is required', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
+            return;
+        }
+        if (!newItem.categoryId) {
+            setConfirmModal({ isOpen: true, title: 'Validation Error', message: 'Please select a category for this item', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
+            return;
+        }
+        if (!restaurantId) {
+            setConfirmModal({ isOpen: true, title: 'Error', message: 'Restaurant ID not found', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
+            return;
+        }
+
         try {
             // Upload image if a new file was selected
             let uploadedImageUrl: string | undefined;
             if (imageFile) {
                 setImageUploading(true);
                 try {
-                    uploadedImageUrl = await MenuService.uploadMenuImage(imageFile, editingId || undefined);
+                    uploadedImageUrl = await MenuService.uploadMenuImage(imageFile, editingId || undefined, restaurantId || undefined);
                 } catch (uploadErr) {
                     console.error('Image upload failed:', uploadErr);
                     setConfirmModal({ isOpen: true, title: 'Warning', message: 'Image upload failed, but the item will be saved without image.', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
@@ -609,12 +803,15 @@ export default function MenuManagement() {
                 }
             }
 
+            const parsedCatId = parseInt(newItem.categoryId);
+            const parsedSubCatId = newItem.subCategoryId ? parseInt(newItem.subCategoryId) : undefined;
+
             const itemPayload: Record<string, any> = {
-                name: newItem.name,
+                name: newItem.name.trim(),
                 price: parseFloat(newItem.price) || 0,
-                description: newItem.description,
-                category_id: parseInt(newItem.categoryId),
-                sub_category_id: newItem.subCategoryId ? parseInt(newItem.subCategoryId) : undefined,
+                description: newItem.description?.trim() || null,
+                category_id: parsedCatId,
+                sub_category_id: parsedSubCatId && !isNaN(parsedSubCatId) ? parsedSubCatId : null,
                 item_type: newItem.itemType as 'Veg' | 'Non-Veg' | 'Egg',
                 is_veg: newItem.itemType === 'Veg',
                 is_available: newItem.isAvailable,
@@ -622,12 +819,18 @@ export default function MenuManagement() {
                 active: newItem.active,
                 rating: newItem.rating,
                 preparation_time: parseInt(newItem.preparationTime) || 15,
-                tax_percent: parseFloat(newItem.taxPercent) || 0,
+                tax_percent: parseFloat(newItem.gstPercentage) || 0,
+                gst_percentage: parseFloat(newItem.gstPercentage) || 0,
+                cgst_percentage: parseFloat(newItem.cgstPercentage) || 0,
+                sgst_percentage: parseFloat(newItem.sgstPercentage) || 0,
                 restaurant_id: restaurantId,
                 menu_item_type: newItem.menuItemType,
                 price_variants: newItem.menuItemType === 'alcohol' ? newItem.priceVariants.map(v => ({ name: v.name, price: parseFloat(v.price) })) : null,
-                stock_ml: newItem.menuItemType === 'alcohol' ? parseFloat(newItem.stockMl) : null,
-                image_url: uploadedImageUrl || (isEditing ? items.find(i => i.id === editingId)?.image_url : undefined)
+                stock_ml: newItem.menuItemType === 'alcohol' && newItem.stockMl ? parseFloat(newItem.stockMl) : null,
+                image_url: uploadedImageUrl || (isEditing ? items.find(i => i.id === editingId)?.image_url : undefined),
+                is_today_special: newItem.is_today_special,
+                special_price: newItem.is_today_special && newItem.special_price ? parseFloat(newItem.special_price) : null,
+                special_expiry_datetime: newItem.is_today_special && newItem.special_expiry_datetime ? new Date(newItem.special_expiry_datetime).toISOString() : null
             };
 
             const parsedIngredients = newItem.ingredients.map(ing => {
@@ -653,9 +856,18 @@ export default function MenuManagement() {
             setShowAddModal(false);
             resetForm();
             loadData();
-        } catch (error) {
-            console.error('Error saving item:', error);
-            setConfirmModal({ isOpen: true, title: 'Error', message: 'Failed to save item', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
+        } catch (error: any) {
+            console.error('Error saving item:', error?.message || error?.details || error);
+            const errMsg = error?.message || error?.details || error?.hint || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+            setConfirmModal({ 
+                isOpen: true, 
+                title: 'Error Saving Item', 
+                message: errMsg || 'Failed to save item. Please check all fields and try again.', 
+                isAlert: true, 
+                isSuperDestructive: false, 
+                confirmText: 'OK', 
+                onConfirm: () => { } 
+            });
         }
     };
 
@@ -665,12 +877,19 @@ export default function MenuManagement() {
             title: 'Delete Menu Item',
             message: 'Are you sure you want to delete this item? This action cannot be undone.',
             onConfirm: async () => {
+                const previousItems = items;
+                // Optimistic UI update: instantly remove from screen and close modal
+                setItems(prev => prev.filter(i => i.id !== id));
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                if (restaurantId) clearCache(`menu-${restaurantId}`);
+
                 try {
                     await MenuService.deleteMenuItem(id, restaurantId!);
-                    setItems(items.filter(i => i.id !== id));
-                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
                 } catch (error) {
                     console.error('Error deleting item:', error);
+                    // Revert on error
+                    setItems(previousItems);
+                    if (restaurantId) clearCache(`menu-${restaurantId}`);
                     setConfirmModal({ isOpen: true, title: 'Error', message: 'Failed to delete item', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
                 }
             }
@@ -684,23 +903,44 @@ export default function MenuManagement() {
             title: 'Delete Subcategory',
             message: 'Are you sure? Items in this subcategory will become uncategorized within the main category.',
             onConfirm: async () => {
+                const previousSubCats = subCategories;
+                const previousItems = items;
+                // Optimistic update
+                setSubCategories(prev => prev.filter(s => s.id !== id));
+                setItems(prev => prev.map(item => item.sub_category_id === id ? { ...item, sub_category_id: undefined } : item));
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                if (restaurantId) clearCache(`menu-${restaurantId}`);
+
                 try {
                     await MenuService.deleteSubCategory(id, restaurantId!);
-                    if (selectedCategoryId) loadSubCategories(selectedCategoryId);
-                    // Reload items to update their references
-                    loadData();
-                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
                 } catch (error) {
                     console.error('Error deleting subcategory:', error);
+                    setSubCategories(previousSubCats);
+                    setItems(previousItems);
+                    if (restaurantId) clearCache(`menu-${restaurantId}`);
+                    setConfirmModal({ isOpen: true, title: 'Error', message: 'Failed to delete subcategory', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
                 }
             }
         });
+    };
+
+    const formatToDatetimeLocal = (dateString?: string | null) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return '';
+        const tzoffset = date.getTimezoneOffset() * 60000;
+        const localISOTime = (new Date(date.getTime() - tzoffset)).toISOString().slice(0, 16);
+        return localISOTime;
     };
 
     const handleEditItem = async (item: MenuItem) => {
         // Fetch existing recipe mappings
         try {
             const mappings = await RecipeService.fetchMappingsForMenuItem(item.id, restaurantId!);
+            const itemGst = item.gst_percentage != null ? item.gst_percentage : (item.tax_percent != null ? item.tax_percent : restaurantGst.gst);
+            const itemCgst = item.cgst_percentage != null ? item.cgst_percentage : (itemGst / 2);
+            const itemSgst = item.sgst_percentage != null ? item.sgst_percentage : (itemGst / 2);
+
             setNewItem({
                 name: item.name,
                 price: item.price.toString(),
@@ -709,7 +949,10 @@ export default function MenuManagement() {
                 subCategoryId: item.sub_category_id?.toString() || '',
                 itemType: item.item_type || (item.is_veg ? 'Veg' : 'Non-Veg'),
                 preparationTime: (item.preparation_time || 15).toString(),
-                taxPercent: (item.tax_percent || 0).toString(),
+                taxPercent: itemGst.toString(),
+                gstPercentage: itemGst.toString(),
+                cgstPercentage: itemCgst.toString(),
+                sgstPercentage: itemSgst.toString(),
                 isAvailable: item.is_available,
                 isPopular: item.is_popular || false,
                 active: item.active !== undefined ? item.active : true,
@@ -721,7 +964,10 @@ export default function MenuManagement() {
                     inventory_item_id: m.inventory_item_id,
                     quantity_required: m.quantity_required.toString(),
                     unit: m.inventory_item?.unit || ''
-                }))
+                })),
+                is_today_special: !!item.is_today_special,
+                special_price: item.special_price?.toString() || '',
+                special_expiry_datetime: formatToDatetimeLocal(item.special_expiry_datetime)
             });
             // Load existing image
             setImagePreview(item.image_url || null);
@@ -738,10 +984,17 @@ export default function MenuManagement() {
     const resetForm = () => {
         setNewItem({
             name: '', price: '', description: '', categoryId: '', subCategoryId: '',
-            itemType: 'Veg', preparationTime: '15', taxPercent: '0', 
+            itemType: 'Veg', preparationTime: '15', 
+            taxPercent: restaurantGst.gst.toString(),
+            gstPercentage: restaurantGst.gst.toString(),
+            cgstPercentage: restaurantGst.cgst.toString(),
+            sgstPercentage: restaurantGst.sgst.toString(),
             isAvailable: true, isPopular: false, active: true, rating: 4.5,
             menuItemType: 'food', priceVariants: [], stockMl: '',
-            ingredients: []
+            ingredients: [],
+            is_today_special: false,
+            special_price: '',
+            special_expiry_datetime: ''
         });
         setImageFile(null);
         setImagePreview(null);
@@ -793,6 +1046,321 @@ export default function MenuManagement() {
         return acc;
     }, {} as Record<number, number>);
 
+    // Combos & Specials Derivations
+    const combosList = specials.filter(s => s.is_combo || s.special_type === 'combo');
+    const specialsList = specials.filter(s => !s.is_combo && s.special_type !== 'combo');
+    const standaloneMenuItemSpecials = items.filter(i => 
+        i.is_today_special && !specialsList.some(s => s.items?.some(it => it.menu_item_id === i.id))
+    );
+    const totalSpecialsCount = specialsList.length + standaloneMenuItemSpecials.length;
+
+    const comboDisplayImage = specialCategoryImages.combos || combosList.find(c => Boolean(c.image_url))?.image_url || '/menu/tandoori-chicken.jpeg';
+    const specialsDisplayImage = specialCategoryImages.specials || specialsList.find(s => Boolean(s.image_url))?.image_url || standaloneMenuItemSpecials.find(s => Boolean(s.image_url))?.image_url || '/menu/chicken-tikka.jpeg';
+
+    // Filter combos based on search and status
+    const filteredCombos = combosList.filter((combo) => {
+        const q = searchQuery.toLowerCase();
+        const matchesSearch = !q ||
+            combo.title.toLowerCase().includes(q) ||
+            (combo.description?.toLowerCase().includes(q) || false) ||
+            (combo.items?.some(it => it.menu_item?.name.toLowerCase().includes(q)) || false);
+
+        const matchesStatus = specialStatusFilter === 'all'
+            ? true
+            : specialStatusFilter === 'active'
+                ? combo.is_active
+                : !combo.is_active;
+
+        return matchesSearch && matchesStatus;
+    });
+
+    // Filter specials based on search and status
+    const filteredSpecials = specialsList.filter((sp) => {
+        const q = searchQuery.toLowerCase();
+        const matchesSearch = !q ||
+            sp.title.toLowerCase().includes(q) ||
+            (sp.description?.toLowerCase().includes(q) || false) ||
+            (sp.items?.some(it => it.menu_item?.name.toLowerCase().includes(q)) || false);
+
+        const matchesStatus = specialStatusFilter === 'all'
+            ? true
+            : specialStatusFilter === 'active'
+                ? sp.is_active
+                : !sp.is_active;
+
+        return matchesSearch && matchesStatus;
+    });
+
+    const filteredStandaloneSpecials = standaloneMenuItemSpecials.filter((item) => {
+        const q = searchQuery.toLowerCase();
+        const matchesSearch = !q ||
+            item.name.toLowerCase().includes(q) ||
+            (item.description?.toLowerCase().includes(q) || false);
+
+        const matchesStatus = specialStatusFilter === 'all'
+            ? true
+            : specialStatusFilter === 'active'
+                ? item.is_available
+                : !item.is_available;
+
+        return matchesSearch && matchesStatus;
+    });
+
+    // Calculations for Modal
+    const specialOriginalTotal = specialFormItems.reduce((sum, it) => sum + (it.price * it.quantity), 0);
+    const parsedSpecialPrice = parseFloat(specialFormPrice) || 0;
+    const specialSavings = specialOriginalTotal > parsedSpecialPrice ? (specialOriginalTotal - parsedSpecialPrice) : 0;
+    const specialDiscountPercent = specialOriginalTotal > 0 && specialSavings > 0
+        ? Math.round((specialSavings / specialOriginalTotal) * 100)
+        : 0;
+
+    // Handlers for Specials and Combos
+    const handleToggleSpecial = async (special: TodaySpecial) => {
+        const targetResId = restaurantId || urlRestaurantCode;
+        if (!targetResId) return;
+        const nextActive = !special.is_active;
+        // Optimistic UI update
+        setSpecials(prev => prev.map(s => s.id === special.id ? { ...s, is_active: nextActive } : s));
+        try {
+            const success = await SpecialsService.toggleSpecialActive(special.id, targetResId, nextActive);
+            if (success) {
+                toast.success(nextActive ? 'Special activated' : 'Special deactivated');
+            } else {
+                setSpecials(prev => prev.map(s => s.id === special.id ? { ...s, is_active: !nextActive } : s));
+                toast.error('Failed to update status');
+            }
+        } catch (err) {
+            setSpecials(prev => prev.map(s => s.id === special.id ? { ...s, is_active: !nextActive } : s));
+            toast.error('Failed to update status');
+        }
+    };
+
+    const handleDeleteSpecial = (special: TodaySpecial) => {
+        const targetResId = restaurantId || urlRestaurantCode;
+        if (!targetResId) return;
+        const isCombo = special.is_combo || special.special_type === 'combo';
+        setConfirmModal({
+            isOpen: true,
+            title: isCombo ? 'Delete Combo Offer' : "Delete Today's Special",
+            message: `Are you sure you want to delete "${special.title}"? This cannot be undone.`,
+            isSuperDestructive: true,
+            confirmText: 'Delete',
+            onConfirm: async () => {
+                setSpecials(prev => prev.filter(s => s.id !== special.id));
+                const success = await SpecialsService.deleteSpecial(special.id, targetResId);
+                if (success) {
+                    toast.success(isCombo ? 'Combo deleted' : 'Special deleted');
+                    loadData(true);
+                } else {
+                    toast.error('Failed to delete');
+                    loadData(true);
+                }
+            }
+        });
+    };
+
+    const handleRemoveStandaloneSpecial = (item: MenuItem) => {
+        const targetResId = restaurantId || urlRestaurantCode;
+        if (!targetResId) return;
+        setConfirmModal({
+            isOpen: true,
+            title: "Remove from Today's Specials",
+            message: `Are you sure you want to remove "${item.name}" from Today's Specials?`,
+            confirmText: 'Remove',
+            onConfirm: async () => {
+                try {
+                    await MenuService.updateMenuItem(item.id, targetResId, {
+                        is_today_special: false,
+                        special_price: null,
+                        special_expiry_datetime: null
+                    });
+                    toast.success('Removed from specials');
+                    loadData(true);
+                } catch (err) {
+                    toast.error('Failed to remove from specials');
+                }
+            }
+        });
+    };
+
+    const openCreateSpecialModal = (type: 'combo' | 'special') => {
+        setSpecialModalType(type);
+        setEditingSpecial(null);
+        setSpecialFormTitle('');
+        setSpecialFormDesc('');
+        setSpecialFormPrice('');
+        setSpecialFormValidTo('');
+        setSpecialFormImageUrl('');
+        setSpecialFormItems([]);
+        setSpecialItemSearch('');
+        setShowSpecialItemDropdown(false);
+        setShowSpecialModal(true);
+    };
+
+    const openEditSpecialModal = (special: TodaySpecial) => {
+        const isCombo = special.is_combo || special.special_type === 'combo';
+        setSpecialModalType(isCombo ? 'combo' : 'special');
+        setEditingSpecial(special);
+        setSpecialFormTitle(special.title);
+        setSpecialFormDesc(special.description || '');
+        setSpecialFormPrice(special.special_price != null ? special.special_price.toString() : '');
+        setSpecialFormValidTo(special.valid_to ? new Date(special.valid_to).toISOString().slice(0, 16) : '');
+        setSpecialFormImageUrl(special.image_url || '');
+        setSpecialFormItems(
+            (special.items || []).map(si => ({
+                menu_item_id: si.menu_item_id,
+                quantity: si.quantity,
+                name: si.menu_item?.name || 'Item',
+                price: si.menu_item?.price || 0
+            }))
+        );
+        setSpecialItemSearch('');
+        setShowSpecialItemDropdown(false);
+        setShowSpecialModal(true);
+    };
+
+    const handleSpecialImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const validationError = validateImageFile(file);
+        if (validationError) {
+            toast.error(validationError);
+            return;
+        }
+
+        setIsUploadingSpecialImage(true);
+        try {
+            const compressed = await compressImage(file);
+            const uploadedUrl = await MenuService.uploadMenuImage(compressed.file, undefined, restaurantId || urlRestaurantCode || undefined);
+            setSpecialFormImageUrl(uploadedUrl);
+            toast.success('Image uploaded successfully');
+        } catch (error: any) {
+            console.error('Upload failed:', error);
+            toast.error(error?.message || 'Failed to upload image');
+        } finally {
+            setIsUploadingSpecialImage(false);
+            if (specialImageInputRef.current) specialImageInputRef.current.value = '';
+        }
+    };
+
+    const addMenuItemToSpecial = (item: MenuItem) => {
+        if (specialModalType === 'special') {
+            setSpecialFormItems([
+                {
+                    menu_item_id: item.id,
+                    quantity: 1,
+                    name: item.name,
+                    price: item.price
+                }
+            ]);
+            if (!specialFormTitle || specialFormTitle === specialFormItems[0]?.name) {
+                setSpecialFormTitle(item.name);
+            }
+            if (!specialFormImageUrl && item.image_url) {
+                setSpecialFormImageUrl(item.image_url);
+            }
+        } else {
+            if (specialFormItems.some(i => i.menu_item_id === item.id)) {
+                toast.error('Item already added to combo');
+                return;
+            }
+            setSpecialFormItems(prev => [
+                ...prev,
+                {
+                    menu_item_id: item.id,
+                    quantity: 1,
+                    name: item.name,
+                    price: item.price
+                }
+            ]);
+        }
+        setSpecialItemSearch('');
+        setShowSpecialItemDropdown(false);
+    };
+
+    const updateSpecialItemQuantity = (menuItemId: number, delta: number) => {
+        setSpecialFormItems(prev =>
+            prev.map(i => {
+                if (i.menu_item_id === menuItemId) {
+                    const newQty = Math.max(1, i.quantity + delta);
+                    return { ...i, quantity: newQty };
+                }
+                return i;
+            })
+        );
+    };
+
+    const removeSpecialItem = (menuItemId: number) => {
+        setSpecialFormItems(prev => prev.filter(i => i.menu_item_id !== menuItemId));
+    };
+
+    const handleSaveSpecial = async () => {
+        if (!specialFormTitle.trim()) {
+            toast.error('Please enter a title');
+            return;
+        }
+        if (specialFormItems.length === 0) {
+            toast.error('Please add at least one dish');
+            return;
+        }
+        const targetResId = restaurantId || urlRestaurantCode;
+        if (!targetResId) {
+            toast.error('Restaurant ID missing');
+            return;
+        }
+
+        setIsSavingSpecial(true);
+        try {
+            const isCombo = specialModalType === 'combo';
+            const parsedPrice = specialFormPrice ? parseFloat(specialFormPrice) : undefined;
+            const input: CreateSpecialInput = {
+                restaurant_id: targetResId,
+                title: specialFormTitle.trim(),
+                description: specialFormDesc.trim() || undefined,
+                special_price: parsedPrice,
+                is_combo: isCombo,
+                special_type: isCombo ? 'combo' : 'single',
+                valid_to: specialFormValidTo ? new Date(specialFormValidTo).toISOString() : undefined,
+                items: specialFormItems.map(s => ({ menu_item_id: s.menu_item_id, quantity: s.quantity })),
+                image_url: specialFormImageUrl.trim() || undefined
+            };
+
+            if (editingSpecial) {
+                const success = await SpecialsService.updateSpecial(editingSpecial.id, targetResId, {
+                    title: input.title,
+                    description: input.description,
+                    special_price: input.special_price,
+                    is_combo: input.is_combo,
+                    valid_to: input.valid_to,
+                    image_url: input.image_url
+                } as any);
+
+                if (success) {
+                    await SpecialsService.updateSpecialItems(editingSpecial.id, targetResId, input.items);
+                    toast.success(isCombo ? 'Combo updated successfully' : 'Special updated successfully');
+                } else {
+                    toast.error('Failed to update');
+                }
+            } else {
+                const result = await SpecialsService.createSpecial(targetResId, input);
+                if (result) {
+                    toast.success(isCombo ? 'Combo created successfully' : 'Special created successfully');
+                } else {
+                    toast.error('Failed to create');
+                }
+            }
+
+            setShowSpecialModal(false);
+            await loadData(true);
+        } catch (err: any) {
+            console.error('Error saving special/combo:', err);
+            toast.error(err?.message || 'Error occurred while saving');
+        } finally {
+            setIsSavingSpecial(false);
+        }
+    };
+
     const handleDeleteCategory = async (id: number, e: React.MouseEvent) => {
         e.stopPropagation();
 
@@ -806,16 +1374,28 @@ export default function MenuManagement() {
             title: count > 0 ? 'Delete Category & Items' : 'Delete Category',
             message: message,
             onConfirm: async () => {
+                const previousCategories = categories;
+                const previousItems = items;
+                const newCats = categories.filter(c => c.id !== id);
+                const remainingDisplayCats = displayCategories.filter(c => c.id !== id);
+
+                // Optimistic UI update: instantly update sidebar categories, items, and close modal
+                setCategories(newCats);
+                setItems(prev => prev.filter(i => i.category_id !== id));
+                if (selectedCategoryId === id) {
+                    setSelectedCategoryId(remainingDisplayCats.length > 0 ? remainingDisplayCats[0].id : null);
+                }
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                if (restaurantId) clearCache(`menu-${restaurantId}`);
+
                 try {
                     await MenuService.deleteCategory(id, restaurantId!);
-                    const newCats = categories.filter(c => c.id !== id);
-                    setCategories(newCats);
-                    if (selectedCategoryId === id) {
-                        setSelectedCategoryId(newCats.length > 0 ? newCats[0].id : null);
-                    }
-                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
                 } catch (error) {
                     console.error('Error deleting category:', error);
+                    // Revert on failure
+                    setCategories(previousCategories);
+                    setItems(previousItems);
+                    if (restaurantId) clearCache(`menu-${restaurantId}`);
                     setConfirmModal({ isOpen: true, title: 'Error', message: 'Failed to delete category', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
                 }
             }
@@ -903,14 +1483,20 @@ export default function MenuManagement() {
                     {businessType === 'restaurant_bar' && (
                         <div className="flex bg-neutral-200/50 p-1 rounded-xl">
                             <button
-                                onClick={() => setActiveMenuTab('food')}
-                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeMenuTab === 'food' ? 'bg-white text-blue-600 shadow-sm' : 'text-black hover:text-black'}`}
+                                onClick={() => {
+                                    setActiveMenuTab('food');
+                                    setSelectedSpecialView(null);
+                                }}
+                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeMenuTab === 'food' && !selectedSpecialView ? 'bg-white text-blue-600 shadow-sm' : 'text-black hover:text-black'}`}
                             >
                                 Food
                             </button>
                             <button
-                                onClick={() => setActiveMenuTab('alcohol')}
-                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeMenuTab === 'alcohol' ? 'bg-white text-blue-600 shadow-sm' : 'text-black hover:text-black'}`}
+                                onClick={() => {
+                                    setActiveMenuTab('alcohol');
+                                    setSelectedSpecialView(null);
+                                }}
+                                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeMenuTab === 'alcohol' && !selectedSpecialView ? 'bg-white text-blue-600 shadow-sm' : 'text-black hover:text-black'}`}
                             >
                                 Liquor
                             </button>
@@ -930,6 +1516,141 @@ export default function MenuManagement() {
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-3 space-y-0.5">
+                    {/* Offers & Specials Navigation Section */}
+                    <div className="space-y-1 pb-2.5 mb-2 border-b border-neutral-200">
+                        {/* Combos & Offers */}
+                        <div
+                            onClick={() => {
+                                setSelectedSpecialView('combos');
+                                setSelectedCategoryId(null);
+                                setSelectedSubCategoryId(null);
+                            }}
+                            className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
+                                selectedSpecialView === 'combos'
+                                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                                    : 'text-neutral-700 hover:bg-purple-50/80 hover:text-purple-700'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2.5 truncate">
+                                <div
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        triggerSpecialCategoryUpload('combos');
+                                    }}
+                                    title="Click to change Combo Category image"
+                                    className={`size-7 p-0.5 rounded-lg flex items-center justify-center relative overflow-hidden group/img cursor-pointer flex-shrink-0 transition-all ${
+                                        selectedSpecialView === 'combos' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-600'
+                                    }`}
+                                >
+                                    {comboDisplayImage ? (
+                                        <>
+                                            <img src={comboDisplayImage} alt="Combos" className="w-full h-full object-cover rounded-md" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
+                                                <LucideCamera size={11} className="text-white drop-shadow" />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <LucideSparkles size={14} className="group-hover/img:opacity-0 transition-opacity" />
+                                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
+                                                <LucideCamera size={11} className="text-white drop-shadow" />
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                                <span className="font-bold text-[13px] truncate">Combos & Offers</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        triggerSpecialCategoryUpload('combos');
+                                    }}
+                                    title="Change Combo Category Image"
+                                    className={`p-1 rounded-md transition-opacity opacity-0 group-hover:opacity-100 ${
+                                        selectedSpecialView === 'combos' ? 'hover:bg-white/20 text-white' : 'hover:bg-purple-100 text-purple-600'
+                                    }`}
+                                >
+                                    <LucideCamera size={12} />
+                                </button>
+                                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                                    selectedSpecialView === 'combos'
+                                        ? 'bg-white/20 text-white'
+                                        : 'bg-purple-100 text-purple-700'
+                                }`}>
+                                    {combosList.length}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Today's Specials */}
+                        <div
+                            onClick={() => {
+                                setSelectedSpecialView('specials');
+                                setSelectedCategoryId(null);
+                                setSelectedSubCategoryId(null);
+                            }}
+                            className={`group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
+                                selectedSpecialView === 'specials'
+                                    ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20'
+                                    : 'text-neutral-700 hover:bg-amber-50/80 hover:text-amber-700'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2.5 truncate">
+                                <div
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        triggerSpecialCategoryUpload('specials');
+                                    }}
+                                    title="Click to change Specials Category image"
+                                    className={`size-7 p-0.5 rounded-lg flex items-center justify-center relative overflow-hidden group/img cursor-pointer flex-shrink-0 transition-all ${
+                                        selectedSpecialView === 'specials' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-600'
+                                    }`}
+                                >
+                                    {specialsDisplayImage ? (
+                                        <>
+                                            <img src={specialsDisplayImage} alt="Specials" className="w-full h-full object-cover rounded-md" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
+                                                <LucideCamera size={11} className="text-white drop-shadow" />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <LucideFlame size={14} className="group-hover/img:opacity-0 transition-opacity" />
+                                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
+                                                <LucideCamera size={11} className="text-white drop-shadow" />
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                                <span className="font-bold text-[13px] truncate">Today's Specials</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        triggerSpecialCategoryUpload('specials');
+                                    }}
+                                    title="Change Specials Category Image"
+                                    className={`p-1 rounded-md transition-opacity opacity-0 group-hover:opacity-100 ${
+                                        selectedSpecialView === 'specials' ? 'hover:bg-white/20 text-white' : 'hover:bg-amber-100 text-amber-600'
+                                    }`}
+                                >
+                                    <LucideCamera size={12} />
+                                </button>
+                                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                                    selectedSpecialView === 'specials'
+                                        ? 'bg-white/20 text-white'
+                                        : 'bg-amber-100 text-amber-700'
+                                }`}>
+                                    {totalSpecialsCount}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
                     {loading ? (
                         <div className="text-center p-4 text-black text-sm">Loading...</div>
                     ) : (
@@ -939,30 +1660,25 @@ export default function MenuManagement() {
                             onDragEnd={handleDragEndCategory}
                         >
                             <SortableContext
-                                items={categories.map(c => c.id)}
+                                items={displayCategories.map(c => c.id)}
                                 strategy={verticalListSortingStrategy}
                             >
-                                <LayoutGroup>
-                                    <div className="space-y-0.5">
-                                        {categories
-                                            .filter(cat => {
-                                                if (businessType === 'restaurant') return cat.category_type === 'food';
-                                                if (businessType === 'bar') return cat.category_type === 'alcohol';
-                                                return cat.category_type === activeMenuTab;
-                                            })
-                                            .map((cat) => (
-                                                <SortableCategoryRow
-                                                    key={cat.id}
-                                                    category={cat}
-                                                    isSelected={selectedCategoryId === cat.id}
-                                                    count={categoryCounts[cat.id] || 0}
-                                                    onClick={() => setSelectedCategoryId(cat.id)}
-                                                    onDelete={(e) => handleDeleteCategory(cat.id, e)}
-                                                    onImageUpload={handleCategoryImageUpload}
-                                                />
-                                            ))}
-                                    </div>
-                                </LayoutGroup>
+                                <div className="space-y-0.5">
+                                    {displayCategories.map((cat) => (
+                                        <SortableCategoryRow
+                                            key={cat.id}
+                                            category={cat}
+                                            isSelected={!selectedSpecialView && selectedCategoryId === cat.id}
+                                            count={categoryCounts[cat.id] || 0}
+                                            onClick={() => {
+                                                setSelectedSpecialView(null);
+                                                setSelectedCategoryId(cat.id);
+                                            }}
+                                            onDelete={(e) => handleDeleteCategory(cat.id, e)}
+                                            onImageUpload={handleCategoryImageUpload}
+                                        />
+                                    ))}
+                                </div>
                             </SortableContext>
                         </DndContext>
                     )}
@@ -971,40 +1687,104 @@ export default function MenuManagement() {
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col bg-white h-full overflow-hidden">
-                {/* 1. Top Toolbar (Search & Add Item) */}
-                <div className="p-6 border-b border-neutral-200 flex justify-between items-center bg-white">
-                    <div className="relative">
-                        <LucideSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-black" size={20} />
-                        <input
-                            type="text"
-                            placeholder="Search items..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10 pr-4 py-2.5 border border-neutral-200 rounded-lg text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black placeholder:text-black transition-all shadow-sm"
-                        />
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 bg-neutral-50 px-3 py-1.5 rounded-lg border border-neutral-200">
-                            <span className={`text-[11px] font-bold uppercase tracking-wider transition-colors ${isVegMode ? 'text-green-600' : 'text-black'}`}>Veg Mode</span>
-                            <button
-                                onClick={() => setIsVegMode(!isVegMode)}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 ${isVegMode ? 'bg-green-500' : 'bg-neutral-300'}`}
-                            >
-                                <span className={`inline-block size-4 transform rounded-full bg-white transition-transform duration-300 shadow-sm ${isVegMode ? 'translate-x-6' : 'translate-x-1'}`} />
-                            </button>
+                {/* 1. Top Toolbar (Search & Add Item / Combo / Special) */}
+                <div className="h-[69px] px-6 border-b border-neutral-200 flex justify-between items-center bg-white shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="relative">
+                            <LucideSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-black" size={20} />
+                            <input
+                                type="text"
+                                placeholder={
+                                    selectedSpecialView === 'combos'
+                                        ? 'Search combos & offers...'
+                                        : selectedSpecialView === 'specials'
+                                            ? "Search today's specials..."
+                                            : 'Search items...'
+                                }
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="pl-10 pr-4 py-2.5 border border-neutral-200 rounded-lg text-sm w-72 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black placeholder:text-neutral-400 transition-all shadow-sm"
+                            />
                         </div>
-                        <button
-                            onClick={openAddModal}
-                            className="flex items-center px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/10 hover:shadow-blue-600/20 hover:-translate-y-0.5"
-                        >
-                            <LucidePlus size={16} className="mr-1.5" />
-                            Add Item
-                        </button>
+                        <SyncIndicator isRevalidating={isRevalidating} />
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        {selectedSpecialView === 'combos' ? (
+                            <div className="flex items-center gap-3">
+                                <div className="flex bg-neutral-100 p-1 rounded-lg border border-neutral-200 text-xs font-semibold">
+                                    {(['all', 'active', 'inactive'] as const).map(tab => (
+                                        <button
+                                            key={tab}
+                                            onClick={() => setSpecialStatusFilter(tab)}
+                                            className={`px-3 py-1 rounded-md capitalize transition-all ${
+                                                specialStatusFilter === tab
+                                                    ? 'bg-white text-purple-700 shadow-xs font-bold'
+                                                    : 'text-neutral-600 hover:text-black'
+                                            }`}
+                                        >
+                                            {tab}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => openCreateSpecialModal('combo')}
+                                    className="flex items-center px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-all shadow-lg shadow-purple-600/20 hover:-translate-y-0.5"
+                                >
+                                    <LucidePlus size={16} className="mr-1.5" />
+                                    Create Combo
+                                </button>
+                            </div>
+                        ) : selectedSpecialView === 'specials' ? (
+                            <div className="flex items-center gap-3">
+                                <div className="flex bg-neutral-100 p-1 rounded-lg border border-neutral-200 text-xs font-semibold">
+                                    {(['all', 'active', 'inactive'] as const).map(tab => (
+                                        <button
+                                            key={tab}
+                                            onClick={() => setSpecialStatusFilter(tab)}
+                                            className={`px-3 py-1 rounded-md capitalize transition-all ${
+                                                specialStatusFilter === tab
+                                                    ? 'bg-white text-amber-700 shadow-xs font-bold'
+                                                    : 'text-neutral-600 hover:text-black'
+                                            }`}
+                                        >
+                                            {tab}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => openCreateSpecialModal('special')}
+                                    className="flex items-center px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold rounded-lg hover:from-amber-600 hover:to-orange-600 transition-all shadow-lg shadow-amber-500/20 hover:-translate-y-0.5"
+                                >
+                                    <LucidePlus size={16} className="mr-1.5" />
+                                    Add Special
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex items-center gap-2 bg-neutral-50 px-3 py-1.5 rounded-lg border border-neutral-200">
+                                    <span className={`text-[11px] font-bold uppercase tracking-wider transition-colors ${isVegMode ? 'text-green-600' : 'text-black'}`}>Veg Mode</span>
+                                    <button
+                                        onClick={() => setIsVegMode(!isVegMode)}
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 ${isVegMode ? 'bg-green-500' : 'bg-neutral-300'}`}
+                                    >
+                                        <span className={`inline-block size-4 transform rounded-full bg-white transition-transform duration-300 shadow-sm ${isVegMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                                    </button>
+                                </div>
+                                <button
+                                    onClick={openAddModal}
+                                    className="flex items-center px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/10 hover:shadow-blue-600/20 hover:-translate-y-0.5"
+                                >
+                                    <LucidePlus size={16} className="mr-1.5" />
+                                    Add Item
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
 
-                {/* 2. Subcategories Horizontal Bar */}
-                {selectedCategoryId && (
+                {/* 2. Subcategories Horizontal Bar (Only for Regular Categories) */}
+                {(!selectedSpecialView && selectedCategoryId) && (
                     <div className="px-6 py-3 border-b border-neutral-100 bg-neutral-50/50 flex items-center gap-3 overflow-x-auto no-scrollbar">
                         {/* All Button */}
                         <button
@@ -1049,87 +1829,681 @@ export default function MenuManagement() {
                     </div>
                 )}
 
-                {/* 3. Items Table */}
-                <div className="flex-1 overflow-y-auto">
-                    {/* Disable sorting if searching or no subcategory context */}
-                    {(searchQuery || filteredItems.length === 0) ? (
-                        filteredItems.length === 0 ? (
-                            <div className="text-center p-12 text-black">
-                                <p>No items found.</p>
-                                {selectedSubCategoryId && subCategories.length > 0 && <p className="text-xs mt-2">Try adding items to this subcategory.</p>}
+                {/* 3. Main Views: Combos View OR Specials View OR Standard Items Table */}
+                {selectedSpecialView === 'combos' ? (
+                    <div className="flex-1 overflow-y-auto p-6 bg-neutral-50/50">
+                        {/* Category Banner with Image & Change CTA */}
+                        <div className="flex items-center justify-between p-4 mb-5 rounded-2xl bg-white border border-neutral-200/80 shadow-xs">
+                            <div className="flex items-center gap-3.5">
+                                <div 
+                                    onClick={() => triggerSpecialCategoryUpload('combos')}
+                                    className="relative size-12 rounded-xl overflow-hidden bg-purple-100 flex items-center justify-center cursor-pointer group shadow-xs flex-shrink-0"
+                                    title="Click to change Combo Category image"
+                                >
+                                    {comboDisplayImage ? (
+                                        <img src={comboDisplayImage} alt="Combos Category" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <LucideSparkles className="text-purple-600" size={22} />
+                                    )}
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <LucideCamera className="text-white" size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="text-base font-bold text-black">Combos & Offers Category</h2>
+                                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                                            {combosList.length} Combos
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-neutral-500">
+                                        This category image is shown in the sidebar menu across Customer, Waiter, and Admin panels.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => triggerSpecialCategoryUpload('combos')}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 hover:border-purple-300 text-xs font-semibold text-neutral-700 hover:text-purple-700 bg-neutral-50 hover:bg-purple-50 transition-all cursor-pointer"
+                            >
+                                <LucideUpload size={13} />
+                                <span>Change Category Image</span>
+                            </button>
+                        </div>
+                        {filteredCombos.length === 0 ? (
+                            <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-neutral-300 p-8 max-w-lg mx-auto mt-6">
+                                <div className="w-14 h-14 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center mx-auto mb-4 border border-purple-100">
+                                    <LucideSparkles size={28} />
+                                </div>
+                                <h3 className="text-lg font-bold text-black mb-1">No Combos Found</h3>
+                                <p className="text-sm text-neutral-500 mb-6">
+                                    {searchQuery ? 'No combos match your search criteria.' : 'Create combo meal bundles with discounted pricing to increase average order values.'}
+                                </p>
+                                <button
+                                    onClick={() => openCreateSpecialModal('combo')}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white font-bold text-sm rounded-xl hover:bg-purple-700 shadow-md shadow-purple-600/20 transition-all hover:-translate-y-0.5"
+                                >
+                                    <LucidePlus size={16} />
+                                    Create First Combo
+                                </button>
                             </div>
                         ) : (
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-neutral-50 text-black font-bold border-b border-neutral-200 sticky top-0 z-10">
-                                    <tr>
-                                        <th className="px-6 py-4 w-12">#</th>
-                                        <th className="px-6 py-4">Item Details</th>
-                                        <th className="px-6 py-4">Price</th>
-                                        <th className="px-6 py-4">Type</th>
-                                        <th className="px-6 py-4">Availability</th>
-                                        <th className="px-6 py-4 text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-neutral-200 text-black">
-                                    {filteredItems.map(item => (
-                                        <tr key={item.id} className="hover:bg-neutral-50">
-                                            <td className="px-6 py-4">#{item.id}</td>
-                                            <td className="px-6 py-4">
-                                                <p className="font-bold text-black">{item.name}</p>
-                                            </td>
-                                            <td className="px-6 py-4">{item.price}</td>
-                                            <td className="px-6 py-4">
-                                                {item.item_type === 'Veg' && <span className="text-green-600 font-bold">VEG</span>}
-                                                {item.item_type === 'Non-Veg' && <span className="text-red-600 font-bold">NON-VEG</span>}
-                                                {item.item_type === 'Egg' && <span className="text-yellow-600 font-bold">EGG</span>}
-                                                {!item.item_type && (item.is_veg ? 'Veg' : 'Non-Veg')}
-                                            </td>
-                                            <td className="px-6 py-4">{item.is_available ? 'In Stock' : 'Out'}</td>
-                                            <td className="px-6 py-4 text-right">
-                                                <button onClick={() => handleEditItem(item)}><LucideEdit2 size={16} /></button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )
-                    ) : (
-                        <DndContext
-                            sensors={sensors}
-                            collisionDetection={closestCenter}
-                            onDragEnd={handleDragEndItem}
-                        >
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-neutral-50 text-black font-bold border-b border-neutral-200 sticky top-0 z-10">
-                                    <tr>
-                                        <th className="px-6 py-4 w-12">#</th>
-                                        <th className="px-6 py-4">Item Details</th>
-                                        <th className="px-6 py-4">Price</th>
-                                        <th className="px-6 py-4">Type</th>
-                                        <th className="px-6 py-4">Availability</th>
-                                        <th className="px-6 py-4 text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <SortableContext
-                                    items={filteredItems.map(i => i.id)}
-                                    strategy={verticalListSortingStrategy}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl">
+                                {filteredCombos.map(combo => {
+                                    const originalPrice = combo.original_price || combo.items?.reduce((sum, it) => sum + (it.menu_item?.price || 0) * (it.quantity || 1), 0) || 0;
+                                    const specialPrice = combo.special_price || 0;
+                                    const savings = originalPrice > specialPrice ? originalPrice - specialPrice : 0;
+                                    const discountPct = originalPrice > 0 && savings > 0 ? Math.round((savings / originalPrice) * 100) : 0;
+
+                                    return (
+                                        <div
+                                            key={combo.id}
+                                            className={`bg-white rounded-2xl border transition-all hover:shadow-md flex flex-col justify-between overflow-hidden ${
+                                                combo.is_active ? 'border-neutral-200 shadow-xs' : 'border-neutral-200/60 opacity-60 bg-neutral-50/50'
+                                            }`}
+                                        >
+                                            <div className="p-5">
+                                                {/* Top Header */}
+                                                <div className="flex items-start justify-between gap-3 mb-3">
+                                                    <div className="flex items-start gap-3.5">
+                                                        <div className="w-14 h-14 rounded-xl bg-purple-50 border border-purple-100 overflow-hidden flex-shrink-0 flex items-center justify-center text-purple-600">
+                                                            {combo.image_url ? (
+                                                                <img src={combo.image_url} alt={combo.title} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <LucidePackage size={24} />
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <h4 className="font-extrabold text-base text-neutral-900 leading-tight">{combo.title}</h4>
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-purple-100 text-purple-700 border border-purple-200">
+                                                                    Combo Deal
+                                                                </span>
+                                                            </div>
+                                                            {combo.description && (
+                                                                <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{combo.description}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <button
+                                                            onClick={() => handleToggleSpecial(combo)}
+                                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                                                combo.is_active ? 'bg-emerald-500' : 'bg-neutral-300'
+                                                            }`}
+                                                            title={combo.is_active ? 'Active - Click to Deactivate' : 'Inactive - Click to Activate'}
+                                                        >
+                                                            <span className={`inline-block size-4 transform rounded-full bg-white transition-transform shadow-sm ${
+                                                                combo.is_active ? 'translate-x-6' : 'translate-x-1'
+                                                            }`} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Included Items List */}
+                                                <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-100 mb-2">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-1.5">
+                                                            <LucideLayers size={12} className="text-neutral-400" />
+                                                            Included Dishes ({combo.items?.length || 0})
+                                                        </span>
+                                                    </div>
+                                                    {combo.items && combo.items.length > 0 ? (
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {combo.items.map((it, idx) => (
+                                                                <span
+                                                                    key={idx}
+                                                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-neutral-200 text-xs font-semibold text-neutral-800 shadow-2xs"
+                                                                >
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+                                                                    {it.menu_item?.name || 'Item'}
+                                                                    {it.quantity > 1 && (
+                                                                        <span className="text-purple-600 font-bold">×{it.quantity}</span>
+                                                                    )}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-xs text-neutral-400 italic">Custom promotional deal bundle</p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Card Footer: Price & Actions */}
+                                            <div className="px-5 py-3.5 bg-neutral-50/80 border-t border-neutral-100 flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    {specialPrice > 0 ? (
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-xl font-black text-emerald-600 flex items-center">
+                                                                <LucideIndianRupee size={16} />
+                                                                {specialPrice}
+                                                            </span>
+                                                            {originalPrice > specialPrice && (
+                                                                <span className="text-xs font-semibold text-neutral-400 line-through flex items-center">
+                                                                    <LucideIndianRupee size={10} />
+                                                                    {originalPrice}
+                                                                </span>
+                                                            )}
+                                                            {discountPct > 0 && (
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
+                                                                    {discountPct}% OFF
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-lg font-black text-neutral-800 flex items-center">
+                                                            <LucideIndianRupee size={16} />
+                                                            {originalPrice}
+                                                        </span>
+                                                    )}
+                                                    {combo.valid_to && (
+                                                        <span className="text-[11px] font-medium text-neutral-500 flex items-center gap-1">
+                                                            <LucideCalendar size={12} className="text-neutral-400" />
+                                                            Until {new Date(combo.valid_to).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        onClick={() => openEditSpecialModal(combo)}
+                                                        className="p-2 text-neutral-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
+                                                        title="Edit Combo"
+                                                    >
+                                                        <LucideEdit2 size={15} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteSpecial(combo)}
+                                                        className="p-2 text-neutral-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-100"
+                                                        title="Delete Combo"
+                                                    >
+                                                        <LucideTrash2 size={15} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : selectedSpecialView === 'specials' ? (
+                    <div className="flex-1 overflow-y-auto p-6 bg-neutral-50/50">
+                        {/* Category Banner with Image & Change CTA */}
+                        <div className="flex items-center justify-between p-4 mb-5 rounded-2xl bg-white border border-neutral-200/80 shadow-xs">
+                            <div className="flex items-center gap-3.5">
+                                <div 
+                                    onClick={() => triggerSpecialCategoryUpload('specials')}
+                                    className="relative size-12 rounded-xl overflow-hidden bg-amber-100 flex items-center justify-center cursor-pointer group shadow-xs flex-shrink-0"
+                                    title="Click to change Specials Category image"
                                 >
+                                    {specialsDisplayImage ? (
+                                        <img src={specialsDisplayImage} alt="Specials Category" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <LucideFlame className="text-amber-600" size={22} />
+                                    )}
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <LucideCamera className="text-white" size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="text-base font-bold text-black">Today's Specials Category</h2>
+                                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                                            {totalSpecialsCount} Specials
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-neutral-500">
+                                        This category image is shown in the sidebar menu across Customer, Waiter, and Admin panels.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => triggerSpecialCategoryUpload('specials')}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 hover:border-amber-300 text-xs font-semibold text-neutral-700 hover:text-amber-700 bg-neutral-50 hover:bg-amber-50 transition-all cursor-pointer"
+                            >
+                                <LucideUpload size={13} />
+                                <span>Change Category Image</span>
+                            </button>
+                        </div>
+                        {filteredSpecials.length === 0 && filteredStandaloneSpecials.length === 0 ? (
+                            <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-neutral-300 p-8 max-w-lg mx-auto mt-6">
+                                <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-100">
+                                    <LucideFlame size={28} />
+                                </div>
+                                <h3 className="text-lg font-bold text-black mb-1">No Specials Configured</h3>
+                                <p className="text-sm text-neutral-500 mb-6">
+                                    {searchQuery ? 'No specials match your search criteria.' : 'Highlight chef recommendations, limited-time discounts, and daily specials.'}
+                                </p>
+                                <button
+                                    onClick={() => openCreateSpecialModal('special')}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 text-white font-bold text-sm rounded-xl hover:bg-amber-600 shadow-md shadow-amber-500/20 transition-all hover:-translate-y-0.5"
+                                >
+                                    <LucidePlus size={16} />
+                                    Add Today's Special
+                                </button>
+                            </div>
+                        ) : (                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl">
+                                {/* Render specials from today_specials */}
+                                {filteredSpecials.map((special) => {
+                                    const linkedItem = special.items?.[0]?.menu_item;
+                                    const originalPrice = special.original_price || linkedItem?.price || 0;
+                                    const specialPrice = special.special_price || 0;
+                                    const savings = originalPrice > specialPrice ? originalPrice - specialPrice : 0;
+                                    const discountPct = originalPrice > 0 && savings > 0 ? Math.round((savings / originalPrice) * 100) : 0;
+                                    const displayImage = special.image_url || linkedItem?.image_url;
+
+                                    return (
+                                        <div
+                                            key={special.id}
+                                            className={`bg-white rounded-2xl border transition-all hover:shadow-md flex flex-col justify-between overflow-hidden ${
+                                                special.is_active ? 'border-neutral-200 shadow-xs' : 'border-neutral-200/60 opacity-60 bg-neutral-50/50'
+                                            }`}
+                                        >
+                                            <div className="p-5">
+                                                {/* Top Header */}
+                                                <div className="flex items-start justify-between gap-3 mb-3">
+                                                    <div className="flex items-start gap-3.5">
+                                                        <div className="w-14 h-14 rounded-xl bg-amber-50 border border-amber-100 overflow-hidden flex-shrink-0 flex items-center justify-center text-amber-600">
+                                                            {displayImage ? (
+                                                                <img src={displayImage} alt={special.title} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <LucideFlame size={24} />
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <h4 className="font-extrabold text-base text-neutral-900 leading-tight">{special.title}</h4>
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-100 text-amber-700 border border-amber-200">
+                                                                    Today's Special
+                                                                </span>
+                                                                {linkedItem?.item_type === 'Veg' && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 text-green-700 text-[10px] font-bold border border-green-200">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-green-600 mr-1"></span>
+                                                                        VEG
+                                                                    </span>
+                                                                )}
+                                                                {linkedItem?.item_type === 'Non-Veg' && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-red-50 text-red-700 text-[10px] font-bold border border-red-200">
+                                                                        <span className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-b-[5px] border-b-red-600 mr-1"></span>
+                                                                        NON-VEG
+                                                                    </span>
+                                                                )}
+                                                                {linkedItem?.item_type === 'Egg' && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 text-[10px] font-bold border border-yellow-200">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-yellow-600 mr-1"></span>
+                                                                        EGG
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {special.description ? (
+                                                                <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{special.description}</p>
+                                                            ) : (
+                                                                <p className="text-xs text-neutral-400 mt-1 line-clamp-1 italic">
+                                                                    {linkedItem ? `Base dish: ${linkedItem.name}` : "Chef's recommended today special"}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <button
+                                                            onClick={() => handleToggleSpecial(special)}
+                                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                                                special.is_active ? 'bg-emerald-500' : 'bg-neutral-300'
+                                                            }`}
+                                                            title={special.is_active ? 'Active - Click to Deactivate' : 'Inactive - Click to Activate'}
+                                                        >
+                                                            <span className={`inline-block size-4 transform rounded-full bg-white transition-transform shadow-sm ${
+                                                                special.is_active ? 'translate-x-6' : 'translate-x-1'
+                                                            }`} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Dish Details Box */}
+                                                <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-100 mb-2">
+                                                    <div className="flex items-center justify-between text-xs">
+                                                        <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-1.5">
+                                                            <LucideFlame size={12} className="text-amber-500" />
+                                                            Special Dish
+                                                        </span>
+                                                        <span className="font-semibold text-neutral-800">
+                                                            {linkedItem ? linkedItem.name : special.title}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Card Footer: Price & Actions */}
+                                            <div className="px-5 py-3.5 bg-neutral-50/80 border-t border-neutral-100 flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    {specialPrice > 0 ? (
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-xl font-black text-emerald-600 flex items-center">
+                                                                <LucideIndianRupee size={16} />
+                                                                {specialPrice}
+                                                            </span>
+                                                            {originalPrice > specialPrice && (
+                                                                <span className="text-xs font-semibold text-neutral-400 line-through flex items-center">
+                                                                    <LucideIndianRupee size={10} />
+                                                                    {originalPrice}
+                                                                </span>
+                                                            )}
+                                                            {discountPct > 0 && (
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
+                                                                    {discountPct}% OFF
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-lg font-black text-neutral-800 flex items-center">
+                                                            <LucideIndianRupee size={16} />
+                                                            {originalPrice}
+                                                        </span>
+                                                    )}
+                                                    {special.valid_to && (
+                                                        <span className="text-[11px] font-medium text-neutral-500 flex items-center gap-1">
+                                                            <LucideCalendar size={12} className="text-neutral-400" />
+                                                            Until {new Date(special.valid_to).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        onClick={() => openEditSpecialModal(special)}
+                                                        className="p-2 text-neutral-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
+                                                        title="Edit Special"
+                                                    >
+                                                        <LucideEdit2 size={15} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteSpecial(special)}
+                                                        className="p-2 text-neutral-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-100"
+                                                        title="Delete Special"
+                                                    >
+                                                        <LucideTrash2 size={15} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Render standalone menu items marked as is_today_special */}
+                                {filteredStandaloneSpecials.map((item) => {
+                                    const originalPrice = item.price || 0;
+                                    const specialPrice = item.special_price || originalPrice;
+                                    const savings = originalPrice > specialPrice ? originalPrice - specialPrice : 0;
+                                    const discountPct = originalPrice > 0 && savings > 0 ? Math.round((savings / originalPrice) * 100) : 0;
+
+                                    return (
+                                        <div
+                                            key={`item-${item.id}`}
+                                            className={`bg-white rounded-2xl border transition-all hover:shadow-md flex flex-col justify-between overflow-hidden ${
+                                                item.is_available ? 'border-neutral-200 shadow-xs' : 'border-neutral-200/60 opacity-60 bg-neutral-50/50'
+                                            }`}
+                                        >
+                                            <div className="p-5">
+                                                {/* Top Header */}
+                                                <div className="flex items-start justify-between gap-3 mb-3">
+                                                    <div className="flex items-start gap-3.5">
+                                                        <div className="w-14 h-14 rounded-xl bg-amber-50 border border-amber-100 overflow-hidden flex-shrink-0 flex items-center justify-center text-amber-600">
+                                                            {item.image_url ? (
+                                                                <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <LucideFlame size={24} />
+                                                            )}
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <h4 className="font-extrabold text-base text-neutral-900 leading-tight">{item.name}</h4>
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-100 text-amber-700 border border-amber-200">
+                                                                    Today's Special
+                                                                </span>
+                                                                {item.item_type === 'Veg' && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 text-green-700 text-[10px] font-bold border border-green-200">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-green-600 mr-1"></span>
+                                                                        VEG
+                                                                    </span>
+                                                                )}
+                                                                {item.item_type === 'Non-Veg' && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-red-50 text-red-700 text-[10px] font-bold border border-red-200">
+                                                                        <span className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-b-[5px] border-b-red-600 mr-1"></span>
+                                                                        NON-VEG
+                                                                    </span>
+                                                                )}
+                                                                {item.item_type === 'Egg' && (
+                                                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700 text-[10px] font-bold border border-yellow-200">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-yellow-600 mr-1"></span>
+                                                                        EGG
+                                                                    </span>
+                                                                )}
+                                                                {!item.item_type && (
+                                                                    item.is_veg ? (
+                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 text-green-700 text-[10px] font-bold border border-green-200">VEG</span>
+                                                                    ) : (
+                                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-red-50 text-red-700 text-[10px] font-bold border border-red-200">NON-VEG</span>
+                                                                    )
+                                                                )}
+                                                            </div>
+                                                            {item.description ? (
+                                                                <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{item.description}</p>
+                                                            ) : (
+                                                                <p className="text-xs text-neutral-400 mt-1 line-clamp-1 italic">
+                                                                    Menu dish spotlighted as today's special
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <button
+                                                            onClick={() => toggleAvailability(item.id, item.is_available)}
+                                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                                                item.is_available ? 'bg-emerald-500' : 'bg-neutral-300'
+                                                            }`}
+                                                            title={item.is_available ? 'In Stock - Click to disable' : 'Out of stock - Click to enable'}
+                                                        >
+                                                            <span className={`inline-block size-4 transform rounded-full bg-white transition-transform shadow-sm ${
+                                                                item.is_available ? 'translate-x-6' : 'translate-x-1'
+                                                            }`} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Dish Details Box */}
+                                                <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-100 mb-2">
+                                                    <div className="flex items-center justify-between text-xs">
+                                                        <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 flex items-center gap-1.5">
+                                                            <LucideFlame size={12} className="text-amber-500" />
+                                                            Menu Dish Spotlight
+                                                        </span>
+                                                        <span className="font-semibold text-neutral-800">
+                                                            Item #{item.id}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Card Footer: Price & Actions */}
+                                            <div className="px-5 py-3.5 bg-neutral-50/80 border-t border-neutral-100 flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    {specialPrice > 0 ? (
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-xl font-black text-emerald-600 flex items-center">
+                                                                <LucideIndianRupee size={16} />
+                                                                {specialPrice}
+                                                            </span>
+                                                            {originalPrice > specialPrice && (
+                                                                <span className="text-xs font-semibold text-neutral-400 line-through flex items-center">
+                                                                    <LucideIndianRupee size={10} />
+                                                                    {originalPrice}
+                                                                </span>
+                                                            )}
+                                                            {discountPct > 0 && (
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
+                                                                    {discountPct}% OFF
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-lg font-black text-neutral-800 flex items-center">
+                                                            <LucideIndianRupee size={16} />
+                                                            {originalPrice}
+                                                        </span>
+                                                    )}
+                                                    {item.special_expiry_datetime && (
+                                                        <span className="text-[11px] font-medium text-neutral-500 flex items-center gap-1">
+                                                            <LucideCalendar size={12} className="text-neutral-400" />
+                                                            Until {new Date(item.special_expiry_datetime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        onClick={() => handleEditItem(item)}
+                                                        className="p-2 text-neutral-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100"
+                                                        title="Edit Dish & Special Price"
+                                                    >
+                                                        <LucideEdit2 size={15} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleRemoveStandaloneSpecial(item)}
+                                                        className="p-2 text-neutral-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-100"
+                                                        title="Remove from Specials"
+                                                    >
+                                                        <LucideTrash2 size={15} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    /* 3. Standard Items Table */
+                    <div className="flex-1 overflow-y-auto">
+                        {/* Disable sorting if searching or no subcategory context */}
+                        {(searchQuery || filteredItems.length === 0) ? (
+                            filteredItems.length === 0 ? (
+                                <div className="text-center p-12 text-black">
+                                    <p>No items found.</p>
+                                    {selectedSubCategoryId && subCategories.length > 0 && <p className="text-xs mt-2">Try adding items to this subcategory.</p>}
+                                </div>
+                            ) : (
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-neutral-50 text-black font-bold border-b border-neutral-200 sticky top-0 z-10">
+                                        <tr>
+                                            <th className="px-6 py-4 w-12">#</th>
+                                            <th className="px-6 py-4">Item Details</th>
+                                            <th className="px-6 py-4">Price</th>
+                                            <th className="px-6 py-4">Type</th>
+                                            <th className="px-6 py-4">Availability</th>
+                                            <th className="px-6 py-4 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
                                     <tbody className="divide-y divide-neutral-200 text-black">
-                                        {filteredItems.map((item) => (
-                                            <SortableMenuItemRow
-                                                key={item.id}
-                                                item={item}
-                                                onToggle={toggleAvailability}
-                                                onEdit={handleEditItem}
-                                                onDelete={handleDeleteItem}
-                                            />
+                                        {filteredItems.map(item => (
+                                            <tr key={item.id} className="hover:bg-neutral-50">
+                                                <td className="px-6 py-4">#{item.id}</td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="font-bold text-black">{item.name}</p>
+                                                        {item.is_today_special && (
+                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-black uppercase">
+                                                                <LucideFlame size={10} className="text-amber-600 fill-amber-500" />
+                                                                Special
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    {item.is_today_special && item.special_price != null ? (
+                                                        <div>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-emerald-600 font-black flex items-center">
+                                                                    <LucideIndianRupee size={12} className="mr-0.5" />
+                                                                    {item.special_price}
+                                                                </span>
+                                                                <span className="text-slate-400 line-through text-xs font-semibold flex items-center">
+                                                                    <LucideIndianRupee size={10} className="mr-0.2" />
+                                                                    {item.price}
+                                                                </span>
+                                                            </div>
+                                                            {item.special_expiry_datetime && (
+                                                                <span className="text-[10px] text-amber-600 font-medium block mt-0.5">
+                                                                    Exp: {new Date(item.special_expiry_datetime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="font-bold text-black flex items-center">
+                                                            <LucideIndianRupee size={12} className="mr-0.5" />
+                                                            {item.price}
+                                                        </div>
+                                                    )}
+                                                    <div className="text-[11px] font-semibold text-slate-500 mt-1">
+                                                        GST {item.gst_percentage ?? item.tax_percent ?? 5}%
+                                                        <span className="text-[10px] text-slate-400 font-normal block">
+                                                            (CGST {item.cgst_percentage ?? (((item.gst_percentage ?? item.tax_percent ?? 5)) / 2)}% + SGST {item.sgst_percentage ?? (((item.gst_percentage ?? item.tax_percent ?? 5)) / 2)}%)
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    {item.item_type === 'Veg' && <span className="text-green-600 font-bold">VEG</span>}
+                                                    {item.item_type === 'Non-Veg' && <span className="text-red-600 font-bold">NON-VEG</span>}
+                                                    {item.item_type === 'Egg' && <span className="text-yellow-600 font-bold">EGG</span>}
+                                                    {!item.item_type && (item.is_veg ? 'Veg' : 'Non-Veg')}
+                                                </td>
+                                                <td className="px-6 py-4">{item.is_available ? 'In Stock' : 'Out'}</td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <button onClick={() => handleEditItem(item)}><LucideEdit2 size={16} /></button>
+                                                </td>
+                                            </tr>
                                         ))}
                                     </tbody>
-                                </SortableContext>
-                            </table>
-                        </DndContext>
-                    )}
-                </div>
+                                </table>
+                            )
+                        ) : (
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={handleDragEndItem}
+                            >
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-neutral-50 text-black font-bold border-b border-neutral-200 sticky top-0 z-10">
+                                        <tr>
+                                            <th className="px-6 py-4 w-12">#</th>
+                                            <th className="px-6 py-4">Item Details</th>
+                                            <th className="px-6 py-4">Price</th>
+                                            <th className="px-6 py-4">Type</th>
+                                            <th className="px-6 py-4">Availability</th>
+                                            <th className="px-6 py-4 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <SortableContext
+                                        items={filteredItems.map(i => i.id)}
+                                        strategy={verticalListSortingStrategy}
+                                    >
+                                        <tbody className="divide-y divide-neutral-200 text-black">
+                                            {filteredItems.map((item) => (
+                                                <SortableMenuItemRow
+                                                    key={item.id}
+                                                    item={item}
+                                                    onToggle={toggleAvailability}
+                                                    onEdit={handleEditItem}
+                                                    onDelete={handleDeleteItem}
+                                                />
+                                            ))}
+                                        </tbody>
+                                    </SortableContext>
+                                </table>
+                            </DndContext>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Modals */}
@@ -1143,6 +2517,18 @@ export default function MenuManagement() {
                 onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) processCategoryImageUpload(file);
+                    e.target.value = '';
+                }}
+            />
+            {/* Hidden special / combo category image input */}
+            <input
+                ref={specialCatImageInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) processSpecialCategoryImageUpload(file);
                     e.target.value = '';
                 }}
             />
@@ -1482,18 +2868,137 @@ export default function MenuManagement() {
                                         </div>
                                     </div>
                                 )}
-                                <div>
-                                    <label className="block text-sm font-medium text-black mb-1">Tax / GST (%)</label>
-                                    <div className="relative">
-                                        <input
-                                            type="number"
-                                            value={newItem.taxPercent}
-                                            onChange={(e) => setNewItem({ ...newItem, taxPercent: e.target.value })}
-                                            className="w-full px-4 py-2 border border-neutral-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                                            placeholder="5"
-                                        />
-                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-black">%</span>
+                                <div className="col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-sm font-bold text-slate-900">GST / Tax Configuration</span>
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                                                Default: {restaurantGst.gst}% (CGST {restaurantGst.cgst}% + SGST {restaurantGst.sgst}%)
+                                            </span>
+                                        </div>
+                                        {(newItem.gstPercentage !== restaurantGst.gst.toString() ||
+                                          newItem.cgstPercentage !== restaurantGst.cgst.toString() ||
+                                          newItem.sgstPercentage !== restaurantGst.sgst.toString()) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setNewItem({
+                                                        ...newItem,
+                                                        taxPercent: restaurantGst.gst.toString(),
+                                                        gstPercentage: restaurantGst.gst.toString(),
+                                                        cgstPercentage: restaurantGst.cgst.toString(),
+                                                        sgstPercentage: restaurantGst.sgst.toString()
+                                                    });
+                                                }}
+                                                className="text-xs font-semibold text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                                            >
+                                                Reset to Restaurant Default
+                                            </button>
+                                        )}
                                     </div>
+
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                                                Total GST (%)
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    max="100"
+                                                    value={newItem.gstPercentage}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        const num = parseFloat(val) || 0;
+                                                        const half = Number((num / 2).toFixed(2)).toString();
+                                                        setNewItem({
+                                                            ...newItem,
+                                                            taxPercent: val,
+                                                            gstPercentage: val,
+                                                            cgstPercentage: half,
+                                                            sgstPercentage: half
+                                                        });
+                                                    }}
+                                                    className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-semibold text-slate-900"
+                                                    placeholder="5"
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                                                CGST (%)
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    max="100"
+                                                    value={newItem.cgstPercentage}
+                                                    onChange={(e) => {
+                                                        const cgstVal = e.target.value;
+                                                        setNewItem({
+                                                            ...newItem,
+                                                            cgstPercentage: cgstVal
+                                                        });
+                                                    }}
+                                                    className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-semibold text-slate-900"
+                                                    placeholder="2.5"
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 mb-1">
+                                                SGST (%)
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    max="100"
+                                                    value={newItem.sgstPercentage}
+                                                    onChange={(e) => {
+                                                        const sgstVal = e.target.value;
+                                                        setNewItem({
+                                                            ...newItem,
+                                                            sgstPercentage: sgstVal
+                                                        });
+                                                    }}
+                                                    className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-semibold text-slate-900"
+                                                    placeholder="2.5"
+                                                />
+                                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* CGST + SGST mismatch note */}
+                                    {Math.abs((parseFloat(newItem.cgstPercentage) || 0) + (parseFloat(newItem.sgstPercentage) || 0) - (parseFloat(newItem.gstPercentage) || 0)) > 0.01 && (
+                                        <p className="text-[11px] text-amber-600 font-semibold mt-2">
+                                            ⚠️ Note: CGST ({newItem.cgstPercentage || 0}%) + SGST ({newItem.sgstPercentage || 0}%) does not equal total GST ({newItem.gstPercentage || 0}%).
+                                        </p>
+                                    )}
+
+                                    {/* Live Price with GST breakdown preview */}
+                                    {parseFloat(newItem.price) > 0 && (
+                                        <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600 font-medium">
+                                            <span>
+                                                Base: <strong className="text-slate-900">₹{parseFloat(newItem.price) || 0}</strong>
+                                                {' '}+ CGST ({newItem.cgstPercentage || 0}%): <strong className="text-slate-800">₹{((parseFloat(newItem.price) || 0) * (parseFloat(newItem.cgstPercentage) || 0) / 100).toFixed(2)}</strong>
+                                                {' '}+ SGST ({newItem.sgstPercentage || 0}%): <strong className="text-slate-800">₹{((parseFloat(newItem.price) || 0) * (parseFloat(newItem.sgstPercentage) || 0) / 100).toFixed(2)}</strong>
+                                            </span>
+                                            <span className="text-slate-900 font-bold bg-white px-2 py-0.5 rounded border border-slate-200">
+                                                Final: ₹{((parseFloat(newItem.price) || 0) * (1 + (parseFloat(newItem.gstPercentage) || 0) / 100)).toFixed(2)}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-black mb-1">Category</label>
@@ -1520,14 +3025,15 @@ export default function MenuManagement() {
                                 </div>
                                 {newItem.categoryId && (
                                     <div className="col-span-2">
-                                        <label className="block text-sm font-medium text-black mb-1">Subcategory</label>
+                                        <label className="block text-sm font-medium text-black mb-1">
+                                            Subcategory <span className="text-xs text-neutral-500 font-normal">(Optional)</span>
+                                        </label>
                                         <select
-                                            required
                                             value={newItem.subCategoryId}
                                             onChange={(e) => setNewItem({ ...newItem, subCategoryId: e.target.value })}
                                             className="w-full px-4 py-2 border border-neutral-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                                         >
-                                            <option value="">Select Subcategory</option>
+                                            <option value="">None / Select Subcategory</option>
                                             {subCategories.filter(s => s.category_id === parseInt(newItem.categoryId)).map(s => (
                                                 <option key={s.id} value={s.id}>{s.name}</option>
                                             ))}
@@ -1637,6 +3143,51 @@ export default function MenuManagement() {
                                             className="w-16 px-2 py-1 border border-neutral-200 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500"
                                         />
                                     </div>
+                                </div>
+
+                                {/* Today Special Settings */}
+                                <div className="border-t border-neutral-200 pt-5 mt-5">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <label className="flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={newItem.is_today_special}
+                                                onChange={(e) => setNewItem({ ...newItem, is_today_special: e.target.checked })}
+                                                className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-neutral-300 rounded"
+                                            />
+                                            <span className="ml-2 text-sm font-bold text-black uppercase tracking-wider flex items-center gap-1.5">
+                                                <LucideFlame size={16} className="text-orange-500 animate-pulse" />
+                                                Today&apos;s Special Offer
+                                            </span>
+                                        </label>
+                                    </div>
+                                    
+                                    {newItem.is_today_special && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-2xl bg-orange-50/50 border border-orange-100 mb-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-orange-800 uppercase tracking-wider mb-2">Special Price (₹)</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    placeholder="e.g. 199"
+                                                    value={newItem.special_price}
+                                                    onChange={(e) => setNewItem({ ...newItem, special_price: e.target.value })}
+                                                    required={newItem.is_today_special}
+                                                    className="w-full bg-white border border-orange-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-orange-800 uppercase tracking-wider mb-2">Offer Expiry (Optional)</label>
+                                                <input
+                                                    type="datetime-local"
+                                                    value={newItem.special_expiry_datetime}
+                                                    onChange={(e) => setNewItem({ ...newItem, special_expiry_datetime: e.target.value })}
+                                                    className="w-full bg-white border border-orange-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -1783,6 +3334,340 @@ export default function MenuManagement() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Special / Combo Modal */}
+            <input
+                ref={specialImageInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={handleSpecialImageUpload}
+            />
+
+            {showSpecialModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                        {/* Header */}
+                        <div className="p-6 border-b border-neutral-100 flex justify-between items-center bg-white sticky top-0 z-10">
+                            <div>
+                                <h2 className="text-xl font-bold text-neutral-900 flex items-center gap-2">
+                                    {specialModalType === 'combo' ? (
+                                        <>
+                                            <span className="p-1.5 rounded-lg bg-purple-100 text-purple-600">
+                                                <LucideSparkles size={18} />
+                                            </span>
+                                            {editingSpecial ? 'Edit Combo Deal' : 'Create New Combo Deal'}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="p-1.5 rounded-lg bg-amber-100 text-amber-600">
+                                                <LucideFlame size={18} />
+                                            </span>
+                                            {editingSpecial ? "Edit Today's Special" : "Create Today's Special"}
+                                        </>
+                                    )}
+                                </h2>
+                                <p className="text-xs text-neutral-500 mt-1">
+                                    {specialModalType === 'combo'
+                                        ? 'Bundle dishes together with special package pricing'
+                                        : 'Set a promotional discount or spotlight a dish for today'}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setShowSpecialModal(false)}
+                                className="p-2 text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors"
+                            >
+                                <LucideX size={20} />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+                            {/* Title & Description */}
+                            <div className="grid grid-cols-1 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1.5">
+                                        {specialModalType === 'combo' ? 'Combo Title *' : 'Special Title / Name *'}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={specialFormTitle}
+                                        onChange={(e) => setSpecialFormTitle(e.target.value)}
+                                        placeholder={specialModalType === 'combo' ? 'e.g. Royal Biryani Feast, Lunch Combo' : 'e.g. Apollo Fish, Special Dal Tadka'}
+                                        className={`w-full px-3.5 py-2.5 border border-neutral-200 rounded-xl text-sm text-neutral-900 focus:outline-none focus:ring-2 ${
+                                            specialModalType === 'combo' ? 'focus:ring-purple-500' : 'focus:ring-amber-500'
+                                        }`}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1.5">
+                                        Description
+                                    </label>
+                                    <textarea
+                                        value={specialFormDesc}
+                                        onChange={(e) => setSpecialFormDesc(e.target.value)}
+                                        placeholder="Add details, what it comes with, or serving size..."
+                                        rows={2}
+                                        className={`w-full px-3.5 py-2.5 border border-neutral-200 rounded-xl text-sm text-neutral-900 focus:outline-none focus:ring-2 ${
+                                            specialModalType === 'combo' ? 'focus:ring-purple-500' : 'focus:ring-amber-500'
+                                        }`}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Image selector */}
+                            <div>
+                                <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1.5">
+                                    Photo / Banner (Optional)
+                                </label>
+                                <div className="flex items-center gap-3">
+                                    <div className="size-16 rounded-xl border border-neutral-200 bg-neutral-50 overflow-hidden flex items-center justify-center shrink-0">
+                                        {specialFormImageUrl ? (
+                                            <img src={specialFormImageUrl} alt="Preview" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <LucideImage size={24} className="text-neutral-300" />
+                                        )}
+                                    </div>
+                                    <div className="flex-1 space-y-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => specialImageInputRef.current?.click()}
+                                                disabled={isUploadingSpecialImage}
+                                                className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                                            >
+                                                {isUploadingSpecialImage ? (
+                                                    <LucideLoader2 size={13} className="animate-spin" />
+                                                ) : (
+                                                    <LucideUpload size={13} />
+                                                )}
+                                                Upload Image
+                                            </button>
+                                            {specialFormImageUrl && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSpecialFormImageUrl('')}
+                                                    className="px-2 py-1.5 text-xs text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
+                                        </div>
+                                        <input
+                                            type="text"
+                                            value={specialFormImageUrl}
+                                            onChange={(e) => setSpecialFormImageUrl(e.target.value)}
+                                            placeholder="Or paste image URL directly..."
+                                            className="w-full px-3 py-1.5 text-xs border border-neutral-200 rounded-lg text-neutral-900"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Items Included Section */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-neutral-700 uppercase tracking-wider">
+                                        {specialModalType === 'combo' ? 'Dishes in Combo *' : 'Selected Dish *'}
+                                    </label>
+                                    <span className="text-xs text-neutral-500 font-medium">
+                                        {specialModalType === 'combo'
+                                            ? `${specialFormItems.length} dishes selected`
+                                            : specialFormItems.length > 0 ? '1 dish selected' : 'No dish selected'}
+                                    </span>
+                                </div>
+
+                                {/* Search/Dropdown to add items */}
+                                <div className="relative">
+                                    <div className="relative">
+                                        <LucideSearch size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+                                        <input
+                                            type="text"
+                                            placeholder={specialModalType === 'combo' ? "Search & add menu item to combo..." : "Search & select dish for today's special..."}
+                                            value={specialItemSearch}
+                                            onChange={(e) => {
+                                                setSpecialItemSearch(e.target.value);
+                                                setShowSpecialItemDropdown(true);
+                                            }}
+                                            onFocus={() => setShowSpecialItemDropdown(true)}
+                                            className={`w-full pl-10 pr-4 py-2 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 ${
+                                                specialModalType === 'combo' ? 'focus:ring-purple-500' : 'focus:ring-amber-500'
+                                            }`}
+                                        />
+                                    </div>
+
+                                    {/* Dropdown list of items */}
+                                    {showSpecialItemDropdown && (
+                                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-neutral-200 rounded-xl shadow-xl z-30 max-h-52 overflow-y-auto divide-y divide-neutral-100">
+                                            {items
+                                                .filter(item => {
+                                                    const matches = !specialItemSearch || item.name.toLowerCase().includes(specialItemSearch.toLowerCase());
+                                                    const notAdded = specialModalType === 'combo' ? !specialFormItems.some(i => i.menu_item_id === item.id) : true;
+                                                    return matches && notAdded;
+                                                })
+                                                .slice(0, 15)
+                                                .map(item => (
+                                                    <div
+                                                        key={item.id}
+                                                        onClick={() => addMenuItemToSpecial(item)}
+                                                        className={`p-2.5 px-3 flex items-center justify-between cursor-pointer transition-colors ${
+                                                            specialModalType === 'combo' ? 'hover:bg-purple-50/60' : 'hover:bg-amber-50/60'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2.5">
+                                                            <DietaryIcon type={item.item_type || (item.is_veg ? 'Veg' : 'Non-Veg')} />
+                                                            <span className="text-xs font-semibold text-neutral-800">{item.name}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs font-bold text-neutral-700">₹{item.price}</span>
+                                                            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${
+                                                                specialModalType === 'combo'
+                                                                    ? 'text-purple-600 bg-purple-50'
+                                                                    : 'text-amber-700 bg-amber-50'
+                                                            }`}>
+                                                                {specialModalType === 'combo' ? '+ Add' : 'Select'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            {items.filter(item => (specialModalType === 'combo' ? !specialFormItems.some(i => i.menu_item_id === item.id) : true) && (!specialItemSearch || item.name.toLowerCase().includes(specialItemSearch.toLowerCase()))).length === 0 && (
+                                                <div className="p-3 text-center text-xs text-neutral-400">
+                                                    No available items match search
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Selected Items List */}
+                                {specialFormItems.length > 0 && (
+                                    <div className="space-y-2 bg-neutral-50 p-3 rounded-xl border border-neutral-200/80">
+                                        {specialFormItems.map(item => (
+                                            <div key={item.menu_item_id} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-neutral-200 shadow-2xs">
+                                                <div className="flex-1">
+                                                    <p className="text-xs font-bold text-neutral-800">{item.name}</p>
+                                                    <p className="text-[11px] text-neutral-400">₹{item.price} each</p>
+                                                </div>
+
+                                                <div className="flex items-center gap-3">
+                                                    {specialModalType === 'combo' && (
+                                                        <div className="flex items-center border border-neutral-200 rounded-lg overflow-hidden">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => updateSpecialItemQuantity(item.menu_item_id, -1)}
+                                                                className="px-2 py-1 bg-neutral-50 hover:bg-neutral-100 text-xs font-bold text-neutral-600"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <span className="px-2.5 py-1 text-xs font-bold text-neutral-900 bg-white min-w-[24px] text-center">
+                                                                {item.quantity}
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => updateSpecialItemQuantity(item.menu_item_id, 1)}
+                                                                className="px-2 py-1 bg-neutral-50 hover:bg-neutral-100 text-xs font-bold text-neutral-600"
+                                                            >
+                                                                +
+                                                            </button>
+                                                        </div>
+                                                    )}
+
+                                                    <span className="text-xs font-bold text-neutral-800 min-w-[50px] text-right">
+                                                        ₹{item.price * item.quantity}
+                                                    </span>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeSpecialItem(item.menu_item_id)}
+                                                        className="p-1 text-neutral-400 hover:text-rose-500 rounded transition-colors"
+                                                    >
+                                                        <LucideTrash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+
+                                        {/* Total Summary */}
+                                        <div className="pt-2 border-t border-neutral-200/80 flex items-center justify-between text-xs font-bold px-1 text-neutral-600">
+                                            <span>{specialModalType === 'combo' ? 'Original Total Sum:' : 'Original Dish Price:'}</span>
+                                            <span className="text-neutral-900">₹{specialOriginalTotal}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Pricing & Expiry */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-neutral-100">
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1.5">
+                                        Special Offer Price (₹) *
+                                    </label>
+                                    <div className="relative">
+                                        <LucideIndianRupee size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={specialFormPrice}
+                                            onChange={(e) => setSpecialFormPrice(e.target.value)}
+                                            placeholder="e.g. 599"
+                                            className={`w-full pl-9 pr-4 py-2.5 border border-neutral-200 rounded-xl text-sm font-bold text-neutral-900 focus:outline-none focus:ring-2 ${
+                                                specialModalType === 'combo' ? 'focus:ring-purple-500' : 'focus:ring-amber-500'
+                                            }`}
+                                        />
+                                    </div>
+
+                                    {/* Savings feedback */}
+                                    {specialDiscountPercent > 0 && (
+                                        <p className="text-xs text-emerald-600 font-bold mt-1.5 flex items-center gap-1">
+                                            <LucidePercent size={12} />
+                                            Customer saves ₹{specialSavings} ({specialDiscountPercent}% OFF)
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1.5">
+                                        Valid Until (Optional)
+                                    </label>
+                                    <input
+                                        type="datetime-local"
+                                        value={specialFormValidTo}
+                                        onChange={(e) => setSpecialFormValidTo(e.target.value)}
+                                        className={`w-full px-3.5 py-2.5 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-900 focus:outline-none focus:ring-2 ${
+                                            specialModalType === 'combo' ? 'focus:ring-purple-500' : 'focus:ring-amber-500'
+                                        }`}
+                                    />
+                                    <p className="text-[11px] text-neutral-400 mt-1">Leave blank for unlimited validity</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-4 px-6 border-t border-neutral-100 bg-neutral-50 flex items-center justify-end gap-3 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setShowSpecialModal(false)}
+                                className="px-4 py-2 text-sm font-semibold text-neutral-600 hover:text-neutral-900 hover:bg-neutral-200/60 rounded-xl transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveSpecial}
+                                disabled={isSavingSpecial}
+                                className={`px-6 py-2 text-sm font-bold text-white rounded-xl shadow-lg transition-all flex items-center gap-2 ${
+                                    specialModalType === 'combo'
+                                        ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-600/20'
+                                        : 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20'
+                                }`}
+                            >
+                                {isSavingSpecial && <LucideLoader2 size={16} className="animate-spin" />}
+                                {editingSpecial ? 'Update Deal' : specialModalType === 'combo' ? 'Create Combo' : 'Save Special'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

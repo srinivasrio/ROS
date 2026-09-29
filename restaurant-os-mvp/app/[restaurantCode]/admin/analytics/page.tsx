@@ -2,73 +2,128 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { TrendingUp as LucideTrendingUp, PieChart as LucidePieChart, Zap as LucideZap, ShoppingBag as LucideShoppingBag, Download as LucideDownload, Filter as LucideFilter, LayoutGrid as LucideLayoutGrid, IndianRupee as LucideIndianRupee, Utensils as LucideUtensils } from 'lucide-react';
-import { AnalyticsService, AnalyticsMetrics, TimeRange, OrderLogEntry } from '@/app/services/analytics';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { formatCurrency } from '@/app/lib/utils';
+import { AnalyticsService, AnalyticsMetrics, TimeRange, OrderLogEntry } from '@/services/analytics.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { formatCurrency } from '@/lib/utils';
 import { TimeFilter } from '@/components/admin/analytics/TimeFilter';
 import { LineChart, BarChart, DonutChart } from '@/components/admin/analytics/ProfessionalCharts';
 import { DetailedTable } from '@/components/admin/analytics/DetailedTable';
 import { LoadingState } from '@/components/ui/LoadingState';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { requestManager } from '@/lib/cache/request-manager';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 
 export default function AnalyticsPage() {
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
+    const params = useParams();
+    const restaurantCode = params.restaurantCode as string;
     
     // State
     const [range, setRange] = useState<TimeRange>('7d');
-    const [loading, setLoading] = useState(true);
-    const [metrics, setMetrics] = useState<AnalyticsMetrics | null>(null);
-    const [revenueTrend, setRevenueTrend] = useState<any[]>([]);
-    const [statusBreakdown, setStatusBreakdown] = useState<any[]>([]);
-    const [categoryRevenue, setCategoryRevenue] = useState<any[]>([]);
-    const [paymentSplit, setPaymentSplit] = useState<any[]>([]);
-    const [topDishes, setTopDishes] = useState<any[]>([]);
-    const [slowDishes, setSlowDishes] = useState<any[]>([]);
-    const [orderLog, setOrderLog] = useState<OrderLogEntry[]>([]);
+    const cacheKey = `analytics-${restaurantId || restaurantCode}-${range}`;
+    const cached = getCached<any>(cacheKey);
 
-    const loadData = useCallback(async () => {
-        if (!restaurantId) return;
-        setLoading(true);
+    const [loading, setLoading] = useState(!cached);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [lastSync, setLastSync] = useState<Date | null>(null);
+    const [metrics, setMetrics] = useState<AnalyticsMetrics | null>(cached?.metrics || null);
+    const [revenueTrend, setRevenueTrend] = useState<any[]>(cached?.revenueTrend || []);
+    const [statusBreakdown, setStatusBreakdown] = useState<any[]>(cached?.statusBreakdown || []);
+    const [categoryRevenue, setCategoryRevenue] = useState<any[]>(cached?.categoryRevenue || []);
+    const [paymentSplit, setPaymentSplit] = useState<any[]>(cached?.paymentSplit || []);
+    const [topDishes, setTopDishes] = useState<any[]>(cached?.topDishes || []);
+    const [slowDishes, setSlowDishes] = useState<any[]>(cached?.slowDishes || []);
+    const [orderLog, setOrderLog] = useState<OrderLogEntry[]>(cached?.orderLog || []);
+
+    const loadData = useCallback(async (force = false) => {
+        const targetId = restaurantId || restaurantCode;
+        if (!targetId) return;
+
+        const currentCached = getCached<any>(cacheKey);
+        if (currentCached && !metrics) {
+            setMetrics(currentCached.metrics);
+            setRevenueTrend(currentCached.revenueTrend);
+            setStatusBreakdown(currentCached.statusBreakdown);
+            setCategoryRevenue(currentCached.categoryRevenue);
+            setPaymentSplit(currentCached.paymentSplit);
+            setTopDishes(currentCached.topDishes);
+            setSlowDishes(currentCached.slowDishes);
+            setOrderLog(currentCached.orderLog);
+            setLoading(false);
+        }
+
+        if (!force && hasFreshCache(cacheKey)) {
+            setLoading(false);
+            return;
+        }
+
+        if (!currentCached && !metrics) {
+            setLoading(true);
+        } else {
+            setIsSyncing(true);
+        }
+
         try {
-            const [
-                kpis, 
-                trends, 
-                status, 
-                cats, 
-                payments, 
-                top, 
-                slow, 
-                log
-            ] = await Promise.all([
-                AnalyticsService.fetchKPIMetrics(restaurantId, range),
-                AnalyticsService.fetchRevenueTrends(restaurantId, range),
-                AnalyticsService.fetchOrderStatusBreakdown(restaurantId, range),
-                AnalyticsService.fetchCategoryRevenue(restaurantId, range),
-                AnalyticsService.fetchPaymentMethodSplit(restaurantId, range),
-                AnalyticsService.fetchTopSellingItems(restaurantId, range, 10),
-                AnalyticsService.fetchTopSellingItems(restaurantId, range, 10, true),
-                AnalyticsService.fetchOrderLog(restaurantId, range)
-            ]);
+            const data = await requestManager.coalesce(cacheKey, async () => {
+                const [
+                    kpis, 
+                    trends, 
+                    status, 
+                    cats, 
+                    payments, 
+                    top, 
+                    slow, 
+                    log
+                ] = await Promise.all([
+                    AnalyticsService.fetchKPIMetrics(restaurantId || targetId, range),
+                    AnalyticsService.fetchRevenueTrends(restaurantId || targetId, range),
+                    AnalyticsService.fetchOrderStatusBreakdown(restaurantId || targetId, range),
+                    AnalyticsService.fetchCategoryRevenue(restaurantId || targetId, range),
+                    AnalyticsService.fetchPaymentMethodSplit(restaurantId || targetId, range),
+                    AnalyticsService.fetchTopSellingItems(restaurantId || targetId, range, 10),
+                    AnalyticsService.fetchTopSellingItems(restaurantId || targetId, range, 10, true),
+                    AnalyticsService.fetchOrderLog(restaurantId || targetId, range)
+                ]);
 
-            setMetrics(kpis);
-            setRevenueTrend(trends);
-            setStatusBreakdown(status);
-            setCategoryRevenue(cats);
-            setPaymentSplit(payments);
-            setTopDishes(top);
-            setSlowDishes(slow);
-            setOrderLog(log);
+                return {
+                    metrics: kpis,
+                    revenueTrend: trends,
+                    statusBreakdown: status,
+                    categoryRevenue: cats,
+                    paymentSplit: payments,
+                    topDishes: top,
+                    slowDishes: slow,
+                    orderLog: log
+                };
+            }, 3);
+
+            if (data) {
+                setMetrics(data.metrics);
+                setRevenueTrend(data.revenueTrend);
+                setStatusBreakdown(data.statusBreakdown);
+                setCategoryRevenue(data.categoryRevenue);
+                setPaymentSplit(data.paymentSplit);
+                setTopDishes(data.topDishes);
+                setSlowDishes(data.slowDishes);
+                setOrderLog(data.orderLog);
+                setCache(cacheKey, data, { ttlMs: 15 * 60 * 1000 });
+                setLastSync(new Date());
+            }
         } catch (error) {
             console.error('Analytics load error:', error);
         } finally {
             setLoading(false);
+            setIsSyncing(false);
         }
-    }, [restaurantId, range]);
+    }, [restaurantId, restaurantCode, range, cacheKey, metrics]);
 
     useEffect(() => {
-        if (!restaurantLoading && restaurantId) {
+        if (!restaurantLoading && (restaurantId || restaurantCode)) {
             loadData();
         }
-    }, [restaurantId, restaurantLoading, range, loadData]);
+    }, [restaurantId, restaurantCode, restaurantLoading, range, loadData]);
 
     return (
         <div className="min-h-screen bg-[#FDFCFD] dark:bg-zinc-950 p-8 pt-6 space-y-10 overflow-y-auto no-scrollbar">
@@ -83,7 +138,10 @@ export default function AnalyticsPage() {
                         Comprehensive performance analysis for your restaurant.
                     </p>
                 </div>
-                <TimeFilter value={range} onChange={setRange} />
+                <div className="flex items-center gap-4">
+                    <SyncIndicator isSyncing={isSyncing} lastSync={lastSync} onRefresh={() => loadData(true)} />
+                    <TimeFilter value={range} onChange={setRange} />
+                </div>
             </header>
 
             {loading ? (

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useCart } from '@/app/context/CartContext';
-import { HomepageBuilderService } from '@/app/services/homepage-builder.service';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useCart } from '@/context/CartContext';
+import { HomepageBuilderService } from '@/services/homepage-builder.service';
 import {
     ChevronLeft as LucideChevronLeft,
     Package as LucidePackage,
@@ -15,12 +15,16 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { SharedSkeleton } from '@/app/components/customer/SharedSkeleton';
-import SharedQuantityControl from '@/app/components/shared/SharedQuantityControl';
+import { SharedSkeleton } from '@/components/customer/SharedSkeleton';
+import SharedQuantityControl from '@/components/shared/SharedQuantityControl';
+import { SharedComboDetailModal, VegNonVegBadge } from '@/components/shared/details';
+import { getCategoryMenuItemImage } from '@/lib/utils';
 
 export default function AllCombosPage() {
     const params = useParams();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const idParam = searchParams?.get('id') || searchParams?.get('combo');
     const restaurantId = (params.restaurantCode || params.restaurantId) as string;
     const tableNumber = params.tableNumber as string;
 
@@ -35,6 +39,49 @@ export default function AllCombosPage() {
     useEffect(() => {
         if (tableNumber) setTableNumber(tableNumber);
     }, [tableNumber, setTableNumber]);
+
+    const handledComboParamRef = useRef<string | null>(null);
+
+    const clearComboParam = useCallback(() => {
+        if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            if (url.searchParams.has('id') || url.searchParams.has('combo')) {
+                url.searchParams.delete('id');
+                url.searchParams.delete('combo');
+                const cleanSearch = url.searchParams.toString();
+                const cleanUrl = url.pathname + (cleanSearch ? `?${cleanSearch}` : '');
+                window.history.replaceState(null, '', cleanUrl);
+                router.replace(cleanUrl, { scroll: false });
+            }
+        }
+    }, [router]);
+
+    useEffect(() => {
+        if (!idParam) {
+            handledComboParamRef.current = null;
+        }
+    }, [idParam]);
+
+    // Automatically open the exact combo record if redirected from banner (ONCE per navigation)
+    useEffect(() => {
+        if (!idParam || combos.length === 0) return;
+        if (handledComboParamRef.current === String(idParam)) return;
+
+        const found = combos.find(c => 
+            String(c.id) === String(idParam) ||
+            c.title?.toLowerCase() === String(idParam).toLowerCase() ||
+            c.name?.toLowerCase() === String(idParam).toLowerCase()
+        );
+        if (found) {
+            handledComboParamRef.current = String(idParam);
+            setSelectedCombo(found);
+            clearComboParam();
+        } else if (!loading) {
+            handledComboParamRef.current = String(idParam);
+            clearComboParam();
+            toast.error('The selected combo is no longer available');
+        }
+    }, [idParam, combos, loading, clearComboParam]);
 
     useEffect(() => {
         const loadCombos = async () => {
@@ -110,6 +157,10 @@ export default function AllCombosPage() {
                             const itemsCount = combo.items?.length || 0;
                             const previewItems = combo.items?.slice(0, 3) || [];
                             const mrp = combo.items?.reduce((sum: number, i: any) => sum + ((i.menu_item?.price || i.price || 0) * (i.quantity || 1)), 0) || 0;
+                            const rawOriginalPrice = Number(combo.original_price || combo.originalPrice || 0);
+                            const totalOriginalPrice = rawOriginalPrice > 0 ? rawOriginalPrice : mrp;
+                            const offerPrice = Number(combo.price ?? combo.special_price ?? 0);
+                            const savings = totalOriginalPrice > offerPrice ? totalOriginalPrice - offerPrice : 0;
 
                             return (
                                 <motion.div
@@ -119,10 +170,13 @@ export default function AllCombosPage() {
                                     transition={{ delay: idx * 0.05 }}
                                     className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
                                 >
-                                    {/* Image */}
+                                    {/* Standardized 16:9 Image */}
                                     <div
-                                        className="relative h-44 w-full cursor-pointer"
-                                        onClick={() => setSelectedCombo(combo)}
+                                        className="relative aspect-[16/9] w-full cursor-pointer overflow-hidden"
+                                        onClick={() => {
+                                            clearComboParam();
+                                            setSelectedCombo(combo);
+                                        }}
                                     >
                                         <img
                                             src={combo.image_url || '/placeholder-food.jpg'}
@@ -130,10 +184,15 @@ export default function AllCombosPage() {
                                             className="w-full h-full object-cover"
                                         />
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-                                        <div className="absolute top-3 left-3">
+                                        <div className="absolute top-3 left-3 flex items-center gap-1.5">
                                             <span className="px-2.5 py-1 bg-orange-500 text-white text-[9px] font-black uppercase tracking-widest rounded-lg shadow-lg shadow-orange-500/30">
                                                 Combo Offer
                                             </span>
+                                            {savings > 0 && (
+                                                <span className="px-2.5 py-1 bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest rounded-lg shadow-lg shadow-emerald-600/30">
+                                                    Save ₹{savings}
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="absolute top-3 right-3">
                                             <button className="p-2 bg-white/80 backdrop-blur-md rounded-full" onClick={e => e.stopPropagation()}>
@@ -152,24 +211,28 @@ export default function AllCombosPage() {
                                     <div className="p-4">
                                         {/* Items preview */}
                                         {itemsCount > 0 && (
-                                            <div className="mb-3 space-y-1.5">
-                                                {previewItems.map((item: any, siIdx: number) => {
-                                                    const itemName = item.menu_item?.name || item.name || item.title || 'Combo Item';
+                                            <div className="mb-4 space-y-2">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black px-1 mb-2">Includes</p>
+                                                {combo.items?.map((si: any, siIdx: number) => {
+                                                    const itemName = si.menu_item?.name || si.name || si.title || 'Combo Item';
+                                                    const itemImage = si.menu_item?.image_url || getCategoryMenuItemImage(itemName);
+                                                    const itemPrice = si.menu_item?.price || si.price || 0;
+                                                    
                                                     return (
-                                                        <div key={siIdx} className="flex items-center gap-2 text-xs text-black">
-                                                            <div className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
-                                                            <span className="font-medium truncate">{itemName}</span>
-                                                            {item.quantity > 1 && (
-                                                                <span className="text-[10px] text-black font-bold">×{item.quantity}</span>
-                                                            )}
+                                                        <div key={si.id || siIdx} className="flex gap-3 items-center bg-neutral-50/50 p-2 rounded-xl border border-neutral-100/50">
+                                                            <div className="size-12 bg-white rounded-lg flex-shrink-0 overflow-hidden border border-neutral-100">
+                                                                <img src={itemImage} alt={itemName} className="w-full h-full object-cover" />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <h4 className="font-bold text-black text-xs tracking-tight truncate">{itemName}</h4>
+                                                                <div className="flex items-center gap-2 mt-1">
+                                                                    <span className="text-[10px] font-black text-black bg-white px-1.5 py-0.5 rounded border border-neutral-100">QTY: {si.quantity || 1}</span>
+                                                                    <span className="text-[10px] font-bold text-black">₹{itemPrice} each</span>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     );
                                                 })}
-                                                {itemsCount > 3 && (
-                                                    <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest pl-3.5">
-                                                        +{itemsCount - 3} more items
-                                                    </p>
-                                                )}
                                             </div>
                                         )}
 
@@ -177,17 +240,22 @@ export default function AllCombosPage() {
                                         <div className="flex items-center justify-between">
                                             <div className="flex flex-col">
                                                 <div className="flex items-end gap-2">
-                                                    <span className="text-xl font-black text-orange-600">₹{combo.price}</span>
-                                                    {mrp > combo.price && (
-                                                        <span className="text-sm font-bold text-black line-through mb-1">₹{mrp}</span>
+                                                    <span className="text-xl font-black text-orange-600">₹{offerPrice}</span>
+                                                    {totalOriginalPrice > offerPrice && (
+                                                        <span className="text-sm font-bold text-slate-400 line-through mb-0.5">₹{totalOriginalPrice}</span>
                                                     )}
                                                 </div>
+                                                {savings > 0 && (
+                                                    <span className="text-[10px] font-bold text-emerald-600 leading-none mt-0.5">
+                                                        Save ₹{savings}
+                                                    </span>
+                                                )}
                                             </div>
 
                                             <SharedQuantityControl
                                                 qty={qty}
                                                 onAdd={() => {
-                                                    addSpecialToCart(combo);
+                                                    addSpecialToCart({ ...combo, price: offerPrice, original_price: totalOriginalPrice > 0 ? totalOriginalPrice : undefined });
                                                     toast.success(`${combo.title} added to cart`, {
                                                         duration: 2000,
                                                         position: 'bottom-center',
@@ -207,128 +275,34 @@ export default function AllCombosPage() {
                 )}
             </main>
 
-            {/* Combo Detail Modal */}
-            <AnimatePresence>
-                {selectedCombo && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
-                        onClick={() => setSelectedCombo(null)}
-                    >
-                        <motion.div
-                            initial={{ y: '100%' }}
-                            animate={{ y: 0 }}
-                            exit={{ y: '100%' }}
-                            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                            className="bg-white rounded-t-[2rem] w-full max-w-md max-h-[85vh] overflow-y-auto"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            {/* Modal Image */}
-                            <div className="relative h-56">
-                                <img
-                                    src={selectedCombo.image_url || '/placeholder-food.jpg'}
-                                    alt={selectedCombo.title}
-                                    className="w-full h-full object-cover"
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                                <button
-                                    onClick={() => setSelectedCombo(null)}
-                                    className="absolute top-4 right-4 p-2 bg-white/80 backdrop-blur-md rounded-full"
-                                >
-                                    <LucideX size={18} className="text-black" />
-                                </button>
-                                <div className="absolute bottom-4 left-4 right-4">
-                                    <span className="px-2 py-0.5 bg-orange-500 text-white text-[9px] font-black uppercase tracking-widest rounded-lg mb-2 inline-block">
-                                        Combo Offer
-                                    </span>
-                                    <h2 className="text-white font-black text-2xl">{selectedCombo.title}</h2>
-                                </div>
-                            </div>
+            {/* Standardized Luxury Combo Detail Modal */}
+            <SharedComboDetailModal
+                combo={selectedCombo}
+                onClose={() => {
+                    setSelectedCombo(null);
+                    clearComboParam();
+                }}
+                onAddToCart={(combo) => {
+                    const offerPrice = Number(combo.price ?? combo.special_price ?? 0);
+                    const itemsSum = combo.items?.reduce((sum: number, i: any) => sum + ((i.menu_item?.price || i.price || 0) * (i.quantity || 1)), 0) || 0;
+                    const rawOriginalPrice = Number(combo.original_price || combo.originalPrice || 0);
+                    const totalOriginalPrice = rawOriginalPrice > 0 ? rawOriginalPrice : itemsSum;
 
-                            {/* Modal Content */}
-                            <div className="p-5 space-y-4">
-                                {selectedCombo.description && (
-                                    <p className="text-black text-sm">{selectedCombo.description}</p>
-                                )}
-
-                                {/* Items List */}
-                                {selectedCombo.items && selectedCombo.items.length > 0 && (
-                                    <div>
-                                        <h4 className="text-xs font-black text-black uppercase tracking-widest mb-2">Included Items</h4>
-                                        <div className="space-y-2">
-                                            {selectedCombo.items.map((item: any, idx: number) => {
-                                                const itemName = item.menu_item?.name || item.name || 'Item';
-                                                const itemPrice = item.menu_item?.price;
-                                                const itemImage = item.menu_item?.image_url;
-                                                return (
-                                                    <div key={idx} className="flex items-center gap-3 p-2 bg-gray-50 rounded-xl">
-                                                        <div className="size-12 bg-gray-100 rounded-lg overflow-hidden shrink-0">
-                                                            {itemImage ? (
-                                                                <img src={itemImage} alt={itemName} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <div className="w-full h-full flex items-center justify-center text-black">
-                                                                    <LucidePackage size={16} />
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-bold text-black text-sm truncate">{itemName}</p>
-                                                            {itemPrice && <p className="text-xs text-black">₹{itemPrice}</p>}
-                                                        </div>
-                                                        {item.quantity > 1 && (
-                                                            <span className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-md">
-                                                                ×{item.quantity}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Price + Add */}
-                                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                                    {(() => {
-                                        const mrp = selectedCombo.items?.reduce((sum: number, i: any) => sum + ((i.menu_item?.price || i.price || 0) * (i.quantity || 1)), 0) || 0;
-                                        return (
-                                            <div>
-                                                <p className="text-[10px] font-bold text-black uppercase tracking-widest">Combo Price</p>
-                                                <div className="flex items-end gap-2">
-                                                    <span className="text-2xl font-black text-orange-600">₹{selectedCombo.price}</span>
-                                                    {mrp > selectedCombo.price && (
-                                                        <span className="text-sm font-bold text-black line-through mb-1">₹{mrp}</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-                                    {(() => {
-                                        const cartKey = `special-${selectedCombo.id}`;
-                                        const qty = getItemQtyInCart(cartKey);
-                                        return <SharedQuantityControl
-                                            qty={qty}
-                                            onAdd={() => {
-                                                addSpecialToCart(selectedCombo);
-                                                toast.success(`${selectedCombo.title} added to cart`, {
-                                                    duration: 2000,
-                                                    position: 'bottom-center',
-                                                    icon: <LucideShoppingBag size={16} className="text-green-500" />,
-                                                });
-                                            }}
-                                            onUpdateQuantity={(delta) => updateQuantity(cartKey, delta)}
-                                            colorHex="#ea580c"
-                                            size="lg"
-                                        />;
-                                    })()}
-                                </div>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                    addSpecialToCart({
+                        ...combo,
+                        price: offerPrice,
+                        original_price: totalOriginalPrice > 0 ? totalOriginalPrice : undefined,
+                    });
+                    toast.success(`${combo.title} added to cart`, {
+                        duration: 2000,
+                        position: 'bottom-center',
+                        icon: <LucideShoppingBag size={16} className="text-green-500" />,
+                    });
+                }}
+                onUpdateQuantity={(cartKey, delta) => updateQuantity(cartKey, delta)}
+                cartQuantity={selectedCombo ? getItemQtyInCart(`special-${selectedCombo.id}`) : 0}
+                currencySymbol="₹"
+            />
         </div>
     );
 }

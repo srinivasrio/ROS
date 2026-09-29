@@ -1,10 +1,11 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import OrderReadyModal from '@/app/[restaurantCode]/waiter/components/OrderReadyModal';
-import { OrderService, Order } from '@/app/services/orders';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
+import { OrderService, Order } from '@/services/orders.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
 
 interface OrderNotificationContextType {
     triggerOrderReady: (tableId: number | string | null | undefined, items: { name: string; quantity: number; image_url?: string | null }[]) => void;
@@ -22,6 +23,9 @@ export function useOrderNotification() {
 
 export function OrderNotificationProvider({ children }: { children: ReactNode }) {
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
+    const params = useParams();
+    const staffMobile = params?.staffMobile as string;
+
     const [modalConfig, setModalConfig] = useState<{ isOpen: boolean; tableId: number | string | null | undefined; items: { name: string; quantity: number; image_url?: string | null }[] }>({
         isOpen: false,
         tableId: 0,
@@ -33,20 +37,31 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
     useEffect(() => {
         let active = true;
         const fetchWaiter = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!active) return;
-            if (user && restaurantId) {
-                try {
-                    const record = await OrderService.getWaiterRecord(restaurantId, user.id);
-                    if (active) setWaiterRecord(record);
-                } catch (err) {
-                    console.error('Error fetching waiter record for notifications:', err);
+            try {
+                if (typeof window !== 'undefined') {
+                    const cached = localStorage.getItem('waiterSession');
+                    if (cached) {
+                        const parsed = JSON.parse(cached);
+                        if (active && parsed?.id) {
+                            setWaiterRecord(parsed);
+                            return;
+                        }
+                    }
                 }
+            } catch (_) {}
+
+            if (restaurantId && staffMobile) {
+                try {
+                    const waiter = await OrderService.getStaffByMobile(staffMobile, restaurantId);
+                    if (active && waiter?.id) {
+                        setWaiterRecord(waiter);
+                    }
+                } catch (_) {}
             }
         };
-        if (restaurantId && !restaurantLoading) fetchWaiter();
+        fetchWaiter();
         return () => { active = false; };
-    }, [restaurantId, restaurantLoading]);
+    }, [restaurantId, staffMobile]);
 
     const triggerOrderReady = (tableId: number | string | null | undefined, items: { name: string; quantity: number; image_url?: string | null }[]) => {
         setModalConfig({ isOpen: true, tableId, items });
@@ -57,54 +72,73 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
     };
 
     const handlePickup = async (orderId?: string) => {
-        // Optimistically close
         handleClose();
-
-        // If we had the Order ID here, we could update status to 'served'
-        // For MVP, we'll assume the waiter just acknowledges it locally
-        // Or we pass the order ID in the modal config to call OrderService.updateOrderStatus(id, 'served')
-        if (orderId) {
-            if (!restaurantId) return;
+        if (orderId && restaurantId) {
             await OrderService.updateOrderStatus(orderId, restaurantId, 'served');
         }
     };
 
-    // Subscribing to Real-time Order Updates
+    // Helper to strictly verify that an order or its table is currently assigned to this waiter
+    const isOrderAssignedToWaiter = (fullOrder: any, currentWaiterId: string): boolean => {
+        if (!fullOrder || !currentWaiterId) return false;
+        const orderWaiterId = fullOrder.waiter_id ? String(fullOrder.waiter_id).toLowerCase() : null;
+        const tableAssignedId = fullOrder.tables?.assigned_waiter_id
+            ? String(fullOrder.tables.assigned_waiter_id).toLowerCase()
+            : (fullOrder.table_merge_groups?.assigned_waiter_id ? String(fullOrder.table_merge_groups.assigned_waiter_id).toLowerCase() : null);
+        const coWaiters: string[] = Array.isArray(fullOrder.tables?.co_waiter_ids)
+            ? fullOrder.tables.co_waiter_ids.map((id: any) => String(id).toLowerCase())
+            : [];
+
+        // STRICT ROUTING: Only return true if this waiter is the primary assigned waiter or an approved co-waiter
+        if (orderWaiterId === currentWaiterId) return true;
+        if (tableAssignedId === currentWaiterId) return true;
+        if (coWaiters.includes(currentWaiterId)) return true;
+
+        // Unassigned or assigned to someone else -> ZERO notifications or popups
+        return false;
+    };
+
+    // Subscribing to Real-time Order Updates — strictly requiring active waiterRecord
     useEffect(() => {
         let active = true;
-        if (!restaurantLoading && restaurantId) {
+        // Unassigned or not-yet-loaded waiters receive ZERO notifications
+        if (!restaurantLoading && restaurantId && waiterRecord?.id) {
+            const currentWaiterId = String(waiterRecord.id).toLowerCase();
+
             const subscription = OrderService.subscribeToOrders(restaurantId, (payload) => {
                 if (!active) return;
                 const newOrder = payload.new as Order;
 
                 // Trigger ONLY when status changes to 'ready'
                 if (newOrder.status === 'ready' && (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT')) {
-                    // Double check waiter_id if we have it
-                    if (waiterRecord?.id && newOrder.waiter_id !== waiterRecord.id) return;
-
-                    // Fetch full details to get item names
+                    // Fetch full details to check order & table assignment
                     OrderService.getOrderDetails(newOrder.id, restaurantId).then(fullOrder => {
-                        if (!active) return;
-                        if (fullOrder && fullOrder.items) {
-                            // Filter for items that are actually 'ready' (exclude served/preparing)
+                        if (!active || !fullOrder) return;
+                        if (!isOrderAssignedToWaiter(fullOrder, currentWaiterId)) {
+                            // Unassigned or assigned to another waiter -> drop notification
+                            return;
+                        }
+
+                        if (fullOrder.items) {
+                            // Filter for items that are actually 'ready'
                             const readyItems = fullOrder.items
                                 .filter(item => item.status === 'ready')
                                 .map(item => ({
                                     name: item.name,
                                     quantity: item.quantity,
-                                    image_url: item.image_url
+                                    image_url: item.image_url,
+                                    combo_items: item.combo_items,
+                                    item_type: item.item_type
                                 }));
 
-                            // Fallback if no specific ready items found (e.g. edge case), show all or generic
                             const displayItems = readyItems.length > 0 ? readyItems : [{ name: 'Order is Ready', quantity: 1 }];
-
                             triggerOrderReady(fullOrder?.table_number || fullOrder?.table_id || newOrder.table_id || newOrder.merge_group_id, displayItems);
                         } else {
                             triggerOrderReady(fullOrder?.table_number || fullOrder?.table_id || newOrder.table_id || newOrder.merge_group_id, [{ name: 'Order #' + newOrder.id.slice(0, 4), quantity: 1 }]);
                         }
                     });
                 }
-            }, waiterRecord?.id);
+            }, waiterRecord.id);
 
             // Keep track of which order items have already triggered a notification in this session
             const notifiedItemsRef = new Set<string>();
@@ -112,33 +146,31 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
             // Subscribing to Real-time Order Item Updates (For individual item ready)
             const itemSubscription = OrderService.subscribeToOrderItems(restaurantId, (payload) => {
                 if (!active) return;
-                console.log('--- Real-time Order Item Update Received ---', payload);
                 const newItem = payload.new as any;
 
                 // Trigger when an ITEM status changes to 'ready'
                 if (newItem.status === 'ready' && (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT')) {
-                    // Deduplicate: If we already notified about this exact item turning ready, ignore
                     if (notifiedItemsRef.has(newItem.id)) {
-                        console.log('Item already notified, skipping:', newItem.id);
                         return;
                     }
                     notifiedItemsRef.add(newItem.id);
 
-                    console.log('New Item marked ready, fetching full order for table UI...', newItem);
-                    // We need the Table ID, which is on the Order, not the Item.
-                    // So we must fetch the order details.
                     OrderService.getOrderDetails(newItem.order_id, restaurantId).then(fullOrder => {
-                        if (!active) return;
-                        if (fullOrder && fullOrder.items) {
-                            // Check if this order is assigned to the current waiter
-                            if (waiterRecord?.id && fullOrder.waiter_id !== waiterRecord.id) return;
+                        if (!active || !fullOrder) return;
+                        if (!isOrderAssignedToWaiter(fullOrder, currentWaiterId)) {
+                            // Unassigned or assigned to another waiter -> drop notification
+                            return;
+                        }
 
+                        if (fullOrder.items) {
                             const readyItems = fullOrder.items
                                 .filter(item => item.status === 'ready')
                                 .map(item => ({
                                     name: item.name,
                                     quantity: item.quantity,
-                                    image_url: item.image_url
+                                    image_url: item.image_url,
+                                    combo_items: item.combo_items,
+                                    item_type: item.item_type
                                 }));
 
                             if (readyItems.length > 0) {
@@ -163,7 +195,7 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
             <OrderReadyModal
                 isOpen={modalConfig.isOpen}
                 onClose={handleClose}
-                onPickup={() => handlePickup()} // Pass ID if we store it
+                onPickup={() => handlePickup()}
                 tableId={modalConfig.tableId as any}
                 items={modalConfig.items}
             />

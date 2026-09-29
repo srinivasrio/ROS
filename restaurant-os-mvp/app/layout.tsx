@@ -1,7 +1,14 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from 'sonner';
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,9 +33,10 @@ export const metadata: Metadata = {
   }
 };
 
-import { ThemeProvider } from "@/app/components/ThemeProvider";
-import { RestaurantProvider } from "@/app/context/RestaurantContext";
-import { GlobalContextProvider } from "@/app/context/GlobalContext";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { RestaurantProvider } from "@/context/RestaurantContext";
+import { GlobalContextProvider } from "@/context/GlobalContext";
+import { AutoLogoutProvider } from "@/components/shared/AutoLogoutProvider";
 
 export default function RootLayout({
   children,
@@ -53,8 +61,10 @@ export default function RootLayout({
         >
           <GlobalContextProvider>
             <RestaurantProvider>
-              {children}
-              <Toaster position="top-center" richColors />
+              <AutoLogoutProvider>
+                {children}
+                <Toaster position="top-center" richColors />
+              </AutoLogoutProvider>
             </RestaurantProvider>
           </GlobalContextProvider>
         </ThemeProvider>

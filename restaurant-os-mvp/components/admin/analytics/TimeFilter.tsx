@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Calendar, ChevronDown } from 'lucide-react';
-import { TimeRange } from '@/app/services/analytics';
+import { TimeRange } from '@/services/analytics.service';
 
 interface TimeFilterProps {
     value: TimeRange;

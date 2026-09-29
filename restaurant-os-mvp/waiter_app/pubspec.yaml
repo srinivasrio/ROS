@@ -1,0 +1,51 @@
+name: waiter_app
+description: "Dedicated Waiter Mobile Operations App for Dine in One SaaS platform."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+
+  # Backend & Database
+  supabase_flutter: ^2.8.0
+
+  # Networking & Connectivity
+  dio: ^5.7.0
+  connectivity_plus: ^6.1.1
+
+  # Secure Storage & Cache
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.5
+
+  # Design, Typography & UI
+  google_fonts: ^6.2.1
+  lucide_icons: ^0.257.0
+  intl: ^0.19.0
+  uuid: ^4.5.1
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+  audioplayers: ^6.1.0
+  image_picker: ^1.2.3
+  flutter_local_notifications: ^22.3.0
+  qr_flutter: ^4.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/sounds/
+    - assets/menu/

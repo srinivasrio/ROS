@@ -1,6 +1,6 @@
 'use client';
 
-import OrderKanbanBoard from '@/app/components/admin/OrderKanbanBoard';
+import OrderKanbanBoard from '@/components/admin/OrderKanbanBoard';
 
 export default function LiveKitchenPage() {
     return (

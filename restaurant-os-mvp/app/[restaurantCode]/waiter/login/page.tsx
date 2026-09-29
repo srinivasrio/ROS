@@ -1,130 +1,181 @@
 'use client';
 
-import { useState } from 'react';
-import { Delete as LucideDelete, ChevronRight as LucideChevronRight, User as LucideUser, Lock as LucideLock, Loader2 as LucideLoader2 } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
-import { StaffService } from '@/app/services/staff';
+import { useState, useEffect, Suspense } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowRight, ShieldCheck, UtensilsCrossed, Loader2, User } from 'lucide-react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { springSnap, haptic } from '../components/ui';
 
-export default function WaiterLogin() {
+function WaiterLoginInner() {
     const params = useParams();
-    const restaurantCode = params.restaurantCode as string;
-    const [pin, setPin] = useState('');
+    const searchParams = useSearchParams();
+    const restaurantCode = (params.restaurantCode as string) || '';
+    const router = useRouter();
+    const [identifier, setIdentifier] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const router = useRouter();
 
-    const handleNumClick = (num: string) => {
-        if (pin.length < 6) {
-            setPin(prev => prev + num);
-            setError('');
+    const errorParam = searchParams.get('error');
+
+    useEffect(() => {
+        if (errorParam === 'session_expired') {
+            setError('Your session has expired. Please sign in again.');
         }
-    };
+    }, [errorParam]);
 
-    const handleDelete = () => {
-        setPin(prev => prev.slice(0, -1));
-        setError('');
-    };
+    const handleLogin = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        const cleanVal = identifier.trim();
+        if (!cleanVal) {
+            setError('Please enter your mobile number or employee ID');
+            haptic.heavy();
+            return;
+        }
 
-    const handleLogin = async () => {
-        if (pin.length === 0) return;
         setLoading(true);
         setError('');
-
         try {
-            // Fetch staff using the restaurant code (mapped to restaurant_id in service)
-            const allStaff = await StaffService.fetchStaff(restaurantCode);
-
-            // Allow admin to login as waiter for testing if needed, or explicitly only waiters
-            const user = allStaff.find(s => (s.role === 'waiter' || s.role === 'admin' || s.role === 'manager') && s.pin === pin && s.status === 'active');
-
-            if (user) {
-                // Persist session (Still used for identity in cleaner UI, but hidden from URL)
-                localStorage.setItem('waiterSession', JSON.stringify({
-                    id: user.id,
-                    name: user.name,
-                    role: user.role,
-                    restaurantId: restaurantCode
-                }));
-                
-                // Redirect to staff-identity route
-                router.push(`/${restaurantCode}/waiter/${user.mobile}/dashboard`);
-            } else {
-                setError('Invalid PIN or inactive account. Please try again.');
-                setPin('');
+            const res = await fetch('/api/auth/waiter/mobile-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ identifier: cleanVal, mobile: cleanVal }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setError(data.error || 'Sign-in failed. Please check your credentials.');
+                haptic.heavy();
+                return;
             }
+            haptic.success();
+            const waiterMobile = data.session.mobile || cleanVal.replace(/[^0-9]/g, '').slice(-10) || 'default';
+            const sessionData = {
+                id: data.session?.userId || data.user?.id,
+                name: data.session?.name || data.user?.name,
+                role: data.session?.role || data.user?.role,
+                restaurantId: data.session?.restaurantId || data.user?.restaurant_id,
+                employeeId: data.session?.employeeId || data.user?.employee_id,
+                mobile: data.session?.mobile || data.user?.mobile,
+                status: data.user?.status || 'active',
+                is_online: true
+            };
+            localStorage.setItem('waiterSession', JSON.stringify(sessionData));
+            if (waiterMobile && waiterMobile !== 'default') {
+                localStorage.setItem(`waiterSession_${waiterMobile}`, JSON.stringify(sessionData));
+            }
+            try {
+                sessionStorage.setItem('waiterSession', JSON.stringify(sessionData));
+            } catch (_) {}
+            const targetRestaurant = data.session.restaurantId || restaurantCode;
+            router.push(`/${targetRestaurant}/waiter/${waiterMobile}/dashboard`);
         } catch (err) {
             console.error('Login error', err);
-            setError('Failed to authenticate. Please check connection.');
+            setError('Connection failed. Please try again.');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-6">
-            <div className="w-full max-w-sm flex flex-col items-center">
-
-                <div className="mb-10 text-center">
-                    <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-900/20">
-                        <LucideUser className="text-white" size={32} />
-                    </div>
-                    <h1 className="text-2xl font-bold text-white tracking-tight">Waiter Login</h1>
-                    <p className="text-black text-sm mt-2">Enter your assigned PIN Number</p>
+        <div className="flex-1 h-full bg-w-canvas overflow-y-auto">
+            <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={springSnap}
+                className="min-h-full flex flex-col justify-center px-6 py-12 max-w-sm w-full mx-auto"
+            >
+                {/* Logo tile */}
+                <div className="size-16 rounded-[20px] bg-w-brand flex items-center justify-center shadow-[0_8px_20px_rgba(255,107,53,0.3)] mb-8">
+                    <UtensilsCrossed size={32} className="text-white" />
                 </div>
 
-                {/* PIN Display */}
-                <div className="mb-10 w-full">
-                    <div className={`h-16 bg-neutral-800 rounded-2xl flex items-center justify-center text-3xl font-mono tracking-widest border-2 transition-all duration-200 ${error ? 'border-red-500 text-red-500' : 'border-neutral-700 text-white focus-within:border-blue-500'
+                <h1 className="font-display text-2xl font-extrabold text-w-ink tracking-tight">Waiter Sign In</h1>
+                <p className="text-sm text-w-ink-soft mt-2 leading-relaxed">
+                    Enter your registered staff mobile number or employee ID to access your shift.
+                </p>
+
+                <form onSubmit={handleLogin} className="mt-8 space-y-4">
+                    {/* Identifier input */}
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-w-ink-soft mb-2">
+                            Staff mobile number or employee ID
+                        </p>
+                        <div className={`flex items-center bg-white rounded-[18px] border-[1.5px] shadow-[0_4px_10px_rgba(15,23,42,0.06)] transition-colors ${
+                            error ? 'border-w-alert' : 'border-w-border focus-within:border-w-brand'
                         }`}>
-                        {pin ? pin.split('').map(() => '•').join(' ') : <span className="text-black text-xl font-sans opacity-50">Enter PIN</span>}
+                            <span className="flex items-center justify-center pl-4 pr-3 py-3.5 border-r-[1.5px] border-w-border text-w-ink-soft">
+                                <User size={18} />
+                            </span>
+                            <input
+                                value={identifier}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setIdentifier(val);
+                                    setError('');
+                                    const digits = val.replace(/[^0-9]/g, '').slice(-10);
+                                    if (digits.length === 10) {
+                                        router.prefetch(`/${restaurantCode}/waiter/${digits}/dashboard`);
+                                    }
+                                }}
+                                autoComplete="username"
+                                autoFocus
+                                placeholder="e.g. 9876543210 or EMP-0001"
+                                aria-label="Staff mobile number or employee ID"
+                                className="flex-1 bg-transparent outline-none px-4 py-3.5 text-base font-bold text-w-ink placeholder:font-normal placeholder:text-w-muted"
+                            />
+                        </div>
                     </div>
-                    {error && <p className="text-red-500 text-xs text-center mt-3 font-medium animate-pulse">{error}</p>}
-                </div>
 
-                {/* Numpad */}
-                <div className="grid grid-cols-3 gap-4 w-full mb-8">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                        <button
-                            key={num}
-                            onClick={() => handleNumClick(num.toString())}
-                            className="h-16 rounded-2xl bg-neutral-800 text-white text-2xl font-medium hover:bg-neutral-700 active:bg-neutral-600 active:scale-95 transition-all outline-none focus:ring-2 focus:ring-blue-500/50"
-                        >
-                            {num}
-                        </button>
-                    ))}
-                    <div className="h-16"></div> {/* Empty slot for alignment */}
+                    <div className="min-h-6">
+                        <AnimatePresence mode="wait">
+                            {error && (
+                                <motion.p
+                                    key="err"
+                                    initial={{ opacity: 0, y: 4 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0 }}
+                                    className="text-[13px] font-semibold text-w-alert pt-1"
+                                >
+                                    {error}
+                                </motion.p>
+                            )}
+                        </AnimatePresence>
+                    </div>
+
+                    {/* CTA */}
                     <button
-                        onClick={() => handleNumClick('0')}
-                        className="h-16 rounded-2xl bg-neutral-800 text-white text-2xl font-medium hover:bg-neutral-700 active:bg-neutral-600 active:scale-95 transition-all outline-none focus:ring-2 focus:ring-blue-500/50"
+                        type="submit"
+                        disabled={loading}
+                        className="w-full h-[52px] rounded-[14px] bg-w-brand text-white text-sm font-extrabold shadow-[0_4px_12px_rgba(255,107,53,0.35)] active:scale-[0.97] transition-transform inline-flex items-center justify-center gap-2 disabled:opacity-70 mt-2 cursor-pointer"
                     >
-                        0
+                        {loading ? <Loader2 size={22} className="animate-spin" /> : (
+                            <>
+                                Enter Waiter Panel
+                                <ArrowRight size={18} />
+                            </>
+                        )}
                     </button>
-                    <button
-                        onClick={handleDelete}
-                        className="h-16 rounded-2xl bg-neutral-800/50 text-black flex items-center justify-center hover:bg-neutral-700 hover:text-white active:scale-95 transition-all"
-                    >
-                        <LucideDelete size={28} />
-                    </button>
+                </form>
+
+                {/* Info banner */}
+                <div className="mt-8 bg-white rounded-2xl border border-w-border p-4 flex items-start gap-3">
+                    <ShieldCheck size={20} className="text-w-brand shrink-0 mt-0.5" />
+                    <p className="text-xs text-w-ink-soft leading-relaxed">
+                        <strong className="font-bold text-w-ink">Instant Staff Access:</strong> Enter your mobile number or employee ID to sign in. No password required.
+                    </p>
                 </div>
-
-                {/* Login Button */}
-                <button
-                    onClick={handleLogin}
-                    disabled={pin.length === 0 || loading}
-                    className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center transition-all ${pin.length > 0 && !loading
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 active:scale-95'
-                        : 'bg-neutral-800 text-black cursor-not-allowed'
-                        }`}
-                >
-                    {loading ? <LucideLoader2 className="animate-spin" size={24} /> : (
-                        <>
-                            Login
-                            <LucideChevronRight className="ml-2" size={20} />
-                        </>
-                    )}
-                </button>
-
-            </div>
+            </motion.div>
         </div>
+    );
+}
+
+export default function WaiterLogin() {
+    return (
+        <Suspense fallback={
+            <div className="flex-1 h-full bg-w-canvas flex items-center justify-center">
+                <Loader2 size={32} className="animate-spin text-w-brand" />
+            </div>
+        }>
+            <WaiterLoginInner />
+        </Suspense>
     );
 }

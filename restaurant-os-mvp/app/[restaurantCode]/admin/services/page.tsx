@@ -4,12 +4,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as LucideIcons from 'lucide-react';
 import { Plus as LucidePlus, Image as LucideImage, ToggleLeft as LucideToggleLeft, ToggleRight as LucideToggleRight, HandHelping as LucideHandHelping, Edit2 as LucideEdit2, Trash2 as LucideTrash2, X as LucideX, Camera as LucideCamera } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { HomepageBuilderService, HomepageService } from '@/app/services/homepage-builder.service';
-import { UserService } from '@/app/services/users';
-import { MenuService } from '@/app/services/menu';
-import { compressImage, validateImageFile } from '@/app/lib/image-compress';
-import ConfirmationModal from '@/app/components/ui/ConfirmationModal';
-import { getCached, setCache } from '@/app/lib/data-cache';
+import { HomepageBuilderService, HomepageService } from '@/services/homepage-builder.service';
+import { UserService } from '@/services/users.service';
+import { MenuService } from '@/services/menu.service';
+import { compressImage, validateImageFile } from '@/lib/image-compress';
+import ConfirmationModal from '@/components/ui/ConfirmationModal';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { useParams } from 'next/navigation';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
 
 const colorPresets = [
     { name: 'Orange', color: '#f97316', gradient: 'from-orange-400/20 to-orange-600/20', border: 'border-orange-200/50', text: 'text-orange-900' },
@@ -31,13 +34,20 @@ function getColorForGradient(gradient?: string): string {
 }
 
 export default function AdminServicesPage() {
-    const cachedServices = getCached<HomepageService[]>('services-cache');
+    const params = useParams();
+    const urlRestaurantCode = (params?.restaurantCode as string) || '';
+    const { restaurantId: ctxRestaurantId } = useRestaurantId();
+    const activeResId = ctxRestaurantId || urlRestaurantCode;
+    const cacheKey = `services-${activeResId}`;
+    const cachedServices = getCached<HomepageService[]>(cacheKey) || (urlRestaurantCode ? getCached<HomepageService[]>(`services-${urlRestaurantCode}`) : null);
+
     const [services, setServices] = useState<HomepageService[]>(cachedServices || []);
-    const [loading, setLoading] = useState(!cachedServices);
+    const [loading, setLoading] = useState(!cachedServices && services.length === 0);
+    const [isRevalidating, setIsRevalidating] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [restaurantId, setRestaurantId] = useState<string | null>(null);
+    const [restaurantId, setRestaurantId] = useState<string | null>(activeResId);
 
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -64,35 +74,40 @@ export default function AdminServicesPage() {
         onConfirm: () => void;
     }>({ isOpen: false, title: '', message: '', isAlert: false, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
 
-    const loadData = async (resId?: string) => {
-        const targetResId = resId || restaurantId;
+    const loadData = async (resId?: string, force = false) => {
+        const targetResId = resId || restaurantId || activeResId;
         if (!targetResId) return;
-        
+        const targetKey = `services-${targetResId}`;
+
+        if (!force && hasFreshCache(targetKey)) {
+            const cached = getCached<HomepageService[]>(targetKey);
+            if (cached) {
+                setServices(cached);
+                setLoading(false);
+                return;
+            }
+        }
+
+        setIsRevalidating(true);
         try {
             const data = await HomepageBuilderService.getServices(targetResId);
             setServices(data);
+            setCache(targetKey, data);
             setCache('services-cache', data);
         } catch (err) {
             console.error('Failed to load services:', err);
         } finally {
             setLoading(false);
+            setIsRevalidating(false);
         }
     };
 
     useEffect(() => {
-        const init = async () => {
-            const profile = await UserService.getCurrentProfile();
-            if (profile?.restaurant_id) {
-                setRestaurantId(profile.restaurant_id);
-                // Initialize defaults if none exist
-                await HomepageBuilderService.initializeDefaultServices(profile.restaurant_id);
-                loadData(profile.restaurant_id);
-            } else {
-                setLoading(false);
-            }
-        };
-        init();
-    }, []);
+        if (activeResId) {
+            setRestaurantId(activeResId);
+            loadData(activeResId, false);
+        }
+    }, [activeResId]);
 
     const resetForm = () => {
         setForm({
@@ -122,7 +137,7 @@ export default function AdminServicesPage() {
                 setImageUploading(true);
                 try {
                     const compressed = await compressImage(imageFile);
-                    imageUrl = await MenuService.uploadMenuImage(compressed.file);
+                    imageUrl = await MenuService.uploadMenuImage(compressed.file, undefined, restaurantId || undefined);
                 } catch (err) {
                     console.error('Image upload failed:', err);
                 } finally {
@@ -219,7 +234,7 @@ export default function AdminServicesPage() {
         }
     };
 
-    if (loading) {
+    if (loading && !cachedServices && services.length === 0) {
         return (
             <div className="flex items-center justify-center h-full">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -234,7 +249,10 @@ export default function AdminServicesPage() {
             <div className="p-8 flex flex-col h-screen space-y-7 overflow-hidden">
                 <div className="flex justify-between items-center shrink-0">
                     <div>
-                        <h2 className="text-2xl font-black text-black tracking-tight">Service Options</h2>
+                        <div className="flex items-center gap-3">
+                            <h2 className="text-2xl font-black text-black tracking-tight">Service Options</h2>
+                            <SyncIndicator isRevalidating={isRevalidating} />
+                        </div>
                         <p className="text-sm font-medium text-black mt-1">Configure quick service request buttons for customers (e.g. Call Waiter, Water, Bill).</p>
                     </div>
                     <button

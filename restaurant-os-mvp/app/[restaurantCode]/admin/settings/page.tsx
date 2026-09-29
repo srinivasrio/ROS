@@ -1,35 +1,139 @@
-'use client';
-
-import { useState, useEffect } from 'react';
-import { Save as LucideSave, Building as LucideBuilding, FileText as LucideFileText, CreditCard as LucideCreditCard, Award as LucideAward } from 'lucide-react';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { RegistrationService } from '@/app/services/registration';
-import { getCached, setCache } from '@/app/lib/data-cache';
+import { useState, useEffect, useCallback } from 'react';
+import { Save as LucideSave, Building as LucideBuilding, FileText as LucideFileText, CreditCard as LucideCreditCard, Award as LucideAward, Loader2 as LucideLoader2 } from 'lucide-react';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { RegistrationService } from '@/services/registration.service';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { requestManager } from '@/lib/cache/request-manager';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
+import { useParams } from 'next/navigation';
+import { toast } from 'sonner';
+import RestaurantLocationPicker from '@/components/admin/RestaurantLocationPicker';
 
 export default function Settings() {
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
-    const cached = getCached<any>(`settings-${restaurantId}`);
+    const params = useParams();
+    const restaurantCode = params.restaurantCode as string;
+    const activeResId = restaurantId || restaurantCode;
+
+    const cacheKey = `settings-${activeResId}`;
+    const cached = getCached<any>(cacheKey) || (restaurantId ? getCached<any>(`settings-${restaurantId}`) : null);
     const [registrationDetails, setRegistrationDetails] = useState<any>(cached || null);
-    const [loading, setLoading] = useState(!cached);
+    const [loading, setLoading] = useState(!cached && !registrationDetails);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [lastSync, setLastSync] = useState<Date | null>(null);
+
+    const [gst, setGst] = useState('5');
+    const [cgst, setCgst] = useState('2.5');
+    const [sgst, setSgst] = useState('2.5');
+    const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        if (!restaurantLoading && restaurantId) {
-            RegistrationService.getRegistrationDetails(restaurantId).then(data => {
-                setRegistrationDetails(data);
-                setCache(`settings-${restaurantId}`, data);
-                setLoading(false);
-            }).catch(err => {
-                console.error("Failed to load registration details", err);
-                setLoading(false);
-            });
+        if (registrationDetails) {
+            const g = registrationDetails.gst_percentage ?? 5.0;
+            const c = registrationDetails.cgst_percentage ?? (g / 2.0);
+            const s = registrationDetails.sgst_percentage ?? (g / 2.0);
+            setGst(g.toString());
+            setCgst(c.toString());
+            setSgst(s.toString());
         }
-    }, [restaurantId, restaurantLoading]);
+    }, [registrationDetails]);
+
+    const handleGstChange = (val: string) => {
+        setGst(val);
+        const num = parseFloat(val);
+        if (!isNaN(num) && num >= 0) {
+            setCgst((num / 2).toString());
+            setSgst((num / 2).toString());
+        }
+    };
+
+    const handleSave = async () => {
+        const targetId = restaurantId || restaurantCode;
+        if (!targetId) return;
+
+        const g = parseFloat(gst);
+        const c = parseFloat(cgst);
+        const s = parseFloat(sgst);
+
+        if (isNaN(g) || g < 0) {
+            toast.error('Please enter a valid GST percentage');
+            return;
+        }
+        if (isNaN(c) || isNaN(s) || Math.abs((c + s) - g) > 0.01) {
+            toast.error(`CGST (${c}%) + SGST (${s}%) must equal total GST (${g}%)`);
+            return;
+        }
+
+        setSaving(true);
+        try {
+            const ok = await RegistrationService.updateGstSettings(targetId, g, c, s);
+            if (ok) {
+                toast.success('GST settings updated successfully');
+                loadData(true);
+            } else {
+                toast.error('Failed to update GST settings');
+            }
+        } catch (e: any) {
+            toast.error(e.message || 'Error updating settings');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const loadData = useCallback(async (force = false) => {
+        const targetId = restaurantId || restaurantCode;
+        if (!targetId) return;
+        const key = `settings-${targetId}`;
+
+        const currentCached = getCached<any>(key);
+        if (currentCached && !registrationDetails) {
+            setRegistrationDetails(currentCached);
+            setLoading(false);
+        }
+
+        if (!force && hasFreshCache(key)) {
+            setLoading(false);
+            return;
+        }
+
+        if (!registrationDetails && !currentCached) {
+            setLoading(true);
+        } else {
+            setIsSyncing(true);
+        }
+
+        try {
+            const data = await requestManager.coalesce(key, () => RegistrationService.getRegistrationDetails(restaurantId || targetId), 3);
+            if (data) {
+                setRegistrationDetails(data);
+                setCache(key, data, { ttlMs: 15 * 60 * 1000 });
+                if (restaurantId && restaurantId !== targetId) {
+                    setCache(`settings-${restaurantId}`, data, { ttlMs: 15 * 60 * 1000 });
+                }
+                setLastSync(new Date());
+            }
+        } catch (err) {
+            console.error("Failed to load registration details", err);
+        } finally {
+            setLoading(false);
+            setIsSyncing(false);
+        }
+    }, [restaurantId, restaurantCode, registrationDetails]);
+
+    useEffect(() => {
+        if (!restaurantLoading && (restaurantId || restaurantCode)) {
+            loadData();
+        }
+    }, [restaurantId, restaurantCode, restaurantLoading, loadData]);
 
     return (
         <div className="p-8 flex flex-col h-screen space-y-7 overflow-hidden">
-            <div className="shrink-0">
-                <h2 className="text-2xl font-black text-black tracking-tight">Restaurant Settings</h2>
-                <p className="text-sm font-medium text-black mt-1">Manage profile, business hours, and operational settings.</p>
+            <div className="flex justify-between items-center shrink-0">
+                <div>
+                    <h2 className="text-2xl font-black text-black tracking-tight">Restaurant Settings</h2>
+                    <p className="text-sm font-medium text-black mt-1">Manage profile, business hours, and operational settings.</p>
+                </div>
+                <SyncIndicator isSyncing={isSyncing} lastSync={lastSync} onRefresh={() => loadData(true)} />
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar min-h-0 bg-white rounded-[2rem] border border-neutral-200 shadow-sm p-10 space-y-10">
@@ -123,30 +227,85 @@ export default function Settings() {
 
                 {/* Taxes Section */}
                 <section className="space-y-4">
-                    <h3 className="text-lg font-semibold text-black pb-2 border-b border-neutral-100">Taxes & Charges</h3>
+                    <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
+                        <div>
+                            <h3 className="text-lg font-semibold text-black">Default Taxes & GST</h3>
+                            <p className="text-xs text-neutral-500">Default tax rates applied to new menu items and orders across this restaurant.</p>
+                        </div>
+                        <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
+                            Auto-Split
+                        </span>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-black">GST (%)</label>
-                            <input type="number" defaultValue="5" className="w-full px-4 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                            <label className="text-sm font-medium text-black">Total GST (%)</label>
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    step="0.01"
+                                    min="0"
+                                    max="100"
+                                    value={gst} 
+                                    onChange={(e) => handleGstChange(e.target.value)}
+                                    className="w-full px-4 py-2 pr-8 border border-neutral-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">%</span>
+                            </div>
                         </div>
+
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-black">Service Charge (%)</label>
-                            <input type="number" defaultValue="0" className="w-full px-4 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                            <label className="text-sm font-medium text-black">CGST (%)</label>
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    step="0.01"
+                                    min="0"
+                                    max="100"
+                                    value={cgst} 
+                                    onChange={(e) => setCgst(e.target.value)}
+                                    className="w-full px-4 py-2 pr-8 border border-neutral-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">%</span>
+                            </div>
                         </div>
+
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-black">Currency</label>
-                            <select className="w-full px-4 py-2 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                                <option value="INR">INR (₹)</option>
-                                <option value="USD">USD</option>
-                            </select>
+                            <label className="text-sm font-medium text-black">SGST (%)</label>
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    step="0.01"
+                                    min="0"
+                                    max="100"
+                                    value={sgst} 
+                                    onChange={(e) => setSgst(e.target.value)}
+                                    className="w-full px-4 py-2 pr-8 border border-neutral-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">%</span>
+                            </div>
                         </div>
                     </div>
+
+                    <p className="text-xs text-neutral-500">
+                        💡 Example: 5% GST → 2.5% CGST + 2.5% SGST | 18% GST → 9% CGST + 9% SGST
+                    </p>
+                </section>
+
+                {/* Location & Ordering Modes Section */}
+                <section className="space-y-4 pt-6 border-t border-neutral-100">
+                    <RestaurantLocationPicker restaurantCode={activeResId} />
                 </section>
 
                 {/* Actions */}
                 <div className="pt-8 border-t border-neutral-100 flex justify-end">
-                    <button className="flex items-center px-6 py-3 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 gap-2">
-                        <LucideSave size={16} />
+                    <button 
+                        type="button"
+                        onClick={handleSave}
+                        disabled={saving}
+                        className="flex items-center px-6 py-3 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                        {saving ? <LucideLoader2 size={16} className="animate-spin" /> : <LucideSave size={16} />}
                         Save Changes
                     </button>
                 </div>

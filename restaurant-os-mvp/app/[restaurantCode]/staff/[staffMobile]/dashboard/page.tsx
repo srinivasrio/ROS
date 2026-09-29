@@ -1,14 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { StaffTaskService, StaffTask } from '@/app/services/staff_tasks';
-import { OrderService } from '@/app/services/orders';
+import { useParams } from 'next/navigation';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { StaffTaskService, StaffTask } from '@/services/staff-tasks.service';
+import { OrderService } from '@/services/orders.service';
 import { Check, Clock, AlertTriangle, User, LogOut, Coffee, Briefcase } from 'lucide-react';
-import { formatTimeElapsed } from '@/app/lib/utils';
+import { formatTimeElapsed } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 
 export default function UniversalStaffDashboard() {
+    const params = useParams();
+    const staffMobile = params?.staffMobile as string;
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
     const [staff, setStaff] = useState<any>(null);
     const [tasks, setTasks] = useState<StaffTask[]>([]);
@@ -22,12 +25,12 @@ export default function UniversalStaffDashboard() {
 
     useEffect(() => {
         const init = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user || !restaurantId) return;
+            if (!restaurantId || !staffMobile) return;
 
             try {
-                // Fetch staff record
-                const staffRecord = await OrderService.getWaiterRecord(restaurantId, user.id);
+                // Fetch staff record via mobile number
+                const staffRecord = await OrderService.getStaffByMobile(staffMobile, restaurantId);
+                if (!staffRecord) return;
                 setStaff(staffRecord);
 
                 // Fetch initial tasks

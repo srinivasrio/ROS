@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { HomepageBuilderService } from '@/app/services/homepage-builder.service';
-import { OrderService } from '@/app/services/orders';
-import { ServiceOptionsService, ServiceOption } from '@/app/services/service-options.service';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { HomepageBuilderService } from '@/services/homepage-builder.service';
+import { OrderService } from '@/services/orders.service';
+import { ServiceOptionsService, ServiceOption } from '@/services/service-options.service';
 import {
     ChevronLeft as LucideChevronLeft,
     Headset as LucideHeadset,
@@ -13,19 +13,37 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { cn } from '@/app/lib/utils';
-import { SharedSkeleton } from '@/app/components/customer/SharedSkeleton';
-import { SharedServicePopupCard } from '@/app/components/shared/services/SharedServicePopupCard';
+import { cn } from '@/lib/utils';
+import { SharedSkeleton } from '@/components/customer/SharedSkeleton';
+import { SharedServicePopupCard } from '@/components/shared/services/SharedServicePopupCard';
 
 export default function AllServicesPage() {
     const params = useParams();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const idParam = searchParams?.get('id') || searchParams?.get('service');
     const restaurantId = (params.restaurantCode || params.restaurantId) as string;
     const tableNumber = params.tableNumber as string;
 
     const [services, setServices] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedOption, setSelectedOption] = useState<any>(null);
+
+    // Automatically open the exact service record if redirected from banner
+    useEffect(() => {
+        if (!idParam || services.length === 0) return;
+        const found = services.find(s => 
+            String(s.id) === String(idParam) ||
+            s.service_key === String(idParam) ||
+            s.label?.toLowerCase() === String(idParam).toLowerCase() ||
+            s.name?.toLowerCase() === String(idParam).toLowerCase()
+        );
+        if (found) {
+            setSelectedOption(found);
+        } else {
+            toast.error('The selected service is no longer available');
+        }
+    }, [idParam, services]);
 
     useEffect(() => {
         const loadServices = async () => {

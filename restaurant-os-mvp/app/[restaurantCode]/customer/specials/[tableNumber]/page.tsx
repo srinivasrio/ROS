@@ -1,38 +1,87 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useCart } from '@/app/context/CartContext';
-import { HomepageBuilderService } from '@/app/services/homepage-builder.service';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useCart } from '@/context/CartContext';
+import { HomepageBuilderService } from '@/services/homepage-builder.service';
 import { 
     ChevronLeft as LucideChevronLeft, 
     Flame as LucideFlame, 
     ShoppingBag as LucideShoppingBag, 
     Plus as LucidePlus, 
     Minus as LucideMinus, 
-    Heart as LucideHeart
+    Heart as LucideHeart,
+    X as LucideX
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { SharedSkeleton } from '@/app/components/customer/SharedSkeleton';
-import SharedQuantityControl from '@/app/components/shared/SharedQuantityControl';
+import { SharedSkeleton } from '@/components/customer/SharedSkeleton';
+import SharedQuantityControl from '@/components/shared/SharedQuantityControl';
+import { SharedSpecialDetailModal, VegNonVegBadge } from '@/components/shared/details';
+import { getCategoryMenuItemImage } from '@/lib/utils';
 
 export default function AllSpecialsPage() {
     const params = useParams();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const idParam = searchParams?.get('id') || searchParams?.get('special');
     const restaurantId = (params.restaurantCode || params.restaurantId) as string;
     const tableNumber = params.tableNumber as string;
 
-    const { addSpecialToCart, updateQuantity, cart, setTableNumber } = useCart();
+    const { addToCart, addSpecialToCart, updateQuantity, cart, setTableNumber } = useCart();
 
     const [specials, setSpecials] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedSpecial, setSelectedSpecial] = useState<any>(null);
 
     const getItemQtyInCart = (id: string) => cart[String(id)]?.quantity || 0;
 
     useEffect(() => {
         if (tableNumber) setTableNumber(tableNumber);
     }, [tableNumber, setTableNumber]);
+
+    const handledSpecialParamRef = useRef<string | null>(null);
+
+    const clearSpecialParam = useCallback(() => {
+        if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            if (url.searchParams.has('id') || url.searchParams.has('special')) {
+                url.searchParams.delete('id');
+                url.searchParams.delete('special');
+                const cleanSearch = url.searchParams.toString();
+                const cleanUrl = url.pathname + (cleanSearch ? `?${cleanSearch}` : '');
+                window.history.replaceState(null, '', cleanUrl);
+                router.replace(cleanUrl, { scroll: false });
+            }
+        }
+    }, [router]);
+
+    useEffect(() => {
+        if (!idParam) {
+            handledSpecialParamRef.current = null;
+        }
+    }, [idParam]);
+
+    // Automatically open the exact special record if redirected from banner (ONCE per navigation)
+    useEffect(() => {
+        if (!idParam || specials.length === 0) return;
+        if (handledSpecialParamRef.current === String(idParam)) return;
+
+        const found = specials.find(s => 
+            String(s.id) === String(idParam) ||
+            s.title?.toLowerCase() === String(idParam).toLowerCase() ||
+            s.name?.toLowerCase() === String(idParam).toLowerCase()
+        );
+        if (found) {
+            handledSpecialParamRef.current = String(idParam);
+            setSelectedSpecial(found);
+            clearSpecialParam();
+        } else if (!loading) {
+            handledSpecialParamRef.current = String(idParam);
+            clearSpecialParam();
+            toast.error('The selected special is no longer available');
+        }
+    }, [idParam, specials, loading, clearSpecialParam]);
 
     useEffect(() => {
         const loadSpecials = async () => {
@@ -103,9 +152,18 @@ export default function AllSpecialsPage() {
                 ) : (
                     <AnimatePresence>
                         {specials.map((item, idx) => {
+                            const isTodaySpecial = item.is_today_special;
                             const cartKey = `special-${item.id}`;
-                            const qty = getItemQtyInCart(cartKey);
+                            const qty = getItemQtyInCart(cartKey) || getItemQtyInCart(item.id);
                             const mrp = item.items?.reduce((sum: number, i: any) => sum + ((i.menu_item?.price || i.price || 0) * (i.quantity || 1)), 0) || 0;
+                            const offerPrice = (item.special_price !== undefined && item.special_price !== null && Number(item.special_price) > 0)
+                                ? Number(item.special_price)
+                                : Number(item.price || 0);
+                            const rawOriginalPrice = Number(item.original_price || item.originalPrice || 0);
+                            const originalPrice = rawOriginalPrice > 0
+                                ? rawOriginalPrice
+                                : (mrp > offerPrice ? mrp : (Number(item.price) > offerPrice ? Number(item.price) : 0));
+                            const savings = originalPrice > offerPrice ? originalPrice - offerPrice : 0;
 
                             return (
                                 <motion.div
@@ -113,23 +171,37 @@ export default function AllSpecialsPage() {
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: idx * 0.05 }}
-                                    className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
+                                    onClick={() => {
+                                        clearSpecialParam();
+                                        setSelectedSpecial(item);
+                                    }}
+                                    className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                                 >
-                                    {/* Image */}
-                                    <div className="relative h-48 w-full">
+                                    {/* Standardized 16:9 Image */}
+                                    <div className="relative aspect-[16/9] w-full overflow-hidden">
                                         <img
                                             src={item.image_url || '/placeholder-food.jpg'}
                                             alt={item.title}
                                             className="w-full h-full object-cover"
                                         />
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-                                        <div className="absolute top-3 left-3">
+                                        <div className="absolute top-3 left-3 flex items-center gap-1.5">
                                             <span className="px-2.5 py-1 bg-amber-500 text-white text-[9px] font-black uppercase tracking-widest rounded-lg shadow-lg shadow-amber-500/30">
                                                 Chef&apos;s Choice
                                             </span>
+                                            {savings > 0 && (
+                                                <span className="px-2.5 py-1 bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest rounded-lg shadow-lg shadow-emerald-600/30">
+                                                    Save ₹{savings}
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="absolute top-3 right-3">
-                                            <button className="p-2 bg-white/80 backdrop-blur-md rounded-full">
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                }}
+                                                className="p-2 bg-white/80 backdrop-blur-md rounded-full"
+                                            >
                                                 <LucideHeart size={14} className="text-black" />
                                             </button>
                                         </div>
@@ -148,43 +220,52 @@ export default function AllSpecialsPage() {
 
                                         {/* Items preview */}
                                         {item.items && item.items.length > 0 && (
-                                            <div className="mb-3 flex flex-wrap gap-1.5">
-                                                {item.items.slice(0, 4).map((si: any, siIdx: number) => {
+                                            <div className="mb-4 space-y-2">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-black px-1 mb-2">Includes</p>
+                                                {item.items.map((si: any, siIdx: number) => {
                                                     const itemName = si.menu_item?.name || si.name || 'Item';
+                                                    const itemImage = si.menu_item?.image_url || getCategoryMenuItemImage(itemName);
+                                                    const itemPrice = si.menu_item?.price || si.price || 0;
+                                                    
                                                     return (
-                                                        <span
-                                                            key={si.id || siIdx}
-                                                            className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-bold rounded-md"
-                                                        >
-                                                            {itemName}
-                                                            {si.quantity > 1 && ` ×${si.quantity}`}
-                                                        </span>
+                                                        <div key={si.id || siIdx} className="flex gap-3 items-center bg-neutral-50/50 p-2 rounded-xl border border-neutral-100/50">
+                                                            <div className="size-12 bg-white rounded-lg flex-shrink-0 overflow-hidden border border-neutral-100">
+                                                                <img src={itemImage} alt={itemName} className="w-full h-full object-cover" />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <h4 className="font-bold text-black text-xs tracking-tight truncate">{itemName}</h4>
+                                                                <div className="flex items-center gap-2 mt-1">
+                                                                    <span className="text-[10px] font-black text-black bg-white px-1.5 py-0.5 rounded border border-neutral-100">QTY: {si.quantity || 1}</span>
+                                                                    <span className="text-[10px] font-bold text-black">₹{itemPrice} each</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     );
                                                 })}
-                                                {item.items.length > 4 && (
-                                                    <span className="px-2 py-0.5 bg-neutral-100 text-black text-[10px] font-bold rounded-md">
-                                                        +{item.items.length - 4} more
-                                                    </span>
-                                                )}
                                             </div>
                                         )}
 
                                         {/* Price + Cart Controls */}
-                                        <div className="flex items-center justify-between">
+                                        <div className="flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex flex-col">
                                                 <div className="flex items-end gap-2">
-                                                    <span className="text-xl font-black text-orange-600">₹{item.price}</span>
-                                                    {mrp > item.price && (
-                                                        <span className="text-sm font-bold text-black line-through mb-1">₹{mrp}</span>
+                                                    <span className="text-xl font-black text-orange-600">₹{offerPrice}</span>
+                                                    {originalPrice > offerPrice && (
+                                                        <span className="text-sm font-bold text-slate-400 line-through mb-0.5">₹{originalPrice}</span>
                                                     )}
                                                 </div>
+                                                {savings > 0 && (
+                                                    <span className="text-[10px] font-bold text-emerald-600 leading-none mt-0.5">
+                                                        Save ₹{savings}
+                                                    </span>
+                                                )}
                                             </div>
 
                                             <SharedQuantityControl
                                                 qty={qty}
                                                 onAdd={() => {
                                                     addSpecialToCart(item);
-                                                    toast.success(`${item.title} added to cart`, {
+                                                    toast.success(`${item.title || item.name || 'Special'} added to cart`, {
                                                         duration: 2000,
                                                         position: 'bottom-center',
                                                         icon: <LucideShoppingBag size={16} className="text-green-500" />,
@@ -202,6 +283,27 @@ export default function AllSpecialsPage() {
                     </AnimatePresence>
                 )}
             </main>
+
+            {/* Standardized Luxury Special Detail Modal */}
+            <SharedSpecialDetailModal
+                special={selectedSpecial}
+                onClose={() => {
+                    setSelectedSpecial(null);
+                    clearSpecialParam();
+                }}
+                onAddToCart={(item) => {
+                    addSpecialToCart(item);
+                    toast.success(`${item.title || item.name || 'Special'} added to cart`, {
+                        duration: 2000,
+                        position: 'bottom-center',
+                        icon: <LucideShoppingBag size={16} className="text-green-500" />,
+                    });
+                }}
+                onUpdateQuantity={(cartKey, delta) => updateQuantity(cartKey, delta)}
+                cartQuantity={selectedSpecial ? (getItemQtyInCart(`special-${selectedSpecial.id}`) || getItemQtyInCart(selectedSpecial.id)) : 0}
+                currencySymbol="₹"
+                colorHex="#ea580c"
+            />
         </div>
     );
 }

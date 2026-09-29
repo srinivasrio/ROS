@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# build logs & artifacts
+build_log*.txt
+build_output.txt
+ai-error.log
+scratch/
+logs/
+.cleanup_backup_20260929/

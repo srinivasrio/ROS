@@ -1,917 +1,1623 @@
 'use client';
 
-import { useState, useEffect, memo, useMemo, useCallback } from 'react';
-import { motion, LayoutGroup, AnimatePresence } from 'framer-motion';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { OrderService, type Order, type TableMergeGroup } from '@/app/services/orders';
+import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import {
+    Store, X, MapPin, ChevronDown, LayoutGrid, Link2, Move, Pin, Trash2,
+    Trees, Crown, Wine, Sun, Users, Check, RefreshCw, CheckCheck,
+    UserCheck, Sparkles, ChefHat, Utensils,
+} from 'lucide-react';
 import { createClient } from '@/lib/supabase';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { Bell as LucideBell, Receipt as LucideReceipt, GlassWater as LucideGlassWater, Utensils as LucideUtensils, Pipette as LucidePipette, Disc as LucideDisc, Soup as LucideSoup, GripHorizontal as LucideGripHorizontal, Wind as LucideWind, Droplet as LucideDroplet, HandPlatter as LucideHandPlatter, Users as LucideUsers, Search as LucideSearch, Clock as LucideClock, Filter as LucideFilter, AlertCircle as LucideAlertCircle, CheckCircle2 as LucideCheckCircle2, ChevronRight as LucideChevronRight, User as LucideUser, Coffee as LucideCoffee, Check as LucideCheck } from 'lucide-react';
+import { OrderService, type Order } from '@/services/orders.service';
+import { RestaurantService } from '@/services/restaurant.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import {
+    AppButton, haptic, springSoft, useIsHydrated, tableOpenStore
+} from '../../components/ui';
+import { TableCard, type FloorTable } from '../../components/TableCard';
+import { TableDetailsSheet } from '../../components/TableDetailsSheet';
 
 const supabase = createClient();
 
-type TableViewStatus = 'ready' | 'cooking' | 'eating' | 'empty' | 'alert' | 'customer_present' | 'ordering' | 'billing' | 'cleaning' | 'reserved';
+type FilterKey = 'ALL' | 'PREPARING' | 'READY' | 'AVAILABLE';
 
-interface Table {
-    id: number;
-    table_number: string;
-    status: string;
-    capacity: number;
-    alert_status?: 'call_waiter' | 'bill_requested' | null;
+const FILTER_META: Record<FilterKey, { label: string; color: string }> = {
+    ALL: { label: 'All', color: '#FF6B35' },
+    PREPARING: { label: 'Preparing', color: '#FFDE63' },
+    READY: { label: 'Ready', color: '#8F87F1' },
+    AVAILABLE: { label: 'Available', color: '#ABE7B2' },
+};
+
+interface AreaRow { id: string; name: string }
+
+function areaIcon(name: string) {
+    const n = name.toLowerCase();
+    if (/outdoor|garden|terrace/.test(n)) return Trees;
+    if (/vip|private|premium/.test(n)) return Crown;
+    if (/bar|lounge/.test(n)) return Wine;
+    if (/rooftop|top/.test(n)) return Sun;
+    if (/family|hall/.test(n)) return Users;
+    return MapPin;
 }
 
-// Helper: Determine Visual Priority Outside
-const getComputedStatus = (table: any, orders: Order[]): TableViewStatus => {
-    const tableOrders = table.is_group
-        ? orders.filter(o => String(o.merge_group_id) === String(table.id))
-        : orders.filter(o => String(o.table_id) === String(table.id));
+// Persistent in-memory cache for instant tab switching without screen reload/skeleton flash
+let cachedDashboard: {
+    restaurantId: string;
+    tables: FloorTable[];
+    orders: Order[];
+    areas: AreaRow[];
+    restaurantName: string;
+    restaurantLogo?: string | null;
+    waiterRecord?: any;
+} | null = null;
 
-    const isReady = tableOrders.some(o =>
-        o.items && o.items.some((i: any) => i.status === 'ready')
-    );
-    if (isReady) return 'ready';
+export default function WaiterDashboard() {
+    const { restaurantId, loading: restaurantLoading } = useRestaurantId();
+    const router = useRouter();
+    const params = useParams();
+    const restaurantCode = (params?.restaurantCode as string) || '';
+    const staffMobile = params?.staffMobile as string;
 
-    const isCooking = tableOrders.some(o =>
-        (o.items && o.items.some((i: any) => i.status === 'preparing')) ||
-        ((!o.items || o.items.length === 0) && o.status === 'preparing')
-    );
-    if (isCooking) return 'cooking';
+    const isHydrated = useIsHydrated();
+    const hasCache = isHydrated && Boolean(cachedDashboard && (cachedDashboard.restaurantId === restaurantId || cachedDashboard.restaurantId === restaurantCode) && cachedDashboard.tables.length > 0);
 
-    if (table.status === 'billing') return 'billing';
-    if (table.status === 'cleaning') return 'cleaning';
-    if (table.status === 'ordering') return 'ordering';
-    if (table.status === 'customer_present') return 'customer_present';
-    if (table.status === 'reserved') return 'reserved';
-    if (table.status === 'eating') return 'eating';
+    const [tables, setTables] = useState<FloorTable[]>(() => hasCache ? cachedDashboard!.tables : []);
+    const [orders, setOrders] = useState<Order[]>(() => hasCache ? cachedDashboard!.orders : []);
+    const [areas, setAreas] = useState<AreaRow[]>(() => hasCache ? cachedDashboard!.areas : []);
+    const [loading, setLoading] = useState(!hasCache);
+    const [refreshing, setRefreshing] = useState(false);
+    const [filter, setFilter] = useState<FilterKey>('ALL');
+    const [areaFilter, setAreaFilter] = useState<string | null>(null);
+    const [areasOpen, setAreasOpen] = useState(false);
+    const [restaurantName, setRestaurantName] = useState(() => hasCache ? cachedDashboard!.restaurantName : '');
+    const [restaurantLogo, setRestaurantLogo] = useState<string | null>(() => hasCache ? (cachedDashboard?.restaurantLogo || null) : null);
 
-    const isEating = tableOrders.length > 0 || (table.status !== 'free' && table.status !== 'empty');
-    if (isEating) return 'eating';
+    const [selecting, setSelecting] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<(number | string)[]>([]);
+    const [mergeSheetOpen, setMergeSheetOpen] = useState(false);
+    const [moveSheetOpen, setMoveSheetOpen] = useState(false);
+    const [detailsTable, setDetailsTable] = useState<FloorTable | null>(null);
+    const [busy, setBusy] = useState(false);
 
-    return 'empty';
-};
+    useEffect(() => {
+        tableOpenStore.set(Boolean(detailsTable));
+        return () => {
+            tableOpenStore.set(false);
+        };
+    }, [detailsTable]);
 
-const getAlertDetails = (type: string | undefined | null) => {
-    switch (type) {
-        case 'bill_requested': return { label: 'Service Requested', icon: LucideReceipt, color: 'text-purple-600', bg: 'bg-purple-100' };
-        case 'call_waiter': return { label: 'Waiter Called', icon: LucideHandPlatter, color: 'text-orange-600', bg: 'bg-orange-100' };
-        case 'water_requested': return { label: 'Water', icon: LucideGlassWater, color: 'text-blue-600', bg: 'bg-blue-100' };
-        case 'glass_requested': return { label: 'Extra Glass', icon: LucideGlassWater, color: 'text-sky-600', bg: 'bg-sky-100' };
-        case 'cutlery_requested': return { label: 'Cutlery', icon: LucideUtensils, color: 'text-black', bg: 'bg-gray-100' };
-        case 'straw_requested': return { label: 'Straw', icon: LucidePipette, color: 'text-yellow-600', bg: 'bg-yellow-100' };
-        case 'plate_requested': return { label: 'Extra Plate', icon: LucideDisc, color: 'text-black', bg: 'bg-zinc-100' };
-        case 'bowl_requested': return { label: 'Finger Bowl', icon: LucideSoup, color: 'text-teal-600', bg: 'bg-teal-100' };
-        case 'salt_requested': return { label: 'Salt', icon: LucideGripHorizontal, color: 'text-black', bg: 'bg-stone-100' };
-        case 'pepper_requested': return { label: 'Pepper', icon: LucideWind, color: 'text-black', bg: 'bg-stone-100' };
-        case 'sauce_requested': return { label: 'Ketchup', icon: LucideDroplet, color: 'text-red-600', bg: 'bg-red-100' };
-        default: return { label: 'Alert', icon: LucideBell, color: 'text-red-600', bg: 'bg-red-100' };
-    }
-};
+    const [waiterRecord, setWaiterRecord] = useState<any>(() => {
+        if (!hasCache) return null;
+        return cachedDashboard?.waiterRecord || null;
+    });
+    const waiterRecordRef = useRef<any>(waiterRecord);
+    useEffect(() => {
+        waiterRecordRef.current = waiterRecord;
+    }, [waiterRecord]);
+    const reloadDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
-const getWorkloadCategory = (score: number = 0) => {
-    if (score <= 3) return 'low';
-    if (score <= 7) return 'medium';
-    return 'high';
-};
+    const [pendingCartCount, setPendingCartCount] = useState<number>(0);
 
+    useEffect(() => {
+        const checkPendingCart = () => {
+            try {
+                const restCode = (params?.restaurantCode as string) || '';
+                const raw = sessionStorage.getItem(`waiter_browse_cart_${restaurantId}`) ||
+                    (restCode ? sessionStorage.getItem(`waiter_browse_cart_${restCode}`) : null);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const totalQty = Object.values(parsed.cart || {}).reduce((s: number, q: any) => s + Number(q || 0), 0);
+                    setPendingCartCount(totalQty);
+                } else {
+                    setPendingCartCount(0);
+                }
+            } catch (_) {
+                setPendingCartCount(0);
+            }
+        };
+        checkPendingCart();
+        window.addEventListener('focus', checkPendingCart);
+        return () => window.removeEventListener('focus', checkPendingCart);
+    }, [restaurantId, params?.restaurantCode, detailsTable]);
 
-const RenderTableCard = memo(({ 
-    table, 
-    activeTab, 
-    isMergeMode, 
-    isSelectedForMerge, 
-    handleTableClick, 
-    handleDismissAlert,
-    handleAssignClick,
-    pendingRequests,
-    currentWaiterId 
-}: { 
-    table: any; 
-    activeTab: string;
-    isMergeMode: boolean;
-    isSelectedForMerge: boolean;
-    handleTableClick: any;
-    handleDismissAlert: any;
-    handleAssignClick: (e: React.MouseEvent, table: any) => void;
-    pendingRequests: any[];
-    currentWaiterId?: string;
-}) => {
-    let statusColor = '';
-    let statusText = '';
-    let icon = '';
-    let cardBg = 'bg-white';
-    let borderColor = 'border-divider';
+    /* ── Current waiter ──────────────────────────────────────── */
+    useEffect(() => {
+        let active = true;
+        try {
+            const cleanMobile = staffMobile ? staffMobile.replace(/[^0-9]/g, '').slice(-10) : '';
+            const cachedStaff = cleanMobile ? localStorage.getItem(`waiterSession_${cleanMobile}`) : null;
+            let sessionCached = null;
+            try { sessionCached = sessionStorage.getItem('waiterSession'); } catch (_) { }
+            const defaultCached = localStorage.getItem('waiterSession');
+            const candidate = cachedStaff || sessionCached || defaultCached;
+            if (candidate) {
+                const parsed = JSON.parse(candidate);
+                const parsedMobile = (parsed?.mobile || '').replace(/[^0-9]/g, '').slice(-10);
+                if (parsed?.id && (!cleanMobile || !parsedMobile || parsedMobile === cleanMobile)) {
+                    setWaiterRecord(parsed);
+                    if (cachedDashboard) cachedDashboard.waiterRecord = parsed;
+                }
+            }
+        } catch (_) { }
 
-    // Show the actual computed status of the table to preserve accurate visual states
-    const displayStatus = table.computedStatus;
-    const isAssignedToMe = table.assigned_waiter_id === currentWaiterId;
-    const assignedWaiterName = table.activeOrders?.[0]?.waiter_name; // Fallback to order's waiter if table not explicitly assigned
+        if (restaurantId && staffMobile) {
+            OrderService.getStaffByMobile(staffMobile, restaurantId).then((rec) => {
+                if (active && rec) {
+                    setWaiterRecord(rec);
+                    if (cachedDashboard) cachedDashboard.waiterRecord = rec;
+                }
+            }).catch(console.error);
+        }
+        return () => { active = false; };
+    }, [restaurantId, staffMobile]);
 
-    switch (displayStatus) {
-        case 'ready':
-            statusColor = 'green'; statusText = 'Ready'; icon = 'table_restaurant'; cardBg = 'bg-emerald-500'; borderColor = 'border-emerald-600'; break;
-        case 'cooking':
-            statusColor = 'orange'; statusText = 'Cooking'; icon = 'skillet'; cardBg = 'bg-orange-500'; borderColor = 'border-orange-600'; break;
-        case 'eating':
-            statusColor = 'blue'; statusText = 'Eating'; icon = 'restaurant'; cardBg = 'bg-blue-500'; borderColor = 'border-blue-600'; break;
-        case 'customer_present':
-            statusColor = 'sky'; statusText = 'Present'; icon = 'person_pin'; cardBg = 'bg-sky-500'; borderColor = 'border-sky-600'; break;
-        case 'ordering':
-            statusColor = 'yellow'; statusText = 'Ordering'; icon = 'menu_book'; cardBg = 'bg-yellow-500'; borderColor = 'border-yellow-600'; break;
-        case 'billing':
-            statusColor = 'purple'; statusText = 'Billing'; icon = 'receipt'; cardBg = 'bg-purple-500'; borderColor = 'border-purple-600'; break;
-        case 'cleaning':
-            statusColor = 'teal'; statusText = 'Cleaning'; icon = 'cleaning_services'; cardBg = 'bg-teal-500'; borderColor = 'border-teal-600'; break;
-        case 'reserved':
-            statusColor = 'indigo'; statusText = 'Reserved'; icon = 'bookmark'; cardBg = 'bg-indigo-500'; borderColor = 'border-indigo-600'; break;
-        case 'empty':
-            statusColor = 'gray'; statusText = 'Empty'; icon = 'event_seat'; cardBg = 'bg-white'; borderColor = 'border-gray-200'; break;
-    }
+    const isAccountActive = useMemo(() => {
+        if (!waiterRecord) return true; // Default to true while pending/loading to prevent false warning flash
+        const s = (waiterRecord.status || 'active').toLowerCase();
+        return s !== 'inactive' && s !== 'deactivated' && s !== 'suspended';
+    }, [waiterRecord]);
 
-    const isDark = ['ready', 'cooking', 'eating', 'customer_present', 'ordering', 'billing', 'cleaning', 'reserved'].includes(displayStatus);
-    const textColor = isDark ? 'text-white' : 'text-charcoal';
-    const subTextColor = isDark ? 'text-green-50' : 'text-black';
-    const iconColor = isDark ? 'text-white' : `text-${statusColor}-600`;
-    const badgeBg = isDark ? 'bg-white/20' : `bg-${statusColor}-100`;
-    const badgeText = isDark ? 'text-white' : `text-${statusColor}-700`;
+    const isOnline = useMemo(() => {
+        if (!waiterRecord) return false;
+        const online = Boolean(waiterRecord.is_online);
+        const avail = (waiterRecord.availability_status || '').toLowerCase();
+        return online && !['offline', 'break'].includes(avail);
+    }, [waiterRecord]);
+
+    const [togglingOnline, setTogglingOnline] = useState(false);
+    const handleQuickToggleOnline = async () => {
+        if (!waiterRecord?.id || togglingOnline) return;
+        setTogglingOnline(true);
+        try {
+            const newOnline = !isOnline;
+            const newAvail = newOnline ? 'available' : 'offline';
+            const { error } = await supabase
+                .from('restaurant_staff')
+                .update({
+                    is_online: newOnline,
+                    availability_status: newAvail,
+                    last_active_at: new Date().toISOString()
+                })
+                .eq('id', waiterRecord.id);
+
+            if (error) throw error;
+
+            const updated = {
+                ...waiterRecord,
+                is_online: newOnline,
+                availability_status: newAvail
+            };
+            setWaiterRecord(updated);
+            try {
+                const cleanMobile = staffMobile ? staffMobile.replace(/[^0-9]/g, '').slice(-10) : '';
+                if (cleanMobile) localStorage.setItem(`waiterSession_${cleanMobile}`, JSON.stringify(updated));
+                localStorage.setItem('waiterSession', JSON.stringify(updated));
+            } catch (_) { }
+            toast.success(newOnline ? 'You are now Online' : 'You are now Offline');
+        } catch (e: any) {
+            toast.error(e?.message || 'Failed to update online status');
+        } finally {
+            setTogglingOnline(false);
+        }
+    };
+
+    /* ── Data loading (RPC parity with Flutter) ──────────────── */
+    const loadTables = useCallback(async (background = false) => {
+        if (!restaurantId) return;
+        if (!background) setRefreshing(true);
+        try {
+            const [rpcRes, activeOrders, areasRes]: [any, any, any] = await Promise.all([
+                supabase.rpc('get_tables_by_restaurant', { p_restaurant_id: restaurantId }),
+                OrderService.fetchActiveOrders(restaurantId),
+                supabase.from('restaurant_areas').select('id, name').eq('restaurant_id', restaurantId)
+            ]);
+
+            let rows: any[] = Array.isArray(rpcRes?.data) ? rpcRes.data : [];
+            if (rows.length === 0) {
+                const direct = await OrderService.fetchTables(restaurantId);
+                rows = Array.isArray(direct) ? (direct as any[]) : [];
+            }
+            setTables(rows);
+            setOrders(activeOrders || []);
+            const areaRows: any[] = Array.isArray(areasRes?.data) ? areasRes.data : [];
+            if (!areasRes?.error && areaRows.length > 0) setAreas(areaRows);
+
+            // Auto-dismiss or update TableDetailsSheet if currently open
+            setDetailsTable((currentOpen) => {
+                if (!currentOpen) return null;
+                const fresh = rows.find((r) =>
+                    String(r.id) === String(currentOpen.id) ||
+                    (currentOpen.is_group && r.merged_group_id && r.merged_group_id === currentOpen.merged_group_id)
+                );
+                if (!fresh) return null;
+
+                const isAvail = ['available', 'free', 'empty'].includes((fresh.status || '').toLowerCase());
+                const role = (waiterRecordRef.current?.role || '').toLowerCase();
+                const isAdmin = ['admin', 'manager', 'supervisor'].includes(role);
+                const currentStaffId = waiterRecordRef.current?.id;
+                const isMine = currentStaffId && fresh.assigned_waiter_id === currentStaffId;
+                const coWaiters = Array.isArray(fresh.co_waiter_ids) ? fresh.co_waiter_ids : [];
+                const isCo = currentStaffId && coWaiters.includes(currentStaffId);
+
+                // Keep sheet open with fresh table data so any waiter can view & take orders
+                return { ...currentOpen, ...fresh };
+            });
+
+            if (restaurantId) {
+                cachedDashboard = {
+                    restaurantId,
+                    tables: rows,
+                    orders: activeOrders || [],
+                    areas: areaRows.length > 0 ? areaRows : (cachedDashboard?.areas || []),
+                    restaurantName: restaurantName || cachedDashboard?.restaurantName || '',
+                    restaurantLogo: restaurantLogo || cachedDashboard?.restaurantLogo || null
+                };
+            }
+        } catch (e) {
+            console.error('Failed to load tables:', e);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, [restaurantId, restaurantName, restaurantLogo]);
+
+    const debouncedReload = useCallback(() => {
+        if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
+        reloadDebounceRef.current = setTimeout(() => {
+            loadTables(true);
+        }, 250);
+    }, [loadTables]);
+
+    const handleTableCleared = useCallback((targetId: string | number) => {
+        setTables((prev) =>
+            prev.map((t) => {
+                const isMatch = String(t.id) === String(targetId) ||
+                    (t.is_group && t.merged_group_id === String(targetId)) ||
+                    (t.merged_group_id && String(t.merged_group_id) === String(targetId));
+                if (!isMatch) return t;
+                return {
+                    ...t,
+                    status: 'available',
+                    assigned_waiter_id: null,
+                    assigned_waiter_name: null,
+                    assigned_waiter_avatar: null,
+                    co_waiter_ids: [],
+                    co_waiter_names: null,
+                    customer_present_at: null,
+                    last_activity_at: null,
+                    alert_status: null,
+                    readyCount: 0,
+                    active_order_total: null,
+                    active_item_count: null,
+                };
+            })
+        );
+    }, []);
+
+    /* eslint-disable react-hooks/exhaustive-deps */
+    useEffect(() => {
+        if (!restaurantLoading && restaurantId) {
+            loadTables();
+
+            const t1 = setInterval(() => loadTables(true), 30000);
+            const subTables = OrderService.subscribeToTables(restaurantId, debouncedReload);
+            const subOrders = OrderService.subscribeToOrders(restaurantId, debouncedReload);
+            const subItems = OrderService.subscribeToOrderItems(restaurantId, debouncedReload);
+            const subMerge = OrderService.subscribeToMergeGroups(restaurantId, debouncedReload);
+
+            return () => {
+                clearInterval(t1);
+                if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
+                subTables.unsubscribe();
+                subOrders.unsubscribe();
+                subItems.unsubscribe();
+                subMerge.unsubscribe();
+            };
+        }
+    }, [restaurantId, restaurantLoading, debouncedReload]);
+    /* eslint-enable react-hooks/exhaustive-deps */
+
+    /* Restaurant name & logo */
+    useEffect(() => {
+        const targetId = restaurantId || restaurantCode;
+        if (!targetId) return;
+        let active = true;
+
+        RestaurantService.getRestaurantInfo(targetId)
+            .then((info) => {
+                if (!active) return;
+                if (info?.name) {
+                    setRestaurantName(info.name);
+                    if (cachedDashboard) cachedDashboard.restaurantName = info.name;
+                }
+                if (info?.logo_url) {
+                    setRestaurantLogo(info.logo_url);
+                    if (cachedDashboard) cachedDashboard.restaurantLogo = info.logo_url;
+                }
+            })
+            .catch((err) => {
+                console.error('Failed to load restaurant info for waiter dashboard:', err);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [restaurantId, restaurantCode]);
+
+    /* ── Consolidation (merged groups → single entries + order amounts) ──────── */
+    const floor: FloorTable[] = useMemo(() => {
+        const out: FloorTable[] = [];
+        const seenGroups = new Set<string>();
+        const readyByTable = new Map<number | string, number>();
+        const readyByGroup = new Map<string, number>();
+        const prepByTable = new Map<number | string, number>();
+        const prepByGroup = new Map<string, number>();
+        const totalByTable = new Map<number | string, number>();
+        const totalByGroup = new Map<string, number>();
+        const itemCountByTable = new Map<number | string, number>();
+        const itemCountByGroup = new Map<string, number>();
+
+        orders.forEach((o) => {
+            const ordStatus = (o.status || '').toLowerCase();
+            const isOrderPrep = ['preparing', 'cooking', 'placed'].includes(ordStatus);
+            const ordTotal = Number(o.total_amount ?? 0);
+            const ordItemsCount = Array.isArray(o.items) ? o.items.length : 0;
+
+            if (o.merge_group_id) {
+                const gid = String(o.merge_group_id);
+                totalByGroup.set(gid, (totalByGroup.get(gid) || 0) + ordTotal);
+                itemCountByGroup.set(gid, (itemCountByGroup.get(gid) || 0) + ordItemsCount);
+            } else if (o.table_id != null) {
+                totalByTable.set(o.table_id, (totalByTable.get(o.table_id) || 0) + ordTotal);
+                itemCountByTable.set(o.table_id, (itemCountByTable.get(o.table_id) || 0) + ordItemsCount);
+            }
+
+            (o.items || []).forEach((i: any) => {
+                const itemStatus = (i.status || '').toLowerCase();
+                if (itemStatus === 'ready') {
+                    if (o.merge_group_id) {
+                        readyByGroup.set(String(o.merge_group_id), (readyByGroup.get(String(o.merge_group_id)) || 0) + 1);
+                    } else if (o.table_id != null) {
+                        readyByTable.set(o.table_id, (readyByTable.get(o.table_id) || 0) + 1);
+                    }
+                } else if (['preparing', 'cooking', 'placed'].includes(itemStatus) || isOrderPrep) {
+                    if (o.merge_group_id) {
+                        prepByGroup.set(String(o.merge_group_id), (prepByGroup.get(String(o.merge_group_id)) || 0) + 1);
+                    } else if (o.table_id != null) {
+                        prepByTable.set(o.table_id, (prepByTable.get(o.table_id) || 0) + 1);
+                    }
+                }
+            });
+            if ((!o.items || o.items.length === 0) && isOrderPrep) {
+                if (o.merge_group_id) {
+                    prepByGroup.set(String(o.merge_group_id), (prepByGroup.get(String(o.merge_group_id)) || 0) + 1);
+                } else if (o.table_id != null) {
+                    prepByTable.set(o.table_id, (prepByTable.get(o.table_id) || 0) + 1);
+                }
+            }
+        });
+
+        const isAdmin = waiterRecord?.role && ['admin', 'supervisor', 'restaurant_admin'].includes(waiterRecord.role);
+
+        tables.forEach((t: any) => {
+            const isMine = !!waiterRecord?.id && t.assigned_waiter_id === waiterRecord.id;
+            const coWaiters: string[] = Array.isArray(t.co_waiter_ids) ? t.co_waiter_ids : [];
+            const isCo = !!waiterRecord?.id && coWaiters.includes(waiterRecord.id);
+            const canManage = !!isAdmin || isMine || isCo || !t.assigned_waiter_id;
+
+            if (t.is_merged && t.merged_group_id) {
+                if (seenGroups.has(t.merged_group_id)) return;
+                seenGroups.add(t.merged_group_id);
+                const members = tables.filter((x: any) => x.merged_group_id === t.merged_group_id);
+                const priority = ['need_bill', 'dirty', 'occupied', 'on_hold', 'reserved', 'available'];
+                const groupStatus = members
+                    .map((m) => (m.status || '').toLowerCase())
+                    .sort((a, b) => priority.indexOf(a) - priority.indexOf(b))[0] || 'available';
+                const matchOrder = orders.find((o: any) => o.merge_group_id === t.merged_group_id && !o.is_completed);
+                out.push({
+                    ...t,
+                    is_group: true,
+                    capacity: members.reduce((s, m) => s + (m.capacity || 0), 0),
+                    status: groupStatus,
+                    member_tables: members,
+                    assigned_waiter_id: t.assigned_waiter_id || matchOrder?.waiter_id || null,
+                    assigned_waiter_name: t.assigned_waiter_name || matchOrder?.waiter_name || null,
+                    assigned_waiter_avatar: t.assigned_waiter_avatar || matchOrder?.waiter_avatar || null,
+                    readyCount: canManage ? (readyByGroup.get(String(t.merged_group_id)) || 0) : 0,
+                    preparingCount: canManage ? (prepByGroup.get(String(t.merged_group_id)) || 0) : 0,
+                    active_order_total: totalByGroup.get(String(t.merged_group_id)) || null,
+                    active_item_count: itemCountByGroup.get(String(t.merged_group_id)) || null,
+                });
+            } else {
+                const matchOrder = orders.find((o: any) => o.table_id === t.id && !o.is_completed);
+                out.push({
+                    ...t,
+                    is_group: false,
+                    assigned_waiter_id: t.assigned_waiter_id || matchOrder?.waiter_id || null,
+                    assigned_waiter_name: t.assigned_waiter_name || matchOrder?.waiter_name || null,
+                    assigned_waiter_avatar: t.assigned_waiter_avatar || matchOrder?.waiter_avatar || null,
+                    readyCount: canManage ? (readyByTable.get(t.id) || 0) : 0,
+                    preparingCount: canManage ? (prepByTable.get(t.id) || 0) : 0,
+                    active_order_total: totalByTable.get(t.id) || null,
+                    active_item_count: itemCountByTable.get(t.id) || null,
+                });
+            }
+        });
+
+        /* Pinned first (Flutter parity) */
+        return out.sort((a, b) => Number(b.is_pinned || false) - Number(a.is_pinned || false));
+    }, [tables, orders, waiterRecord]);
+
+    const isAssignedToMe = useCallback((t: FloorTable) => {
+        if (!waiterRecord?.id) return false;
+        const isMine = t.assigned_waiter_id === waiterRecord.id;
+        const coWaiters = Array.isArray(t.co_waiter_ids) ? t.co_waiter_ids : [];
+        const isCo = coWaiters.includes(waiterRecord.id);
+        return isMine || isCo;
+    }, [waiterRecord?.id]);
+
+    const { allTables, myTables, otherTables, availableTables, readyTables, preparingTables } = useMemo(() => {
+        const areaFiltered = areaFilter
+            ? floor.filter((t) => t.area_id === areaFilter || t.area_name === areaFilter || t.is_group)
+            : floor;
+
+        const my: FloorTable[] = [];
+        const other: FloorTable[] = [];
+        const avail: FloorTable[] = [];
+        const ready: FloorTable[] = [];
+        const prep: FloorTable[] = [];
+
+        areaFiltered.forEach((t) => {
+            const s = (t.status || '').toLowerCase();
+            const isAvail = ['available', 'free', 'empty'].includes(s) && (!t.active_order_total || t.active_order_total === 0);
+            const isMine = isAssignedToMe(t);
+
+            if (isAvail) {
+                avail.push(t);
+            } else {
+                if (isMine) {
+                    my.push(t);
+                } else {
+                    other.push(t);
+                }
+
+                if (t.readyCount && t.readyCount > 0) {
+                    ready.push(t);
+                } else if (['preparing', 'cooking', 'placed'].includes(s) || (t.preparingCount && t.preparingCount > 0)) {
+                    prep.push(t);
+                }
+            }
+        });
+
+        return {
+            allTables: areaFiltered,
+            myTables: my,
+            otherTables: other,
+            availableTables: avail,
+            readyTables: ready,
+            preparingTables: prep,
+        };
+    }, [floor, areaFilter, isAssignedToMe]);
+
+    const counts = useMemo(() => {
+        return {
+            ALL: allTables.length,
+            READY: readyTables.length,
+            PREPARING: preparingTables.length,
+            AVAILABLE: availableTables.length,
+        };
+    }, [allTables.length, readyTables.length, preparingTables.length, availableTables.length]);
+
+    const visibleTables = useMemo(() => {
+        switch (filter) {
+            case 'READY': return readyTables;
+            case 'PREPARING': return preparingTables;
+            case 'AVAILABLE': return availableTables;
+            default: return allTables;
+        }
+    }, [filter, readyTables, preparingTables, availableTables, allTables]);
+
+    /* ── Selection actions ───────────────────────────────────── */
+    const toggleSelect = (t: FloorTable) => {
+        setSelectedIds((prev) => (prev.includes(t.id) ? prev.filter((id) => id !== t.id) : [...prev, t.id]));
+    };
+
+    const exitSelection = () => {
+        setSelecting(false);
+        setSelectedIds([]);
+    };
+
+    const selectedTables = floor.filter((t) => selectedIds.includes(t.id));
+
+    const doMerge = async (tableIds: (number | string)[]) => {
+        setBusy(true);
+        try {
+            await OrderService.mergeTables(tableIds.map(Number), restaurantId!);
+            toast.success('Tables merged successfully');
+            setMergeSheetOpen(false);
+            exitSelection();
+            loadTables(true);
+        } catch (e: any) {
+            toast.error(e?.message || 'Failed to merge tables');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const doMoveArea = async (areaId: string | null) => {
+        setBusy(true);
+        try {
+            await supabase.from('tables').update({ area_id: areaId }).in('id', selectedIds as any[]).eq('restaurant_id', restaurantId!);
+            toast.success(`Moved tables to ${areas.find((a) => a.id === areaId)?.name || 'area'}`);
+            setMoveSheetOpen(false);
+            exitSelection();
+            loadTables(true);
+        } catch (e) {
+            toast.error('Failed to move tables');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const doPin = async () => {
+        const anyUnpinned = selectedTables.some((t) => !t.is_pinned);
+        try {
+            await supabase.from('tables').update({ is_pinned: anyUnpinned }).in('id', selectedIds as any[]).eq('restaurant_id', restaurantId!);
+            toast.success('Pinned selected tables to the top');
+            exitSelection();
+            loadTables(true);
+        } catch (e) {
+            toast.error('Failed to update pin status');
+        }
+    };
+
+    const doDelete = async () => {
+        setBusy(true);
+        try {
+            await supabase.from('tables').delete().in('id', selectedIds as any[]).eq('restaurant_id', restaurantId!);
+            toast.success('Deleted table(s) successfully');
+            exitSelection();
+            loadTables(true);
+        } catch (e) {
+            toast.error('Failed to delete tables');
+        } finally {
+            setBusy(false);
+        }
+    };
 
     return (
         <div
-            onClick={() => handleTableClick(table, displayStatus)}
-            className={`flex flex-col p-4 rounded-2xl border ${isMergeMode && isSelectedForMerge ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-500 shadow-md' : borderColor} ${isMergeMode && isSelectedForMerge ? '' : cardBg} ${isMergeMode && (table.is_group || displayStatus !== 'empty') ? 'opacity-50 grayscale cursor-not-allowed' : 'shadow-sm active:scale-95 transition-transform cursor-pointer'} relative overflow-hidden min-h-[120px]`}
+            className="min-h-full pb-28 relative overflow-x-hidden"
+            style={{ backgroundColor: '#EEF2F6' }}
+            onClick={() => areasOpen && setAreasOpen(false)}
         >
-            <div className="flex justify-between items-start mb-2">
-                <span className={`material-icons-outlined ${iconColor} text-3xl`}>{icon}</span>
-                <div className="flex flex-col items-end gap-1">
-                    <span className={`px-2 py-1 rounded-lg ${badgeBg} ${badgeText} text-[10px] font-black uppercase tracking-wide backdrop-blur-sm`}>{statusText}</span>
-                    {!isMergeMode && (
-                        <button 
-                            onClick={(e) => handleAssignClick(e, table)}
-                            className={`p-1.5 rounded-full ${isDark ? 'bg-white/20 text-white hover:bg-white/30' : 'bg-gray-100 text-black hover:bg-gray-200'} transition-colors`}
+            {/* ── App bar (Clean Compact Neumorphic Header) ─────────────────────── */}
+            <header
+                className="sticky top-0 z-30 flex items-center px-4 h-14 gap-2.5"
+                style={{
+                    backgroundColor: '#EEF2F6',
+                    boxShadow: '0 4px 14px rgba(166, 180, 200, 0.22)',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.7)',
+                }}
+            >
+                {selecting ? (
+                    <>
+                        <button
+                            onClick={exitSelection}
+                            aria-label="Exit selection"
+                            className="size-9 -ml-1 rounded-xl flex items-center justify-center text-w-brand active:scale-95 transition-transform"
+                            style={{
+                                backgroundColor: '#EEF2F6',
+                                boxShadow: '2.5px 2.5px 6px rgba(166, 180, 200, 0.4), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                            }}
                         >
-                            <LucideUsers size={14} />
+                            <X size={19} />
                         </button>
-                    )}
-                </div>
-            </div>
+                        <h1 className="flex-1 text-center text-sm font-black text-w-brand tracking-tight truncate px-1">
+                            {selectedIds.length} Table{selectedIds.length !== 1 ? 's' : ''} Selected
+                        </h1>
+                        <button
+                            onClick={() => setSelectedIds(visibleTables.map((t) => t.id))}
+                            className="px-2.5 py-1 rounded-lg text-xs font-bold text-w-brand active:scale-95 transition-transform"
+                            style={{
+                                backgroundColor: '#EEF2F6',
+                                boxShadow: '2px 2px 5px rgba(166, 180, 200, 0.35), -2px -2px 5px rgba(255, 255, 255, 0.9)',
+                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                            }}
+                        >
+                            Select All
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <span
+                            className="size-9 -ml-1 rounded-xl flex items-center justify-center text-w-brand shrink-0 overflow-hidden"
+                            style={{
+                                backgroundColor: '#EEF2F6',
+                                boxShadow: '2.5px 2.5px 6px rgba(166, 180, 200, 0.4), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                            }}
+                        >
+                            {restaurantLogo ? (
+                                <img
+                                    src={restaurantLogo}
+                                    alt={restaurantName || 'Restaurant logo'}
+                                    className="w-full h-full object-cover rounded-xl"
+                                />
+                            ) : (
+                                <Store size={19} />
+                            )}
+                        </span>
 
-            <div className="flex-1 flex flex-col items-center justify-center text-center mt-1">
-                <h3 className={`${textColor} md:text-xl text-lg font-bold leading-none flex items-center gap-1`}>
-                    {table.is_group ? table.display_name : `Table ${table.table_number || table.id}`}
-                </h3>
-                <div className={`${subTextColor} text-[11px] font-bold mt-1 mb-1 flex items-center gap-1 justify-center opacity-80`}>
-                    <LucideUsers size={12} />
-                    {table.capacity || 4} Seater
-                </div>
-                {displayStatus !== 'empty' && (
-                    <div className={`text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 ${isDark ? 'text-white/80' : 'text-black'}`}>
-                        {isAssignedToMe ? (
-                            <span className="bg-white/20 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                <LucideCheck size={10} /> My Table
-                            </span>
-                        ) : table.assigned_waiter_id ? (
-                            <span className="flex items-center gap-1">
-                                <LucideUser size={10} /> {assignedWaiterName || 'Other'}
-                            </span>
-                        ) : (
-                            <span className="text-amber-500 font-black animate-pulse">Unassigned</span>
-                        )}
-                    </div>
+                        <h1 suppressHydrationWarning className="flex-1 text-center text-[17px] font-black text-slate-800 tracking-tight truncate px-1.5 min-h-[24px] flex items-center justify-center">
+                            {restaurantName || (
+                                <span className="inline-block w-24 h-4 rounded bg-slate-300/60 animate-pulse" />
+                            )}
+                        </h1>
+
+                        {/* Areas dropdown */}
+                        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <button
+                                onClick={() => { haptic.selection(); setAreasOpen(!areasOpen); }}
+                                className={`inline-flex items-center gap-1.5 px-3 h-[32px] rounded-xl text-xs font-bold transition-all active:scale-95 ${areaFilter || areasOpen
+                                        ? 'text-w-brand'
+                                        : 'text-slate-700'
+                                    }`}
+                                style={{
+                                    backgroundColor: '#EEF2F6',
+                                    boxShadow: areaFilter || areasOpen
+                                        ? 'inset 2px 2px 4px rgba(166, 180, 200, 0.45), inset -2px -2px 4px rgba(255, 255, 255, 0.95)'
+                                        : '2.5px 2.5px 6px rgba(166, 180, 200, 0.38), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                    border: areaFilter || areasOpen ? '1px solid rgba(255, 107, 53, 0.4)' : '1px solid rgba(255, 255, 255, 0.7)',
+                                }}
+                            >
+                                <MapPin size={13} className={areaFilter || areasOpen ? 'text-w-brand' : 'text-slate-500'} />
+                                <span suppressHydrationWarning className="truncate max-w-[80px]">
+                                    {areaFilter ? areas.find((a) => a.id === areaFilter)?.name || 'Areas' : 'Areas'}
+                                </span>
+                                <motion.span animate={{ rotate: areasOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                                    <ChevronDown size={13} className="text-slate-400" />
+                                </motion.span>
+                            </button>
+
+                            <AnimatePresence>
+                                {areasOpen && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                                        transition={{ duration: 0.18 }}
+                                        className="absolute right-0 top-10 w-60 max-h-[400px] overflow-y-auto rounded-[22px] z-40 p-2.5"
+                                        style={{
+                                            backgroundColor: '#EEF2F6',
+                                            boxShadow: '8px 8px 24px rgba(166, 180, 200, 0.5), -8px -8px 24px rgba(255, 255, 255, 0.95)',
+                                            border: '1px solid rgba(255, 255, 255, 0.8)',
+                                        }}
+                                    >
+                                        <div className="flex items-center justify-between px-2 py-1.5">
+                                            <span className="inline-flex items-center gap-1.5 text-[14px] font-black text-slate-800">
+                                                <MapPin size={14} className="text-w-brand" /> Areas
+                                            </span>
+                                            {areaFilter && (
+                                                <button onClick={() => { setAreaFilter(null); setAreasOpen(false); }} className="text-xs font-bold text-w-brand">
+                                                    Clear
+                                                </button>
+                                            )}
+                                        </div>
+                                        <AreaTile
+                                            icon={LayoutGrid}
+                                            label="All Areas"
+                                            active={!areaFilter}
+                                            onClick={() => { setAreaFilter(null); setAreasOpen(false); }}
+                                            index={0}
+                                        />
+                                        {areas.map((a, i) => (
+                                            <AreaTile
+                                                key={a.id}
+                                                icon={areaIcon(a.name)}
+                                                label={a.name}
+                                                active={areaFilter === a.id}
+                                                onClick={() => { setAreaFilter(a.id); setAreasOpen(false); }}
+                                                index={i + 1}
+                                            />
+                                        ))}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+                    </>
                 )}
-            </div>
+            </header>
 
-            {!isDark && <div className={`absolute bottom-0 left-0 w-full h-1 bg-${statusColor}-400`}></div>}
+            {/* Account Inactive Alert */}
+            {isHydrated && waiterRecord && !isAccountActive && (
+                <div
+                    className="mx-4 mt-2.5 p-3 rounded-2xl flex items-center justify-between gap-3 text-xs"
+                    style={{
+                        backgroundColor: '#EEF2F6',
+                        boxShadow: 'inset 2px 2px 5px rgba(239, 68, 68, 0.2), inset -2px -2px 5px rgba(255, 255, 255, 0.9)',
+                        border: '1px solid rgba(254, 202, 202, 0.8)',
+                    }}
+                >
+                    <p className="font-semibold text-red-900">
+                        Your account is <strong className="font-black">Inactive</strong> (Deactivated by Administrator). You cannot go online or receive orders.
+                    </p>
+                </div>
+            )}
 
-            {table.alert_status && (table.is_group ? (table.table_ids || []).some((tid: number) => pendingRequests.some(r => r.table_id === tid)) : pendingRequests.some(r => r.table_id === table.id)) && (
-                <div className="absolute top-0 right-0 p-2 z-20 flex gap-2">
+            {/* Offline Guidance Alert */}
+            {isHydrated && waiterRecord && isAccountActive && !isOnline && (
+                <div
+                    className="mx-4 mt-2.5 p-3 rounded-2xl flex items-center justify-between gap-3 text-xs"
+                    style={{
+                        backgroundColor: '#EEF2F6',
+                        boxShadow: 'inset 2px 2px 5px rgba(245, 158, 11, 0.2), inset -2px -2px 5px rgba(255, 255, 255, 0.9)',
+                        border: '1px solid rgba(253, 230, 138, 0.8)',
+                    }}
+                >
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span className="size-2 rounded-full bg-amber-500 shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
+                        <p className="font-semibold text-amber-900 truncate">
+                            You are <strong className="font-black">Offline</strong>. Turn online to take tables.
+                        </p>
+                    </div>
                     <button
-                        onClick={(e) => handleDismissAlert(e, table.id)}
-                        className={`p-2 rounded-full shadow-lg animate-bounce transition-colors flex items-center gap-2 px-3 ${getAlertDetails(table.alert_status).bg} ${getAlertDetails(table.alert_status).color}`}
+                        onClick={handleQuickToggleOnline}
+                        disabled={togglingOnline}
+                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shrink-0 shadow-[2px_2px_6px_rgba(217,119,6,0.35)] active:scale-95 transition-all cursor-pointer"
                     >
-                        {(() => {
-                            const Icon = getAlertDetails(table.alert_status).icon;
-                            return <Icon size={18} />;
-                        })()}
-                        <span className="text-xs font-bold leading-none">{getAlertDetails(table.alert_status).label}</span>
+                        Go Online
                     </button>
                 </div>
             )}
 
-            {table.alert_status && (table.is_group ? (table.table_ids || []).some((tid: number) => pendingRequests.some(r => r.table_id === tid)) : pendingRequests.some(r => r.table_id === table.id)) && (
-                <div className="absolute inset-x-0 top-0 bg-red-500/10 h-full w-full pointer-events-none border-2 border-red-500 rounded-2xl animate-pulse"></div>
-            )}
-        </div>
-    );
-});
-
-RenderTableCard.displayName = 'RenderTableCard';
-
-export default function WaiterDashboard() {
-    const [tables, setTables] = useState<any[]>([]);
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const [activeTab, setActiveTab] = useState('eating');
-    const [mergeGroups, setMergeGroups] = useState<TableMergeGroup[]>([]);
-    const [pendingRequests, setPendingRequests] = useState<any[]>([]);
-
-    const [isMergeMode, setIsMergeMode] = useState(false);
-    const [selectedForMerge, setSelectedForMerge] = useState<number[]>([]);
-    const [isMerging, setIsMerging] = useState(false);
-
-    const [waiterRecord, setWaiterRecord] = useState<any>(null);
-    const [staffList, setStaffList] = useState<any[]>([]);
-    const [offloadModalOpen, setOffloadModalOpen] = useState(false);
-    const [offloading, setOffloading] = useState(false);
-    const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-
-    const router = useRouter();
-    const { restaurantId, loading: restaurantLoading } = useRestaurantId();
-    const params = useParams();
-    const staffMobile = params.staffMobile as string;
-
-    useEffect(() => {
-        let active = true;
-        const fetchWaiter = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (active && user && restaurantId) {
-                try {
-                    const record = await OrderService.getWaiterRecord(restaurantId, user.id);
-                    if (active) setWaiterRecord(record);
-                } catch (err) {
-                    console.error('Error fetching waiter record:', err);
-                }
-            }
-        };
-        if (restaurantId && !restaurantLoading) fetchWaiter();
-        return () => { active = false; };
-    }, [restaurantId, restaurantLoading]);
-
-    const handleStatusToggle = async (newStatus: 'available' | 'busy' | 'break') => {
-        if (!waiterRecord || isUpdatingStatus) return;
-        setIsUpdatingStatus(true);
-        try {
-            await OrderService.updateWaiterStatus(waiterRecord.id, newStatus);
-            setWaiterRecord({ ...waiterRecord, availability_status: newStatus });
-        } catch (err) {
-            console.error('Failed to update status:', err);
-        } finally {
-            setIsUpdatingStatus(false);
-        }
-    };
-
-    const loadStaff = useCallback(async () => {
-        if (!restaurantId) return;
-        try {
-            const staff = await OrderService.fetchStaffWithWorkload(restaurantId);
-            setStaffList(staff.filter(s => s.mobile !== staffMobile));
-        } catch (error) {
-            console.error('Failed to load staff:', error);
-        }
-    }, [restaurantId, staffMobile]);
-
-    useEffect(() => {
-        if (restaurantId && staffMobile) {
-            loadStaff();
-        }
-    }, [restaurantId, staffMobile, loadStaff]);
-
-    const loadData = useCallback(async (isBackground = false) => {
-        if (!restaurantId) return;
-        if (!isBackground) setLoading(true);
-        setIsRefreshing(true);
-        
-        try {
-            // Re-fetch waiter record to get latest workload
-            const { data: { user } } = await supabase.auth.getUser();
-            let currentWaiter = waiterRecord;
-            if (user) {
-                currentWaiter = await OrderService.getWaiterRecord(restaurantId, user.id);
-                setWaiterRecord(currentWaiter);
-            }
-
-            if (!currentWaiter?.id) {
-                if (!isBackground) setLoading(false);
-                setIsRefreshing(false);
-                return;
-            }
-
-            const [fetchedTables, fetchedOrders, fetchedMergeGroups, requests] = await Promise.all([
-                OrderService.fetchTables(restaurantId, currentWaiter.id),
-                OrderService.fetchActiveOrders(restaurantId, currentWaiter.id),
-                OrderService.fetchMergeGroups(restaurantId, currentWaiter.id),
-                OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id)
-            ]);
-            
-            // Batch state updates
-            setTables(fetchedTables || []);
-            setOrders(fetchedOrders || []);
-            setMergeGroups(fetchedMergeGroups || []);
-            setPendingRequests(requests || []);
-        } catch (err) {
-            console.error('Failed to load dashboard data', err);
-        } finally {
-            setLoading(false);
-            setIsRefreshing(false);
-        }
-    }, [restaurantId, waiterRecord?.id]);
-
-    useEffect(() => {
-        let active = true;
-        if (restaurantLoading || !restaurantId) return;
-        
-        const loadInitialData = async () => {
-            await loadData();
-        };
-        
-        loadInitialData();
-
-        let refreshTimer: NodeJS.Timeout;
-        const debouncedRefresh = () => {
-            clearTimeout(refreshTimer);
-            refreshTimer = setTimeout(() => {
-                if (active) loadData(true);
-            }, 1000);
-        };
-
-        const orderSub = OrderService.subscribeToOrders(restaurantId, (payload: any) => {
-            if (['INSERT', 'UPDATE', 'DELETE'].includes(payload.eventType)) debouncedRefresh();
-        }, waiterRecord?.id);
-
-        const tableSub = OrderService.subscribeToTables(restaurantId, () => debouncedRefresh());
-        const itemSub = OrderService.subscribeToOrderItems(restaurantId, () => debouncedRefresh());
-        const mergeSub = OrderService.subscribeToMergeGroups(restaurantId, () => debouncedRefresh());
-        
-        let serviceSub: { unsubscribe: () => void } | null = null;
-        if (waiterRecord?.id) {
-            serviceSub = OrderService.subscribeToServiceRequests(restaurantId, () => debouncedRefresh(), waiterRecord.id);
-        }
-
-        return () => {
-            active = false;
-            orderSub.unsubscribe();
-            tableSub.unsubscribe();
-            itemSub.unsubscribe();
-            mergeSub.unsubscribe();
-            if (serviceSub) serviceSub.unsubscribe();
-            clearTimeout(refreshTimer);
-        };
-    }, [restaurantLoading, restaurantId, loadData, waiterRecord?.id]);
-
-    const displayEntities = useMemo(() => {
-        const entities: any[] = [];
-        const mergedGroupIdsRendered = new Set<string>();
-
-        tables.forEach(table => {
-            if ((table as any).is_merged && (table as any).merged_group_id) {
-                if (!mergedGroupIdsRendered.has((table as any).merged_group_id)) {
-                    const groupId = (table as any).merged_group_id;
-                    mergedGroupIdsRendered.add(groupId);
-                    const group = mergeGroups.find(g => g.id === groupId);
-                    
-                    if (group) {
-                        // Find if any table in this group has an alert
-                        const tablesInGroup = tables.filter(t => (t as any).merged_group_id === groupId);
-                        const alertingTable = tablesInGroup.find(t => t.alert_status && pendingRequests.some(r => r.table_id === t.id));
-                        
-                        entities.push({
-                            ...group,
-                            is_group: true,
-                            table_number: group.display_name,
-                            capacity: group.total_capacity,
-                            alert_status: alertingTable ? alertingTable.alert_status : null,
-                            // Store IDs of tables in group for alert dismissal logic
-                            table_ids: tablesInGroup.map(t => t.id)
-                        });
-                    }
-                }
-            } else {
-                entities.push({ ...table, is_group: false });
-            }
-        });
-        return entities;
-    }, [tables, mergeGroups, pendingRequests]);
-
-    const filteredTables = useMemo(() => {
-        return displayEntities.map(table => {
-            const tableOrders = table.is_group
-                ? orders.filter(o => String(o.merge_group_id) === String(table.id))
-                : orders.filter(o => String(o.table_id) === String(table.id));
-
-            const isReadyCheck = tableOrders.some(o => o.items && o.items.some((i: any) => i.status === 'ready'));
-            const isCookingCheck = tableOrders.some(o =>
-                (o.items && o.items.some((i: any) => i.status === 'preparing')) ||
-                ((!o.items || o.items.length === 0) && o.status === 'preparing')
-            );
-            const isEatingCheck = tableOrders.length > 0 || (table.status !== 'free' && table.status !== 'empty');
-
-            const computedStatus = getComputedStatus(table, orders);
-
-            return { 
-                ...table, 
-                computedStatus, 
-                isReady: isReadyCheck, 
-                isCooking: isCookingCheck, 
-                isEating: isEatingCheck, 
-                activeOrders: tableOrders, 
-                guests: ((table.id % 4) + 1) // Stable guest count based on ID
-            };
-        }).filter(table => {
-            if (activeTab === 'all') return true;
-            if (activeTab === 'ready') return table.isReady;
-            if (activeTab === 'cooking') return table.isCooking;
-            if (activeTab === 'eating') return table.isEating;
-            if (activeTab === 'empty') return table.computedStatus === 'empty';
-            if (activeTab === 'alert') return !!table.alert_status;
-            return false;
-        }).sort((a, b) => {
-            // Show merged tables at top
-            if (a.is_group && !b.is_group) return -1;
-            if (!a.is_group && b.is_group) return 1;
-
-            // Sort active tables to the top
-            const aActive = a.computedStatus !== 'empty';
-            const bActive = b.computedStatus !== 'empty';
-            if (aActive && !bActive) return -1;
-            if (!aActive && bActive) return 1;
-
-            // Sort by table number within active/empty groups
-            const aNum = parseInt(String(a.table_number).match(/\d+/)?.[0] || '0');
-            const bNum = parseInt(String(b.table_number).match(/\d+/)?.[0] || '0');
-            return aNum - bNum;
-        });
-    }, [displayEntities, orders, activeTab]);
-
-    const handleTableClick = useCallback((table: any, computedStatus: TableViewStatus) => {
-        if (isMergeMode) {
-            if (table.is_group || computedStatus !== 'empty') return;
-            const numId = Number(table.id);
-            setSelectedForMerge(prev =>
-                prev.includes(numId) ? prev.filter(id => id !== numId) : [...prev, numId]
-            );
-            return;
-        }
-        const routeId = table.is_group ? encodeURIComponent(table.display_name) : (table.table_number || table.id);
-        router.push(`/${restaurantId}/waiter/${staffMobile}/order/${routeId}`);
-    }, [isMergeMode, restaurantId, router, staffMobile]);
-
-    const handleConfirmMerge = async () => {
-        if (selectedForMerge.length < 2 || !restaurantId) return;
-        setIsMerging(true);
-        try {
-            await OrderService.mergeTables(selectedForMerge, restaurantId);
-            setIsMergeMode(false);
-            setSelectedForMerge([]);
-        } catch (error) {
-            console.error('Failed to merge tables:', error);
-        } finally {
-            setIsMerging(false);
-        }
-    };
-
-    const handleOffloadWorkload = async (targetStaffId: string) => {
-        if (!waiterRecord?.id || !restaurantId) return;
-        
-        try {
-            setOffloading(true);
-            const result = await OrderService.transferEntireWorkload(waiterRecord.id, targetStaffId, restaurantId);
-            if (result.success) {
-                toast.success('Workload transferred successfully');
-                setOffloadModalOpen(false);
-                loadData(); // Refresh everything
-            } else {
-                toast.error('Failed to transfer workload');
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error('An error occurred during transfer');
-        } finally {
-            setOffloading(false);
-        }
-    };
-
-    const handleDismissAlert = useCallback(async (e: React.MouseEvent, tableId: number | string) => {
-        e.stopPropagation();
-        if (!restaurantId) return;
-        try {
-            await OrderService.dismissTableAlert(tableId, restaurantId);
-        } catch (error) {
-            console.error('Failed to dismiss alert', error);
-        }
-    }, [restaurantId]);
-
-    const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-    const [selectedTableForAssign, setSelectedTableForAssign] = useState<any>(null);
-    const [allStaff, setAllStaff] = useState<any[]>([]);
-    const [isAssigning, setIsAssigning] = useState(false);
-
-    const handleAssignClick = useCallback((e: React.MouseEvent, table: any) => {
-        e.stopPropagation();
-        if (!restaurantId) return;
-        setSelectedTableForAssign(table);
-        setIsAssignModalOpen(true);
-        // Fetch staff list
-        OrderService.fetchStaffWithWorkload(restaurantId).then(setAllStaff);
-    }, [restaurantId]);
-
-    const handleConfirmAssignment = async (waiterId: string | null) => {
-        if (!selectedTableForAssign || !restaurantId) return;
-        setIsAssigning(true);
-        try {
-            if (selectedTableForAssign.is_group) {
-                await OrderService.assignWaiterToMergeGroup(selectedTableForAssign.id, waiterId, restaurantId);
-            } else {
-                await OrderService.assignWaiterToTable(selectedTableForAssign.id, waiterId, restaurantId);
-            }
-            setIsAssignModalOpen(false);
-            setSelectedTableForAssign(null);
-            loadData(true);
-        } catch (error) {
-            console.error('Failed to assign waiter:', error);
-        } finally {
-            setIsAssigning(false);
-        }
-    };
-
-    const workloadColor = (category: string) => {
-        switch (category?.toLowerCase()) {
-            case 'low': return 'bg-emerald-500';
-            case 'medium': return 'bg-amber-500';
-            case 'high': return 'bg-rose-500';
-            default: return 'bg-blue-500';
-        }
-    };
-
-
-    return (
-        <div className="flex flex-col h-full bg-white relative overflow-hidden">
-            {isRefreshing && !loading && (
-                <div className="absolute top-0 left-0 w-full h-1 z-50 overflow-hidden bg-transparent">
-                    <motion.div 
-                        initial={{ x: '-100%' }}
-                        animate={{ x: '100%' }}
-                        transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-                        className="w-1/2 h-full bg-blue-500/50 blur-sm"
-                    />
-                </div>
-            )}
-
-            <header className="bg-white sticky top-0 z-30 border-b border-divider shrink-0 shadow-sm">
-                <div className="p-4 pb-2">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-blue-50 text-blue-600 flex size-10 shrink-0 items-center justify-center rounded-xl">
-                                <span className="material-icons-outlined text-2xl font-bold">grid_view</span>
-                            </div>
-                            <div className="flex flex-col">
-                                <h2 className="text-charcoal text-xl font-black leading-tight tracking-tight">Tables</h2>
-                                <p className="text-[10px] text-black font-bold uppercase tracking-widest">Waiter Dashboard</p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button 
-                                onClick={() => setOffloadModalOpen(true)}
-                                className="p-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl text-black transition-all active:scale-95 flex items-center gap-2"
-                                title="Offload Workload"
+            {/* ── Status filter chips (Neumorphic Pills) ─────────────────────────── */}
+            <div
+                className="px-4 py-2.5"
+                style={{
+                    backgroundColor: '#EEF2F6',
+                    borderBottom: '1px solid rgba(203, 213, 225, 0.5)',
+                }}
+            >
+                <div className="flex gap-2.5 overflow-x-auto no-scrollbar items-center">
+                    {(Object.keys(FILTER_META) as FilterKey[]).map((key) => {
+                        const active = filter === key;
+                        const m = FILTER_META[key];
+                        const isLight = key === 'PREPARING' || key === 'AVAILABLE';
+                        return (
+                            <button
+                                key={key}
+                                onClick={() => { haptic.selection(); setFilter(key); }}
+                                className={`shrink-0 inline-flex items-center gap-1.5 h-[34px] px-3.5 rounded-full text-[12px] transition-all active:scale-95 select-none ${active ? 'font-black' : 'font-bold text-slate-700'
+                                    }`}
+                                style={{
+                                    backgroundColor: active ? m.color : '#EEF2F6',
+                                    color: active ? (isLight ? '#0F172A' : '#FFFFFF') : '#334155',
+                                    boxShadow: active
+                                        ? `0 3px 10px ${m.color}66, inset 0 1px 1px rgba(255, 255, 255, 0.45)`
+                                        : '3px 3px 7px rgba(166, 180, 200, 0.35), -3px -3px 7px rgba(255, 255, 255, 0.95)',
+                                    border: active ? '1.5px solid rgba(0, 0, 0, 0.15)' : '1px solid rgba(255, 255, 255, 0.7)',
+                                }}
                             >
-                                <LucideHandPlatter size={20} />
-                                <span className="text-[10px] font-bold hidden sm:inline uppercase tracking-wider">Offload</span>
+                                <span
+                                    className="size-2 rounded-full shrink-0"
+                                    style={{
+                                        backgroundColor: active ? (isLight ? '#0F172A' : '#FFFFFF') : m.color,
+                                        boxShadow: active ? 'none' : `0 0 6px ${m.color}`,
+                                    }}
+                                />
+                                <span>{m.label}</span>
+                                <span
+                                    suppressHydrationWarning
+                                    className="w-num px-1.5 py-0.2 rounded-full text-[10.5px] font-black"
+                                    style={{
+                                        backgroundColor: active
+                                            ? (isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.25)')
+                                            : 'rgba(203, 213, 225, 0.55)',
+                                        color: active ? (isLight ? '#0F172A' : '#FFFFFF') : '#475569',
+                                        boxShadow: active ? 'none' : 'inset 1px 1px 2px rgba(166, 180, 200, 0.25)',
+                                    }}
+                                >
+                                    {counts[key]}
+                                </span>
                             </button>
-                            {waiterRecord && (
-                                <div className="flex p-1 bg-gray-100 rounded-xl border border-gray-200">
-                                    {[
-                                        { id: 'available', icon: LucideCheck, color: 'text-emerald-600', activeBg: 'bg-emerald-500' },
-                                        { id: 'busy', icon: LucideUser, color: 'text-orange-600', activeBg: 'bg-orange-500' },
-                                        { id: 'break', icon: LucideCoffee, color: 'text-black', activeBg: 'bg-neutral-800' }
-                                    ].map(status => (
-                                        <button
-                                            key={status.id}
-                                            onClick={() => handleStatusToggle(status.id as any)}
-                                            className={`p-1.5 rounded-lg transition-all ${waiterRecord.availability_status === status.id ? `${status.activeBg} text-white shadow-sm` : `text-black hover:text-black`}`}
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* ── Main Content (Responsive Two-Column Neumorphic Grid) ─────────────────────────────────── */}
+            <main className="px-4 pt-3.5 pb-8 overflow-x-hidden">
+                {loading && tables.length === 0 ? (
+                    <NeumorphicSkeletonGrid count={6} />
+                ) : filter === 'ALL' ? (
+                    allTables.length === 0 ? (
+                        <NeumorphicEmptyState
+                            icon={<LayoutGrid size={22} />}
+                            title="No Tables Found"
+                            body="No tables found in this restaurant or selected area."
+                        />
+                    ) : (
+                        <div className="space-y-6">
+                            {/* ── Section 1: My Tables ── */}
+                            <section aria-labelledby="section-my-tables">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <span
+                                            className="size-8 rounded-xl flex items-center justify-center text-w-brand shrink-0"
+                                            style={{
+                                                backgroundColor: '#EEF2F6',
+                                                boxShadow: '2.5px 2.5px 6px rgba(166, 180, 200, 0.35), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                                            }}
                                         >
-                                            <status.icon size={16} />
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <div className="flex-1 mr-4">
-                            {waiterRecord && (
-                                <div className="flex flex-col gap-1">
-                                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-black">
-                                        <span>Workload: {getWorkloadCategory(waiterRecord.active_workload)}</span>
-                                        <span>{Math.min(100, (waiterRecord.active_workload || 0) * 10)}%</span>
-                                    </div>
-                                    <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                                        <motion.div 
-                                            initial={{ width: 0 }}
-                                            animate={{ width: `${Math.min(100, (waiterRecord.active_workload || 0) * 10)}%` }}
-                                            className={`h-full ${workloadColor(getWorkloadCategory(waiterRecord.active_workload))}`}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        <button
-                            onClick={() => {
-                                setIsMergeMode(!isMergeMode);
-                                setSelectedForMerge([]);
-                            }}
-                            className={`flex cursor-pointer items-center justify-center rounded-xl h-9 px-4 transition-all duration-300 shrink-0 font-bold text-[10px] uppercase tracking-wider ${isMergeMode ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-50 text-black border'}`}
-                        >
-                            {isMergeMode ? 'Cancel' : 'Merge Tables'}
-                        </button>
-                    </div>
-                </div>
-
-                <div className="w-full overflow-x-auto no-scrollbar scroll-smooth">
-                    <div className="flex flex-nowrap gap-[12px] px-4 pt-2 pb-2 ml-auto min-w-max">
-                        <LayoutGroup>
-                            {['eating', 'ready', 'cooking', 'empty'].map(tab => {
-                                const isActive = activeTab === tab;
-                                let activeColorClass = '';
-                                switch (tab) {
-                                    case 'eating': activeColorClass = 'bg-blue-600 shadow-lg shadow-blue-500/30'; break;
-                                    case 'ready': activeColorClass = 'bg-emerald-500 shadow-lg shadow-emerald-500/30'; break;
-                                    case 'cooking': activeColorClass = 'bg-orange-500 shadow-lg shadow-orange-500/30'; break;
-                                    case 'empty': activeColorClass = 'bg-neutral-800 shadow-lg shadow-neutral-500/30'; break;
-                                }
-                                return (
-                                    <button
-                                        key={tab}
-                                        onClick={() => setActiveTab(tab as any)}
-                                        id={`filter-btn-${tab}`}
-                                        className={`relative flex w-[95px] h-[45px] shrink-0 items-center justify-center rounded-xl transition-all duration-300 active:scale-95 group ${isActive ? 'text-white' : 'bg-white text-black border border-gray-100 shadow-sm hover:border-gray-300 hover:text-black hover:shadow-md'}`}
-                                    >
-                                        {isActive && (
-                                            <motion.div
-                                                layoutId="dashboardActiveTab"
-                                                className={`absolute inset-0 rounded-xl z-0 ${activeColorClass}`}
-                                                transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                                            />
-                                        )}
-                                        <span className={`relative z-10 text-[11px] font-bold uppercase tracking-wider text-center px-2 ${isActive ? 'text-white drop-shadow-sm' : ''}`}>
-                                            {tab}
+                                            <UserCheck size={16} />
                                         </span>
-                                    </button>
-                                );
-                            })}
-                        </LayoutGroup>
-                    </div>
-                </div>
-            </header>
+                                        <div>
+                                            <h2 id="section-my-tables" className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                                                My Tables
+                                                <span
+                                                    className="px-2 py-0.2 rounded-full text-[10.5px] font-black"
+                                                    style={{
+                                                        backgroundColor: '#8CA9FF',
+                                                        color: '#0F172A',
+                                                        boxShadow: '0 1px 3px rgba(140, 169, 255, 0.4)',
+                                                    }}
+                                                >
+                                                    {myTables.length}
+                                                </span>
+                                            </h2>
+                                            <p className="text-[11px] text-slate-500 font-medium">Tables currently assigned to you</p>
+                                        </div>
+                                    </div>
+                                </div>
 
-            <main className="flex-1 overflow-y-auto bg-gray-50/50 p-4 pb-32">
-                {(loading || restaurantLoading) ? (
-                    <div className="flex flex-col items-center justify-center h-full gap-4">
-                        <div className="size-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
-                        <p className="text-black font-bold text-xs uppercase tracking-widest">Loading Tables...</p>
-                    </div>
-                ) : filteredTables.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-3 min-h-[400px] content-start">
-                        {filteredTables.map(table => (
-                            <RenderTableCard 
-                                key={table.id} 
-                                table={table} 
-                                activeTab={activeTab}
-                                isMergeMode={isMergeMode}
-                                isSelectedForMerge={selectedForMerge.includes(table.id)}
-                                handleTableClick={handleTableClick}
-                                handleDismissAlert={handleDismissAlert}
-                                handleAssignClick={handleAssignClick}
-                                pendingRequests={pendingRequests}
-                                currentWaiterId={waiterRecord?.id}
+                                {myTables.length === 0 ? (
+                                    <div
+                                        className="rounded-[22px] p-5 text-center flex flex-col items-center"
+                                        style={{
+                                            backgroundColor: '#EEF2F6',
+                                            boxShadow: 'inset 2.5px 2.5px 6px rgba(166, 180, 200, 0.3), inset -2.5px -2.5px 6px rgba(255, 255, 255, 0.9)',
+                                            border: '1px solid rgba(255, 255, 255, 0.6)',
+                                        }}
+                                    >
+                                        <div
+                                            className="size-10 rounded-xl flex items-center justify-center text-w-brand mb-2"
+                                            style={{
+                                                backgroundColor: '#EEF2F6',
+                                                boxShadow: '2.5px 2.5px 6px rgba(166, 180, 200, 0.35), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                            }}
+                                        >
+                                            <UserCheck size={18} />
+                                        </div>
+                                        <p className="text-xs font-bold text-slate-800">No tables assigned to you</p>
+                                        <p className="text-[11px] text-slate-500 mt-0.5 max-w-[240px]">
+                                            Seat guests or take an order from the available tables below.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-3.5">
+                                        {myTables.map((t) => (
+                                            <TableCard
+                                                key={`${t.id}-${t.merged_group_id || ''}`}
+                                                table={t}
+                                                selecting={selecting}
+                                                selected={selectedIds.includes(t.id)}
+                                                onTap={() => {
+                                                    if (selecting) {
+                                                        toggleSelect(t);
+                                                    } else {
+                                                        haptic.light();
+                                                        setDetailsTable(t);
+                                                    }
+                                                }}
+                                                onLongPress={() => {
+                                                    if (!selecting) {
+                                                        setSelecting(true);
+                                                        setSelectedIds([t.id]);
+                                                    } else {
+                                                        toggleSelect(t);
+                                                    }
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+
+                            {/* ── Section 2: Other Waiters' Tables ── */}
+                            {otherTables.length > 0 && (
+                                <section aria-labelledby="section-other-tables">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2.5">
+                                            <span
+                                                className="size-8 rounded-xl flex items-center justify-center text-blue-600 shrink-0"
+                                                style={{
+                                                    backgroundColor: '#EEF2F6',
+                                                    boxShadow: '2.5px 2.5px 6px rgba(166, 180, 200, 0.35), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                                    border: '1px solid rgba(255, 255, 255, 0.7)',
+                                                }}
+                                            >
+                                                <Users size={16} />
+                                            </span>
+                                            <div>
+                                                <h2 id="section-other-tables" className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                                                    Other Waiters' Tables
+                                                    <span
+                                                        className="px-2 py-0.2 rounded-full text-[10.5px] font-black"
+                                                        style={{
+                                                            backgroundColor: '#8CA9FF',
+                                                            color: '#0F172A',
+                                                            boxShadow: '0 1px 3px rgba(140, 169, 255, 0.4)',
+                                                        }}
+                                                    >
+                                                        {otherTables.length}
+                                                    </span>
+                                                </h2>
+                                                <p className="text-[11px] text-slate-500 font-medium">Assigned to other waiters • Tap to request access</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3.5">
+                                        {otherTables.map((t) => (
+                                            <TableCard
+                                                key={`${t.id}-${t.merged_group_id || ''}`}
+                                                table={t}
+                                                selecting={selecting}
+                                                selected={selectedIds.includes(t.id)}
+                                                onTap={() => {
+                                                    if (selecting) {
+                                                        toggleSelect(t);
+                                                    } else {
+                                                        haptic.light();
+                                                        setDetailsTable(t);
+                                                    }
+                                                }}
+                                                onLongPress={() => {
+                                                    if (!selecting) {
+                                                        setSelecting(true);
+                                                        setSelectedIds([t.id]);
+                                                    } else {
+                                                        toggleSelect(t);
+                                                    }
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
+
+                            {/* ── Section 3: Available Tables ── */}
+                            <section aria-labelledby="section-available-tables">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div>
+                                        <h2 id="section-available-tables" className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                                            Available Tables
+                                            <span
+                                                className="px-2 py-0.2 rounded-full text-[10.5px] font-black"
+                                                style={{
+                                                    backgroundColor: '#ABE7B2',
+                                                    color: '#064E3B',
+                                                    boxShadow: '0 1px 3px rgba(171, 231, 178, 0.4)',
+                                                }}
+                                            >
+                                                {availableTables.length}
+                                            </span>
+                                        </h2>
+                                        <p className="text-[11px] text-slate-500 font-medium">Ready for seating & new orders</p>
+                                    </div>
+                                </div>
+
+                                {availableTables.length === 0 ? (
+                                    <div
+                                        className="rounded-[22px] p-5 text-center flex flex-col items-center"
+                                        style={{
+                                            backgroundColor: '#EEF2F6',
+                                            boxShadow: 'inset 2.5px 2.5px 6px rgba(166, 180, 200, 0.3), inset -2.5px -2.5px 6px rgba(255, 255, 255, 0.9)',
+                                            border: '1px solid rgba(255, 255, 255, 0.6)',
+                                        }}
+                                    >
+                                        <div
+                                            className="size-10 rounded-xl flex items-center justify-center text-emerald-600 mb-2"
+                                            style={{
+                                                backgroundColor: '#EEF2F6',
+                                                boxShadow: '2.5px 2.5px 6px rgba(166, 180, 200, 0.35), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                            }}
+                                        >
+                                            <Sparkles size={18} />
+                                        </div>
+                                        <p className="text-xs font-bold text-slate-800">No available tables</p>
+                                        <p className="text-[11px] text-slate-500 mt-0.5">All tables are currently in service or occupied.</p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-3.5">
+                                        {availableTables.map((t) => (
+                                            <TableCard
+                                                key={`${t.id}-${t.merged_group_id || ''}`}
+                                                table={t}
+                                                selecting={selecting}
+                                                selected={selectedIds.includes(t.id)}
+                                                onTap={() => {
+                                                    if (selecting) {
+                                                        toggleSelect(t);
+                                                    } else {
+                                                        haptic.light();
+                                                        setDetailsTable(t);
+                                                    }
+                                                }}
+                                                onLongPress={() => {
+                                                    if (!selecting) {
+                                                        setSelecting(true);
+                                                        setSelectedIds([t.id]);
+                                                    } else {
+                                                        toggleSelect(t);
+                                                    }
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+                        </div>
+                    )
+                ) : filter === 'READY' ? (
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2.5">
+                                <span
+                                    className="size-8 rounded-xl flex items-center justify-center text-purple-600 shrink-0"
+                                    style={{
+                                        backgroundColor: '#EEF2F6',
+                                        boxShadow: '2.5px 2.5px 6px rgba(166, 180, 200, 0.35), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                        border: '1px solid rgba(255, 255, 255, 0.7)',
+                                    }}
+                                >
+                                    <ChefHat size={16} />
+                                </span>
+                                <div>
+                                    <h2 className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                                        Ready to Serve
+                                        <span
+                                            className="px-2 py-0.2 rounded-full text-[10.5px] font-black"
+                                            style={{
+                                                backgroundColor: '#8F87F1',
+                                                color: '#FFFFFF',
+                                                boxShadow: '0 1px 3px rgba(143, 135, 241, 0.4)',
+                                            }}
+                                        >
+                                            {readyTables.length}
+                                        </span>
+                                    </h2>
+                                    <p className="text-[11px] text-slate-500 font-medium">Your tables waiting for food pickup</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {readyTables.length === 0 ? (
+                            <NeumorphicEmptyState
+                                icon={<ChefHat size={22} />}
+                                title="No Ready Orders"
+                                body="None of your assigned tables currently have orders ready for pickup."
                             />
-                        ))}
+                        ) : (
+                            <div className="grid grid-cols-2 gap-3.5">
+                                {readyTables.map((t) => (
+                                    <TableCard
+                                        key={`${t.id}-${t.merged_group_id || ''}`}
+                                        table={t}
+                                        selecting={selecting}
+                                        selected={selectedIds.includes(t.id)}
+                                        onTap={() => {
+                                            if (selecting) {
+                                                toggleSelect(t);
+                                            } else {
+                                                haptic.light();
+                                                setDetailsTable(t);
+                                            }
+                                        }}
+                                        onLongPress={() => {
+                                            if (!selecting) {
+                                                setSelecting(true);
+                                                setSelectedIds([t.id]);
+                                            } else {
+                                                toggleSelect(t);
+                                            }
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ) : filter === 'PREPARING' ? (
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2.5">
+                                <span
+                                    className="size-8 rounded-xl flex items-center justify-center text-amber-600 shrink-0"
+                                    style={{
+                                        backgroundColor: '#EEF2F6',
+                                        boxShadow: '2.5px 2.5px 6px rgba(166, 180, 200, 0.35), -2.5px -2.5px 6px rgba(255, 255, 255, 0.95)',
+                                        border: '1px solid rgba(255, 255, 255, 0.7)',
+                                    }}
+                                >
+                                    <Utensils size={16} />
+                                </span>
+                                <div>
+                                    <h2 className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                                        Preparing in Kitchen
+                                        <span
+                                            className="px-2 py-0.2 rounded-full text-[10.5px] font-black"
+                                            style={{
+                                                backgroundColor: '#FFDE63',
+                                                color: '#1E293B',
+                                                boxShadow: '0 1px 3px rgba(255, 222, 99, 0.4)',
+                                            }}
+                                        >
+                                            {preparingTables.length}
+                                        </span>
+                                    </h2>
+                                    <p className="text-[11px] text-slate-500 font-medium">Your tables with food currently cooking</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {preparingTables.length === 0 ? (
+                            <NeumorphicEmptyState
+                                icon={<Utensils size={22} />}
+                                title="No Preparing Orders"
+                                body="None of your assigned tables currently have orders being prepared."
+                            />
+                        ) : (
+                            <div className="grid grid-cols-2 gap-3.5">
+                                {preparingTables.map((t) => (
+                                    <TableCard
+                                        key={`${t.id}-${t.merged_group_id || ''}`}
+                                        table={t}
+                                        selecting={selecting}
+                                        selected={selectedIds.includes(t.id)}
+                                        onTap={() => {
+                                            if (selecting) {
+                                                toggleSelect(t);
+                                            } else {
+                                                haptic.light();
+                                                setDetailsTable(t);
+                                            }
+                                        }}
+                                        onLongPress={() => {
+                                            if (!selecting) {
+                                                setSelecting(true);
+                                                setSelectedIds([t.id]);
+                                            } else {
+                                                toggleSelect(t);
+                                            }
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center justify-center h-64 text-black">
-                        <span className="material-icons-outlined text-4xl mb-2 opacity-50">table_restaurant</span>
-                        <p className="text-sm">No tables found.</p>
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div>
+                                <h2 className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                                    Available Tables
+                                    <span
+                                        className="px-2 py-0.2 rounded-full text-emerald-700 text-[10.5px] font-black"
+                                        style={{
+                                            backgroundColor: '#EEF2F6',
+                                            boxShadow: 'inset 1.5px 1.5px 3px rgba(166, 180, 200, 0.35), inset -1.5px -1.5px 3px rgba(255, 255, 255, 0.9)',
+                                        }}
+                                    >
+                                        {availableTables.length}
+                                    </span>
+                                </h2>
+                                <p className="text-[11px] text-slate-500 font-medium">All floor tables ready for new guest seating</p>
+                            </div>
+                        </div>
+
+                        {availableTables.length === 0 ? (
+                            <NeumorphicEmptyState
+                                icon={<LayoutGrid size={22} />}
+                                title="No Available Tables"
+                                body="All floor tables are currently in service or occupied."
+                            />
+                        ) : (
+                            <div className="grid grid-cols-2 gap-3.5">
+                                {availableTables.map((t) => (
+                                    <TableCard
+                                        key={`${t.id}-${t.merged_group_id || ''}`}
+                                        table={t}
+                                        selecting={selecting}
+                                        selected={selectedIds.includes(t.id)}
+                                        onTap={() => {
+                                            if (selecting) {
+                                                toggleSelect(t);
+                                            } else {
+                                                haptic.light();
+                                                setDetailsTable(t);
+                                            }
+                                        }}
+                                        onLongPress={() => {
+                                            if (!selecting) {
+                                                setSelecting(true);
+                                                setSelectedIds([t.id]);
+                                            } else {
+                                                toggleSelect(t);
+                                            }
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
             </main>
-            
+
+            {/* ── Floating selection action bar (Tactile Neumorphic) ───────────────── */}
             <AnimatePresence>
-                {/* Assignment Modal */}
-                {isAssignModalOpen && (
+                {selecting && (
                     <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                        initial={{ y: 90, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 90, opacity: 0 }}
+                        transition={springSoft}
+                        className="fixed bottom-[76px] left-4 right-4 max-w-[calc(28rem-2rem)] mx-auto z-40"
                     >
-                        <motion.div
-                            initial={{ scale: 0.9, y: 20 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
-                            className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl border border-gray-100"
+                        <div
+                            className="rounded-[24px] p-2 grid grid-cols-4 gap-2"
+                            style={{
+                                backgroundColor: '#EEF2F6',
+                                boxShadow: '6px 6px 18px rgba(166, 180, 200, 0.5), -6px -6px 18px rgba(255, 255, 255, 0.95)',
+                                border: '1px solid rgba(255, 255, 255, 0.8)',
+                            }}
                         >
-                            <div className="p-6">
-                                <div className="flex justify-between items-center mb-6">
-                                    <div>
-                                        <h3 className="text-xl font-black text-charcoal">Assign Waiter</h3>
-                                        <p className="text-xs text-black font-bold uppercase tracking-wider">
-                                            {selectedTableForAssign?.is_group ? selectedTableForAssign?.display_name : `Table ${selectedTableForAssign?.table_number}`}
-                                        </p>
-                                    </div>
-                                    <button 
-                                        onClick={() => setIsAssignModalOpen(false)}
-                                        className="size-10 flex items-center justify-center rounded-full bg-gray-50 text-black hover:bg-gray-100"
-                                    >
-                                        <LucideCheck size={20} className="rotate-45" />
-                                    </button>
-                                </div>
-
-                                <div className="space-y-3 max-h-[400px] overflow-y-auto no-scrollbar pb-4">
-                                    {/* Self Assignment */}
-                                    <button
-                                        onClick={() => handleConfirmAssignment(waiterRecord?.id)}
-                                        disabled={isAssigning}
-                                        className={`w-full p-4 rounded-2xl border-2 flex items-center justify-between transition-all ${selectedTableForAssign?.assigned_waiter_id === waiterRecord?.id ? 'border-blue-600 bg-blue-50' : 'border-gray-100 hover:border-blue-300'}`}
-                                    >
-                                        <div className="flex items-center gap-3 text-left">
-                                            <div className="size-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-black">Me</div>
-                                            <div>
-                                                <p className="font-bold text-sm text-charcoal">Assign to Me</p>
-                                                <p className="text-[10px] text-blue-600 font-bold uppercase tracking-widest">My Load: {waiterRecord?.active_workload || 0}</p>
-                                            </div>
-                                        </div>
-                                        {selectedTableForAssign?.assigned_waiter_id === waiterRecord?.id && <LucideCheckCircle2 className="text-blue-600" size={20} />}
-                                    </button>
-
-                                    <div className="py-2 flex items-center gap-3">
-                                        <div className="h-px flex-1 bg-gray-100" />
-                                        <span className="text-[10px] font-black text-black uppercase tracking-widest">Recommend Staff</span>
-                                        <div className="h-px flex-1 bg-gray-100" />
-                                    </div>
-
-                                    {/* Other Staff */}
-                                    {allStaff.filter(s => s.id !== waiterRecord?.id).map(staff => (
-                                        <button
-                                            key={staff.id}
-                                            onClick={() => handleConfirmAssignment(staff.id)}
-                                            disabled={isAssigning}
-                                            className={`w-full p-4 rounded-2xl border-2 flex items-center justify-between transition-all ${selectedTableForAssign?.assigned_waiter_id === staff.id ? 'border-blue-600 bg-blue-50' : 'border-gray-100 hover:border-blue-300'}`}
-                                        >
-                                            <div className="flex items-center gap-3 text-left">
-                                                <div className="size-10 rounded-full bg-gray-100 flex items-center justify-center text-black font-black">
-                                                    {staff.name.charAt(0)}
-                                                </div>
-                                                <div>
-                                                    <p className="font-bold text-sm text-charcoal">{staff.name}</p>
-                                                    <div className="flex items-center gap-2 mt-0.5">
-                                                        <div className={`h-1.5 w-12 rounded-full bg-gray-100 overflow-hidden`}>
-                                                            <div 
-                                                                className={`h-full ${workloadColor(getWorkloadCategory(staff.active_workload))}`} 
-                                                                style={{ width: `${Math.min(100, (staff.active_workload || 0) * 10)}%` }} 
-                                                            />
-                                                        </div>
-                                                        <span className="text-[9px] text-black font-bold uppercase tracking-wider">{getWorkloadCategory(staff.active_workload)}</span>
-                                                    </div>
-
-                                                </div>
-                                            </div>
-                                            {selectedTableForAssign?.assigned_waiter_id === staff.id && <LucideCheckCircle2 className="text-blue-600" size={20} />}
-                                        </button>
-                                    ))}
-
-                                    {/* Unassign */}
-                                    <button
-                                        onClick={() => handleConfirmAssignment(null)}
-                                        disabled={isAssigning}
-                                        className="w-full p-4 rounded-2xl border-2 border-dashed border-gray-200 text-black font-bold text-sm hover:border-gray-300 hover:text-black transition-all mt-4"
-                                    >
-                                        Unassign Table
-                                    </button>
-                                </div>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-
-                {isMergeMode && selectedForMerge.length > 0 && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 50 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 50 }}
-                        className="absolute bottom-0 left-0 right-0 z-40 p-4 pb-4"
-                    >
-                        <div className="bg-neutral-900 text-white rounded-2xl p-4 shadow-2xl flex items-center justify-between w-full max-w-sm mx-auto border border-neutral-700">
-                            <div>
-                                <p className="text-[10px] font-bold text-black uppercase tracking-widest">{selectedForMerge.length} Selected</p>
-                                <p className="text-sm font-black text-white">Merge Tables</p>
-                            </div>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => {
-                                        setIsMergeMode(false);
-                                        setSelectedForMerge([]);
-                                    }}
-                                    className="px-4 py-3 bg-neutral-800 text-black font-bold rounded-xl text-xs"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleConfirmMerge}
-                                    disabled={selectedForMerge.length < 2 || isMerging}
-                                    className={`px-5 py-3 ${selectedForMerge.length < 2 ? 'bg-neutral-700 text-black' : 'bg-blue-600 text-white'} font-bold rounded-xl flex items-center gap-2 text-xs`}
-                                >
-                                    {isMerging ? (
-                                        <div className="size-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></div>
-                                    ) : (
-                                        <LucideGripHorizontal size={18} />
-                                    )}
-                                    Confirm
-                                </button>
-                            </div>
+                            <SelectAction icon={<Link2 size={17} className="text-w-brand" />} label="Merge" onClick={() => { if (selectedIds.length < 2) { toast.error('Select at least 2 tables to merge'); return; } setMergeSheetOpen(true); }} />
+                            <SelectAction icon={<Move size={17} className="text-[#0284C7]" />} label="Move Area" onClick={() => setMoveSheetOpen(true)} />
+                            <SelectAction icon={<Pin size={17} className="text-[#D97706]" />} label="Pin" onClick={doPin} />
+                            <SelectAction icon={<Trash2 size={17} className="text-w-alert" />} label="Delete" onClick={doDelete} loading={busy} />
                         </div>
                     </motion.div>
                 )}
-                {/* Offload Modal */}
-                {offloadModalOpen && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                        <motion.div 
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl border border-gray-100 relative"
-                        >
-                            <div className="p-6">
-                                <div className="flex justify-between items-center mb-6">
-                                    <div>
-                                        <h3 className="text-xl font-black text-charcoal">Offload Workload</h3>
-                                        <p className="text-xs text-black font-bold uppercase tracking-wider">Transfer all assignments</p>
-                                    </div>
-                                    <button 
-                                        onClick={() => setOffloadModalOpen(false)}
-                                        className="size-10 flex items-center justify-center rounded-full bg-gray-50 text-black hover:bg-gray-100"
-                                    >
-                                        <LucideCheck size={20} className="rotate-45" />
-                                    </button>
+            </AnimatePresence>
+
+            {/* Floating indicator when waiter has draft items from menu browse */}
+            <AnimatePresence>
+                {pendingCartCount > 0 && !detailsTable && (
+                    <motion.div
+                        initial={{ y: 50, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 50, opacity: 0 }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                        className="fixed bottom-[68px] left-0 right-0 max-w-md mx-auto z-40 px-3.5"
+                    >
+                        <div className="bg-neutral-900 text-white rounded-2xl p-3 shadow-2xl flex items-center justify-between gap-3 border border-orange-500/50">
+                            <div className="flex items-center gap-3">
+                                <span className="size-9 rounded-xl bg-orange-500 flex items-center justify-center text-white font-black text-xs shadow-md shadow-orange-500/30">
+                                    {pendingCartCount}
+                                </span>
+                                <div>
+                                    <p className="text-xs font-black text-white">Cart items pending</p>
+                                    <p className="text-[10px] text-gray-400 font-semibold">Tap any table below to order</p>
                                 </div>
-
-                                <div className="space-y-3 max-h-[400px] overflow-y-auto no-scrollbar pb-4">
-                                    <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl mb-4">
-                                        <div className="flex items-start gap-3">
-                                            <LucideAlertCircle className="text-amber-600 shrink-0" size={18} />
-                                            <p className="text-[11px] text-amber-800 font-medium leading-relaxed">
-                                                This will transfer all your current table assignments and active orders to the selected staff member.
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <p className="text-[10px] font-black text-black uppercase tracking-widest mb-2 px-1">Available Staff</p>
-                                    
-                                    {staffList.length > 0 ? (
-                                        staffList.map(staff => (
-                                            <button
-                                                key={staff.id}
-                                                onClick={() => handleOffloadWorkload(staff.id)}
-                                                disabled={offloading}
-                                                className="w-full p-4 rounded-2xl border-2 border-gray-100 hover:border-blue-300 flex items-center justify-between transition-all group"
-                                            >
-                                                <div className="flex items-center gap-3 text-left">
-                                                    <div className="size-10 rounded-full bg-gray-100 flex items-center justify-center text-black font-black">
-                                                        {staff.name.charAt(0)}
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-bold text-sm text-charcoal">{staff.name}</p>
-                                                        <div className="flex items-center gap-2 mt-0.5">
-                                                            <div className={`h-1.5 w-12 rounded-full bg-gray-100 overflow-hidden`}>
-                                                                <div 
-                                                                    className={`h-full ${workloadColor(getWorkloadCategory(staff.active_workload))}`} 
-                                                                    style={{ width: `${Math.min(100, (staff.active_workload || 0) * 10)}%` }} 
-                                                                />
-                                                            </div>
-                                                            <span className="text-[9px] text-black font-bold uppercase tracking-wider">{getWorkloadCategory(staff.active_workload)}</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <LucideChevronRight className="text-black group-hover:text-blue-500 transition-colors" size={18} />
-                                            </button>
-                                        ))
-                                    ) : (
-                                        <div className="text-center py-8">
-                                            <p className="text-black text-sm">No other staff available</p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {offloading && (
-                                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex flex-col items-center justify-center">
-                                        <div className="size-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-3" />
-                                        <p className="text-sm font-black text-charcoal uppercase tracking-widest">Transferring...</p>
-                                    </div>
-                                )}
                             </div>
-                        </motion.div>
+                            <button
+                                onClick={() => router.push(`/${params?.restaurantCode || restaurantId}/waiter/${staffMobile}/menu/browse`)}
+                                className="px-3.5 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-black shadow active:scale-95 transition-all shrink-0"
+                            >
+                                View Cart
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ── Sheets (Preserved) ──────────────────────────────────────── */}
+            <AnimatePresence>
+                {detailsTable && (restaurantId || (params?.restaurantCode as string)) && (
+                    <TableDetailsSheet
+                        table={detailsTable}
+                        restaurantId={restaurantId || (params?.restaurantCode as string) || ''}
+                        currentWaiter={waiterRecord ? { id: waiterRecord.id, role: waiterRecord.role, name: waiterRecord.name, mobile: waiterRecord.mobile || staffMobile } : { id: '', mobile: staffMobile, name: 'Staff', role: 'waiter' }}
+                        onClose={() => setDetailsTable(null)}
+                        onChanged={() => loadTables(true)}
+                        onCleared={handleTableCleared}
+                    />
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {mergeSheetOpen && (
+                    <MergeSheet
+                        tables={floor.filter((t) => !t.is_group)}
+                        selectedIds={selectedIds}
+                        busy={busy}
+                        onToggle={(id) => toggleSelect({ id } as FloorTable)}
+                        onConfirm={() => doMerge(selectedIds)}
+                        onClose={() => setMergeSheetOpen(false)}
+                    />
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {moveSheetOpen && (
+                    <MoveAreaSheet
+                        areas={areas}
+                        count={selectedIds.length}
+                        busy={busy}
+                        onPick={(id) => doMoveArea(id)}
+                        onClose={() => setMoveSheetOpen(false)}
+                    />
+                )}
+            </AnimatePresence>
+
+            {/* Background refresh indicator */}
+            <AnimatePresence>
+                {refreshing && !loading && (
+                    <div className="fixed top-14 left-0 right-0 h-[2px] z-40 overflow-hidden">
+                        <motion.div
+                            initial={{ x: '-100%' }}
+                            animate={{ x: '100%' }}
+                            transition={{ repeat: Infinity, duration: 1.1, ease: 'linear' }}
+                            className="w-2/5 h-full rounded-full bg-w-brand"
+                        />
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* Pull-to-refresh fallback button (web) */}
+            {!selecting && (
+                <button
+                    onClick={() => { haptic.light(); loadTables(); }}
+                    aria-label="Refresh tables"
+                    className="fixed bottom-[76px] right-4 z-30 size-11 rounded-full flex items-center justify-center text-slate-600 active:scale-90 transition-transform"
+                    style={{
+                        backgroundColor: '#EEF2F6',
+                        boxShadow: '3.5px 3.5px 9px rgba(166, 180, 200, 0.45), -3.5px -3.5px 9px rgba(255, 255, 255, 0.95)',
+                        border: '1px solid rgba(255, 255, 255, 0.8)',
+                    }}
+                >
+                    <RefreshCw size={17} className={refreshing ? 'animate-spin text-w-brand' : ''} />
+                </button>
+            )}
+        </div>
+    );
+}
+
+function AreaTile({ icon: Icon, label, active, onClick, index }: { icon: any; label: string; active: boolean; onClick: () => void; index: number }) {
+    return (
+        <motion.button
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.03, duration: 0.18 }}
+            onClick={onClick}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold transition-all active:scale-[0.98] ${active
+                    ? 'text-w-brand'
+                    : 'text-slate-700 hover:text-slate-900'
+                }`}
+            style={{
+                backgroundColor: '#EEF2F6',
+                boxShadow: active
+                    ? 'inset 2px 2px 4px rgba(166, 180, 200, 0.4), inset -2px -2px 4px rgba(255, 255, 255, 0.9)'
+                    : 'none',
+            }}
+        >
+            <Icon size={15} className={active ? 'text-w-brand' : 'text-slate-400'} />
+            <span className="flex-1 truncate">{label}</span>
+            {active && <Check size={14} className="text-w-brand" />}
+        </motion.button>
+    );
+}
+
+function SelectAction({ icon, label, onClick, loading }: { icon: React.ReactNode; label: string; onClick: () => void; loading?: boolean }) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={loading}
+            className="flex flex-col items-center gap-1 py-1.5 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+            style={{
+                backgroundColor: '#EEF2F6',
+                boxShadow: '2.5px 2.5px 5px rgba(166, 180, 200, 0.35), -2.5px -2.5px 5px rgba(255, 255, 255, 0.95)',
+                border: '1px solid rgba(255, 255, 255, 0.6)',
+            }}
+        >
+            <span className="size-8 rounded-lg flex items-center justify-center">{icon}</span>
+            <span className="text-[10.5px] font-extrabold text-slate-700">{loading ? '…' : label}</span>
+        </button>
+    );
+}
+
+function NeumorphicEmptyState({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
+    return (
+        <div
+            className="rounded-[24px] p-6 text-center flex flex-col items-center"
+            style={{
+                backgroundColor: '#EEF2F6',
+                boxShadow: 'inset 3px 3px 8px rgba(166, 180, 200, 0.35), inset -3px -3px 8px rgba(255, 255, 255, 0.9)',
+                border: '1px solid rgba(255, 255, 255, 0.6)',
+            }}
+        >
+            <div
+                className="size-12 rounded-2xl flex items-center justify-center text-slate-400 mb-3"
+                style={{
+                    backgroundColor: '#EEF2F6',
+                    boxShadow: '3px 3px 7px rgba(166, 180, 200, 0.4), -3px -3px 7px rgba(255, 255, 255, 0.95)',
+                    border: '1px solid rgba(255, 255, 255, 0.8)',
+                }}
+            >
+                {icon}
+            </div>
+            <h3 className="text-sm font-black text-slate-800 tracking-tight">{title}</h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-[240px] leading-relaxed">{body}</p>
+        </div>
+    );
+}
+
+function NeumorphicSkeletonGrid({ count = 6 }: { count?: number }) {
+    return (
+        <div className="grid grid-cols-2 gap-3.5" aria-hidden>
+            {Array.from({ length: count }).map((_, i) => (
+                <div
+                    key={i}
+                    className="rounded-[22px] p-3.5 flex flex-col justify-between"
+                    style={{
+                        backgroundColor: '#EEF2F6',
+                        aspectRatio: '1 / 1.05',
+                        boxShadow: '4px 4px 10px rgba(166, 180, 200, 0.35), -4px -4px 10px rgba(255, 255, 255, 0.9)',
+                        border: '1.5px solid #000000',
+                    }}
+                >
+                    <div className="flex justify-between items-center">
+                        <div className="h-4 w-10 rounded-full bg-slate-300/50 animate-pulse" />
+                        <div className="h-5 w-12 rounded-md bg-slate-300/50 animate-pulse" />
+                    </div>
+                    <div className="flex flex-col items-center justify-center my-auto">
+                        <div className="h-4 w-20 rounded-full bg-slate-300/40 animate-pulse" />
+                    </div>
+                    <div className="h-6 w-full rounded-xl bg-slate-300/40 animate-pulse" />
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/* ── Merge sheet ─────────────────────────────────────────────── */
+function MergeSheet({
+    tables, selectedIds, busy, onToggle, onConfirm, onClose,
+}: {
+    tables: FloorTable[];
+    selectedIds: (number | string)[];
+    busy: boolean;
+    onToggle: (id: number | string) => void;
+    onConfirm: () => void;
+    onClose: () => void;
+}) {
+    const chosen = tables.filter((t) => selectedIds.includes(t.id));
+    const seats = chosen.reduce((s, t) => s + (t.capacity || 0), 0);
+    const valid = chosen.length >= 2;
+    const previewName = chosen.length > 0
+        ? `Table ${chosen.map((t) => t.table_number).sort((a, b) => Number(a) - Number(b)).join('+')}`
+        : '—';
+
+    return (
+        <Sheet onClose={onClose}>
+            <div className="p-5 pb-3 flex items-center gap-3">
+                <div className="size-11 rounded-2xl bg-w-brand-soft flex items-center justify-center">
+                    <Link2 size={20} className="text-w-brand" />
+                </div>
+                <div className="flex-1">
+                    <h3 className="text-lg font-extrabold text-w-ink tracking-tight">Merge Tables</h3>
+                    <p className="text-xs text-w-ink-soft">Combine multiple tables into a single dining group</p>
+                </div>
+                <button onClick={onClose} aria-label="Close" className="size-9 rounded-full bg-[#F1F5F9] flex items-center justify-center text-w-ink-soft">
+                    <X size={17} />
+                </button>
+            </div>
+
+            <div className="px-5">
+                <div className={`rounded-2xl border p-3.5 mb-3 ${valid ? 'bg-w-brand-soft border-w-brand/40' : 'bg-w-canvas border-w-border'}`}>
+                    <div className="flex items-center justify-between">
+                        <p className="font-display text-base font-black text-w-ink">{previewName}</p>
+                        {valid && <span className="px-2 py-0.5 rounded-full bg-w-brand text-white text-[10px] font-black">Ready</span>}
+                    </div>
+                    <p className="text-xs text-w-ink-soft mt-0.5">{chosen.length} tables selected • {seats} total seats</p>
+                </div>
+            </div>
+
+            <div className="px-5 pb-4 overflow-y-auto flex-1 space-y-2">
+                {tables.map((t) => {
+                    const checked = selectedIds.includes(t.id);
+                    const alreadyMerged = !!t.merged_group_id;
+                    return (
+                        <button
+                            key={t.id}
+                            disabled={alreadyMerged}
+                            onClick={() => onToggle(t.id)}
+                            className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left transition-colors ${checked ? 'bg-w-brand-softer border-w-brand' : 'border-w-border bg-white'
+                                } ${alreadyMerged ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                            <span className={`size-6 rounded-full border-2 shrink-0 flex items-center justify-center ${checked ? 'bg-w-brand border-w-brand' : 'border-w-border-strong'}`}>
+                                {checked && <Check size={13} strokeWidth={3.5} className="text-white" />}
+                            </span>
+                            <span className="flex-1 min-w-0">
+                                <span className="flex items-center gap-2">
+                                    <span className="text-sm font-extrabold text-w-ink">Table {t.table_number}</span>
+                                    {t.area_name && <span className="px-1.5 py-px rounded bg-[#F1F5F9] text-[10px] font-semibold text-w-ink-soft">{t.area_name}</span>}
+                                    {alreadyMerged && <span className="px-1.5 py-px rounded bg-w-alert-soft text-w-alert-deep text-[10px] font-bold">Already Merged</span>}
+                                </span>
+                                <span className="block text-[11px] text-w-ink-soft mt-0.5">{t.capacity} Seats • {(t.status || '').toUpperCase()}</span>
+                            </span>
+                            <span className="w-num text-xs font-bold text-w-ink-soft shrink-0">{t.capacity}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            <div className="sticky bottom-0 bg-[#F1F5F9] border-t border-w-border p-4">
+                <AppButton className="w-full" disabled={!valid || busy} loading={busy} onClick={onConfirm}>
+                    {valid ? `Merge ${chosen.length} Tables (${seats} Seats)` : 'Select at least 2 tables to merge'}
+                </AppButton>
+            </div>
+        </Sheet>
+    );
+}
+
+/* ── Move-area sheet ─────────────────────────────────────────── */
+function MoveAreaSheet({
+    areas, count, busy, onPick, onClose,
+}: {
+    areas: AreaRow[];
+    count: number;
+    busy: boolean;
+    onPick: (areaId: string | null) => void;
+    onClose: () => void;
+}) {
+    return (
+        <Sheet onClose={onClose}>
+            <div className="p-5 pb-3">
+                <h3 className="text-lg font-extrabold text-w-ink tracking-tight">Move to Area</h3>
+                <p className="text-xs text-w-ink-soft mt-0.5">Select the destination area for {count} table{count !== 1 ? 's' : ''}</p>
+            </div>
+            <div className="px-5 pb-4 overflow-y-auto flex-1 space-y-2">
+                {areas.map((a) => {
+                    const Icon = areaIcon(a.name);
+                    return (
+                        <button
+                            key={a.id}
+                            disabled={busy}
+                            onClick={() => onPick(a.id)}
+                            className="w-full flex items-center gap-3 p-3.5 rounded-2xl border border-w-border bg-white text-left active:bg-w-canvas transition-colors"
+                        >
+                            <span className="size-10 rounded-xl bg-w-brand-soft flex items-center justify-center">
+                                <Icon size={18} className="text-w-brand" />
+                            </span>
+                            <span className="flex-1 text-sm font-bold text-w-ink">{a.name}</span>
+                            <CheckCheck size={16} className="text-transparent" />
+                        </button>
+                    );
+                })}
+            </div>
+        </Sheet>
+    );
+}
+
+function Sheet({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+    return (
+        <div className="fixed inset-0 z-[85] flex items-end justify-center" role="dialog" aria-modal="true">
+            <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+            <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={springSoft}
+                className="relative w-full max-w-md bg-white rounded-t-3xl flex flex-col max-h-[85%]"
+            >
+                {children}
+            </motion.div>
         </div>
     );
 }

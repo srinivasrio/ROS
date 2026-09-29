@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
 import { LoadingState } from '@/components/ui/LoadingState';
+import { useParams } from 'next/navigation';
 
 // Lucide Icons
 import { 
@@ -14,58 +15,142 @@ import {
     UserPlus as LucideUserPlus, 
     Edit as LucideEdit, 
     Trash2 as LucideTrash2, 
-    Shield as LucideShield 
+    Shield as LucideShield,
+    Bike as LucideBike 
 } from 'lucide-react';
 
 // Payroll Sub-tabs
-import EmployeesTab from '@/app/components/admin/payroll/EmployeesTab';
-import AttendanceTab from '@/app/components/admin/payroll/AttendanceTab';
-import PayrollTab from '@/app/components/admin/payroll/PayrollTab';
-import ReportsTab from '@/app/components/admin/payroll/ReportsTab';
+import EmployeesTab from '@/components/admin/payroll/EmployeesTab';
+import AttendanceTab from '@/components/admin/payroll/AttendanceTab';
+import PayrollTab from '@/components/admin/payroll/PayrollTab';
+import ReportsTab from '@/components/admin/payroll/ReportsTab';
+import ApprovalsTab from '@/components/admin/payroll/ApprovalsTab';
 
 // Original Staff PIN Logic imports
-import { StaffService, Staff } from '@/app/services/staff';
-import StaffModal from '@/app/components/admin/AddStaffModal';
-import { getCached, setCache } from '@/app/lib/data-cache';
+import { StaffService, Staff } from '@/services/staff.service';
+import StaffModal from '@/components/admin/AddStaffModal';
+import DeleteStaffModal from '@/components/admin/payroll/DeleteStaffModal';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { requestManager } from '@/lib/cache/request-manager';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
+import { createClient } from '@/lib/supabase';
+import { realtimeManager } from '@/lib/realtime-manager';
 
-type TabId = 'employees' | 'attendance' | 'payroll' | 'reports' | 'logins';
+type TabId = 'employees' | 'attendance' | 'payroll' | 'reports' | 'logins' | 'approvals';
 
 export default function StaffManagement() {
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
+    const params = useParams();
+    const restaurantCode = params.restaurantCode as string;
+    const activeResId = restaurantId || restaurantCode;
+
     const [activeTab, setActiveTab] = useState<TabId>('employees');
 
     // Legacy Staff Login States
-    const cacheKey = `staff-${restaurantId}`;
-    const cached = getCached<Staff[]>(cacheKey);
+    const cacheKey = `staff-${activeResId}`;
+    const cached = getCached<Staff[]>(cacheKey) || (restaurantId ? getCached<Staff[]>(`staff-${restaurantId}`) : null);
     const [staffList, setStaffList] = useState<Staff[]>(cached || []);
-    const [loadingLogins, setLoadingLogins] = useState(!cached);
+    const staffListRef = useRef<Staff[]>(staffList);
+    staffListRef.current = staffList;
+    const [loadingLogins, setLoadingLogins] = useState(!cached && staffList.length === 0);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [lastSync, setLastSync] = useState<Date | null>(null);
     const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
     const [selectedStaff, setSelectedStaff] = useState<Staff | undefined>();
 
-    useEffect(() => {
-        if (!restaurantLoading && restaurantId && activeTab === 'logins') {
-            loadStaffLogins();
-        }
-    }, [restaurantId, restaurantLoading, activeTab]);
+    // Delete Modal State
+    const [deleteModal, setDeleteModal] = useState<{
+        isOpen: boolean;
+        staff?: Staff;
+        isLoading: boolean;
+    }>({
+        isOpen: false,
+        isLoading: false
+    });
 
-    const loadStaffLogins = async () => {
-        if (!restaurantId) return;
+    const loadStaffLogins = useCallback(async (force = false) => {
+        const targetId = restaurantId || restaurantCode;
+        if (!targetId) return;
+        const key = `staff-${targetId}`;
+
+        const currentCached = getCached<Staff[]>(key);
+        if (currentCached && staffListRef.current.length === 0) {
+            setStaffList(currentCached);
+            setLoadingLogins(false);
+        }
+
+        if (!force && hasFreshCache(key)) {
+            setLoadingLogins(false);
+            return;
+        }
+
+        if (!staffListRef.current.length && !currentCached) {
+            setLoadingLogins(true);
+        } else {
+            setIsSyncing(true);
+        }
+
         try {
-            const data = await StaffService.fetchStaff(restaurantId);
-            setStaffList(data);
-            setCache(cacheKey, data);
+            const data = await requestManager.coalesce(key, () => StaffService.fetchStaff(restaurantId || targetId), 3);
+            if (data) {
+                setStaffList(data);
+                setCache(key, data, { ttlMs: 15 * 60 * 1000 });
+                if (restaurantId) setCache(`staff-${restaurantId}`, data, { ttlMs: 15 * 60 * 1000 });
+                setLastSync(new Date());
+            }
         } catch (error) {
             console.error('Failed to load staff logins:', error);
         } finally {
             setLoadingLogins(false);
+            setIsSyncing(false);
         }
-    };
+    }, [restaurantId, restaurantCode]);
 
-    if (restaurantLoading) {
+    useEffect(() => {
+        if (!restaurantLoading && (restaurantId || restaurantCode) && activeTab === 'logins') {
+            loadStaffLogins();
+
+            const targetId = restaurantId || restaurantCode;
+            const subHandle = realtimeManager.subscribe(
+                `staff-logins:${targetId}`,
+                () => {
+                    const supabase = createClient();
+                    const channel = supabase
+                        .channel(`staff-logins-live-${targetId}`)
+                        .on(
+                            'postgres_changes',
+                            {
+                                event: '*',
+                                schema: 'public',
+                                table: 'employees',
+                                filter: `restaurant_id=eq.${targetId}`
+                            },
+                            (payload) => {
+                                realtimeManager.dispatch(`staff-logins:${targetId}`, payload);
+                            }
+                        );
+                    channel.subscribe();
+                    return channel;
+                },
+                (payload) => {
+                    const rec = (payload.new || payload.old) as any;
+                    if (!rec) return;
+                    if (rec.restaurant_id != null && String(rec.restaurant_id) !== String(targetId)) return;
+                    loadStaffLogins(true);
+                }
+            );
+
+            return () => {
+                subHandle.unsubscribe();
+            };
+        }
+    }, [restaurantId, restaurantCode, restaurantLoading, activeTab, loadStaffLogins]);
+
+    if (restaurantLoading && !restaurantId && !restaurantCode) {
         return <LoadingState message="Connecting server..." fullScreen />;
     }
 
-    if (!restaurantId) {
+    if (!restaurantId && !restaurantCode) {
         return (
             <div className="p-8 text-center text-neutral-500 font-bold">
                 Restaurant context not found. Please log in or select a restaurant.
@@ -83,13 +168,26 @@ export default function StaffManagement() {
         setIsLoginModalOpen(true);
     };
 
-    const handleDeleteStaffLogin = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this staff login login credentials?')) return;
+    const openDeleteModal = (staff: Staff) => {
+        setDeleteModal({
+            isOpen: true,
+            staff,
+            isLoading: false
+        });
+    };
+
+    const handleConfirmDelete = async () => {
+        const targetId = restaurantId || restaurantCode;
+        if (!deleteModal.staff || !targetId) return;
+        setDeleteModal(prev => ({ ...prev, isLoading: true }));
         try {
-            await StaffService.deleteStaff(id, restaurantId);
-            loadStaffLogins();
+            await StaffService.deleteStaff(deleteModal.staff.id, targetId);
+            setDeleteModal({ isOpen: false, isLoading: false });
+            await loadStaffLogins(true);
         } catch (error) {
+            console.error('Failed to delete staff login details:', error);
             alert('Failed to delete staff login details.');
+            setDeleteModal(prev => ({ ...prev, isLoading: false }));
         }
     };
 
@@ -99,6 +197,7 @@ export default function StaffManagement() {
         { id: 'payroll' as TabId, label: 'Payroll', icon: LucideCreditCard },
         { id: 'reports' as TabId, label: 'Reports', icon: LucideReports },
         { id: 'logins' as TabId, label: 'Staff PINs & Logins', icon: LucideKey },
+        { id: 'approvals' as TabId, label: 'Staff Approvals', icon: LucideShield },
     ];
 
     return (
@@ -110,6 +209,9 @@ export default function StaffManagement() {
                     <p className="text-sm font-medium text-neutral-500 mt-1">
                         Track employee data, record daily attendance, calculate monthly payroll run sheets, and manage waiter login PINs.
                     </p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <SyncIndicator isSyncing={isSyncing} lastSync={lastSync} onRefresh={() => loadStaffLogins(true)} />
                 </div>
             </div>
 
@@ -137,13 +239,15 @@ export default function StaffManagement() {
 
             {/* Tab Contents */}
             <div className="flex-1 flex flex-col min-h-0 bg-neutral-50 rounded-[2.5rem] border border-neutral-200 overflow-hidden">
-                {activeTab === 'employees' && <EmployeesTab restaurantId={restaurantId} />}
+                {activeTab === 'employees' && <EmployeesTab restaurantId={activeResId} />}
                 
-                {activeTab === 'attendance' && <AttendanceTab restaurantId={restaurantId} />}
+                {activeTab === 'approvals' && <ApprovalsTab restaurantId={activeResId} />}
                 
-                {activeTab === 'payroll' && <PayrollTab restaurantId={restaurantId} />}
+                {activeTab === 'attendance' && <AttendanceTab restaurantId={activeResId} />}
                 
-                {activeTab === 'reports' && <ReportsTab restaurantId={restaurantId} />}
+                {activeTab === 'payroll' && <PayrollTab restaurantId={activeResId} />}
+                
+                {activeTab === 'reports' && <ReportsTab restaurantId={activeResId} />}
                 
                 {activeTab === 'logins' && (
                     <div className="flex-1 flex flex-col min-h-0 space-y-4">
@@ -173,8 +277,9 @@ export default function StaffManagement() {
                                             <tr>
                                                 <th className="px-6 py-4">Name</th>
                                                 <th className="px-6 py-4">Role</th>
+                                                <th className="px-6 py-4">Availability</th>
                                                 <th className="px-6 py-4">Mobile Number</th>
-                                                <th className="px-6 py-4">Status</th>
+                                                <th className="px-6 py-4">Account Status</th>
                                                 <th className="px-6 py-4 text-center">PIN</th>
                                                 <th className="px-6 py-4 text-right">Actions</th>
                                             </tr>
@@ -182,7 +287,7 @@ export default function StaffManagement() {
                                         <tbody className="divide-y divide-neutral-200">
                                             {staffList.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={6} className="px-6 py-10 text-center text-neutral-500">
+                                                    <td colSpan={7} className="px-6 py-10 text-center text-neutral-500">
                                                         No logins configured yet.
                                                     </td>
                                                 </tr>
@@ -198,12 +303,25 @@ export default function StaffManagement() {
                                                         <td className="px-6 py-4">
                                                             <RoleBadge role={member.role} />
                                                         </td>
+                                                        <td className="px-6 py-4">
+                                                            {member.is_online ? (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs">
+                                                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                                                    Online
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-500 border border-neutral-200">
+                                                                    <span className="w-2 h-2 rounded-full bg-neutral-400" />
+                                                                    Offline
+                                                                </span>
+                                                            )}
+                                                        </td>
                                                         <td className="px-6 py-4 font-mono text-xs text-neutral-600">{member.mobile}</td>
                                                         <td className="px-6 py-4">
                                                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold capitalize ${
                                                                 member.status === 'active' ? 'text-green-700 bg-green-50' : 'text-neutral-500 bg-neutral-100'
                                                             }`}>
-                                                                {member.status}
+                                                                {member.status === 'active' ? 'Active' : 'Inactive'}
                                                             </span>
                                                         </td>
                                                         <td className="px-6 py-4 text-center font-mono text-black font-bold">
@@ -218,8 +336,9 @@ export default function StaffManagement() {
                                                                     <LucideEdit size={16} />
                                                                 </button>
                                                                 <button 
-                                                                    onClick={() => handleDeleteStaffLogin(member.id)} 
-                                                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                    onClick={() => openDeleteModal(member)} 
+                                                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                                                    title="Delete Staff Login"
                                                                 >
                                                                     <LucideTrash2 size={16} />
                                                                 </button>
@@ -244,6 +363,19 @@ export default function StaffManagement() {
                 onSuccess={loadStaffLogins}
                 staff={selectedStaff}
             />
+
+            {/* Beautiful Delete Confirmation Modal */}
+            <DeleteStaffModal
+                isOpen={deleteModal.isOpen}
+                onClose={() => !deleteModal.isLoading && setDeleteModal(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={handleConfirmDelete}
+                staffName={deleteModal.staff?.name || ''}
+                staffRole={deleteModal.staff?.role}
+                staffPhone={deleteModal.staff?.mobile}
+                employeeId={deleteModal.staff?.employee_id}
+                isPermanent={false}
+                isLoading={deleteModal.isLoading}
+            />
         </div>
     );
 }
@@ -251,19 +383,25 @@ export default function StaffManagement() {
 function RoleBadge({ role }: { role: string }) {
     const styles: Record<string, string> = {
         admin: 'bg-orange-100 text-orange-800 border-orange-200',
+        restaurant_admin: 'bg-orange-100 text-orange-800 border-orange-200',
         waiter: 'bg-blue-100 text-blue-800 border-blue-200',
         chef: 'bg-purple-100 text-purple-800 border-purple-200',
-        manager: 'bg-teal-100 text-teal-800 border-teal-200',
+        supervisor: 'bg-teal-100 text-teal-800 border-teal-200',
+        delivery_boy: 'bg-amber-100 text-amber-800 border-amber-200',
     };
 
     const icons: Record<string, React.ReactNode> = {
         admin: <LucideShield size={12} className="mr-1" />,
+        restaurant_admin: <LucideShield size={12} className="mr-1" />,
+        delivery_boy: <LucideBike size={12} className="mr-1" />,
     };
+
+    const label = role === 'delivery_boy' ? 'Delivery Boy' : role === 'restaurant_admin' ? 'Restaurant Admin' : role;
 
     return (
         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border capitalize ${styles[role] || 'bg-gray-100 border-gray-200 text-neutral-600'}`}>
             {icons[role]}
-            {role}
+            {label}
         </span>
     );
 }

@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { AlertCircle as LucideAlertCircle, CheckCircle2 as LucideCheckCircle2, TrendingDown as LucideTrendingDown, AlertTriangle as LucideAlertTriangle, PackageSearch as LucidePackageSearch, Sparkles as LucideSparkles } from 'lucide-react';
-import { InventoryService, InventoryAlert } from '@/app/services/inventory.service';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
+import { InventoryService, InventoryAlert } from '@/services/inventory.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
 
 export default function InventoryAlertsPage() {
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();

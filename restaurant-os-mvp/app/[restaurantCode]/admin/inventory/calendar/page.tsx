@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Calendar as LucideCalendar, Plus as LucidePlus, Trash2 as LucideTrash2, TrendingUp as LucideTrendingUp } from 'lucide-react';
-import { FestivalService, Festival } from '@/app/services/festival.service';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
+import { FestivalService, Festival } from '@/services/festival.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
 
 export default function FestivalCalendarPage() {
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();

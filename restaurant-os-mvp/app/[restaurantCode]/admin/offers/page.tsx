@@ -1,48 +1,89 @@
 'use client';
 
 import { Plus as LucidePlus, Copy as LucideCopy, Trash2 as LucideTrash2, Tags as LucideTags } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
-import { OfferService, Offer } from '@/app/services/offers';
-import { UserService } from '@/app/services/users';
-import CreateOfferModal from '@/app/components/admin/CreateOfferModal';
-import { getCached, setCache } from '@/app/lib/data-cache';
+import { OfferService, Offer } from '@/services/offers.service';
+import { UserService } from '@/services/users.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import CreateOfferModal from '@/components/admin/CreateOfferModal';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { requestManager } from '@/lib/cache/request-manager';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
 
 export default function Offers() {
     const params = useParams();
-    const restaurantId = params.restaurantCode as string;
-    const cachedOffers = getCached<Offer[]>(`offers-${restaurantId}`);
+    const restaurantCode = params.restaurantCode as string;
+    const { restaurantId, loading: restaurantLoading } = useRestaurantId();
+    const activeResId = restaurantId || restaurantCode;
+
+    const cacheKey = `offers-${activeResId}`;
+    const cachedOffers = getCached<Offer[]>(cacheKey) || (restaurantId ? getCached<Offer[]>(`offers-${restaurantId}`) : null);
     const [offers, setOffers] = useState<Offer[]>(cachedOffers || []);
-    const [loading, setLoading] = useState(!cachedOffers);
+    const offersRef = useRef<Offer[]>(offers);
+    offersRef.current = offers;
+    const [loading, setLoading] = useState(!cachedOffers && offers.length === 0);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [lastSync, setLastSync] = useState<Date | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
 
-    useEffect(() => {
-        if (restaurantId) {
-            loadOffers(restaurantId);
-        }
-    }, [restaurantId]);
-
-    const loadOffers = async (resId?: string) => {
-        const targetResId = resId || restaurantId;
+    const loadOffers = useCallback(async (resId?: string, force = false) => {
+        const targetResId = resId || restaurantId || restaurantCode;
         if (!targetResId) return;
+        const key = `offers-${targetResId}`;
+
+        const currentCached = getCached<Offer[]>(key);
+        if (currentCached && offersRef.current.length === 0) {
+            setOffers(currentCached);
+            setLoading(false);
+        }
+
+        if (!force && hasFreshCache(key)) {
+            setLoading(false);
+            return;
+        }
+
+        if (!offersRef.current.length && !currentCached) {
+            setLoading(true);
+        } else {
+            setIsSyncing(true);
+        }
 
         try {
-            const data = await OfferService.fetchOffers(targetResId);
-            setOffers(data);
-            setCache(`offers-${restaurantId}`, data);
+            const data = await requestManager.coalesce(key, () => OfferService.fetchOffers(targetResId), 3);
+            if (data) {
+                setOffers(data);
+                setCache(key, data, { ttlMs: 15 * 60 * 1000 });
+                if (restaurantId && restaurantId !== targetResId) {
+                    setCache(`offers-${restaurantId}`, data, { ttlMs: 15 * 60 * 1000 });
+                }
+                setLastSync(new Date());
+            }
         } catch (error) {
             console.error('Failed to load offers:', error);
         } finally {
             setLoading(false);
+            setIsSyncing(false);
         }
-    };
+    }, [restaurantId, restaurantCode]);
+
+    useEffect(() => {
+        if (!restaurantLoading && (restaurantId || restaurantCode)) {
+            loadOffers();
+        }
+    }, [restaurantId, restaurantCode, restaurantLoading, loadOffers]);
 
     const handleDelete = async (id: string) => {
         if (!confirm('Delete this offer?')) return;
+        const targetId = restaurantId || restaurantCode;
         try {
-            await OfferService.deleteOffer(id, restaurantId);
-            loadOffers();
+            await OfferService.deleteOffer(id, targetId);
+            const updated = offers.filter(o => o.id !== id);
+            setOffers(updated);
+            setCache(`offers-${targetId}`, updated);
+            if (restaurantId) setCache(`offers-${restaurantId}`, updated);
+            loadOffers(targetId, true);
         } catch (error) {
             alert('Failed to delete offer');
         }
@@ -55,16 +96,19 @@ export default function Offers() {
                     <h2 className="text-2xl font-black text-black tracking-tight">Coupons and Offers</h2>
                     <p className="text-sm font-medium text-black mt-1">Manage promotional coupons, promo codes, and special discounts.</p>
                 </div>
-                <button
-                    onClick={() => {
-                        setEditingOffer(null);
-                        setIsCreateModalOpen(true);
-                    }}
-                    className="flex items-center px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
-                >
-                    <LucidePlus size={16} />
-                    Create New Offer
-                </button>
+                <div className="flex items-center gap-3">
+                    <SyncIndicator isSyncing={isSyncing} lastSync={lastSync} onRefresh={() => loadOffers(undefined, true)} />
+                    <button
+                        onClick={() => {
+                            setEditingOffer(null);
+                            setIsCreateModalOpen(true);
+                        }}
+                        className="flex items-center px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
+                    >
+                        <LucidePlus size={16} />
+                        Create New Offer
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar min-h-0 pb-8">

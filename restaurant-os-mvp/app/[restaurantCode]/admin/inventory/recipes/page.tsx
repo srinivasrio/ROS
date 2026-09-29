@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { Search as LucideSearch, Plus as LucidePlus, Trash2 as LucideTrash2, Save as LucideSave, CheckCircle2 as LucideCheckCircle2, BookOpen as LucideBookOpen, AlertTriangle as LucideAlertTriangle } from 'lucide-react';
-import { MenuService } from '@/app/services/menu';
-import { InventoryService, InventoryItem, InventoryCategory } from '@/app/services/inventory.service';
-import { RecipeMapping, RecipeService } from '@/app/services/recipe.service';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
+import { MenuService } from '@/services/menu.service';
+import { InventoryService, InventoryItem, InventoryCategory } from '@/services/inventory.service';
+import { RecipeMapping, RecipeService } from '@/services/recipe.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
 
 const getSubUnits = (baseUnit: string) => {
     if (!baseUnit) return [];

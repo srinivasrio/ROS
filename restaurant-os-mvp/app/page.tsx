@@ -1,17 +1,17 @@
 "use client";
 
-import Navbar from "@/app/components/landing/Navbar";
-import HeroSection from "@/app/components/landing/HeroSection";
-import ProblemSection from "@/app/components/landing/ProblemSection";
-import SolutionSection from "@/app/components/landing/SolutionSection";
-import FeaturesGrid from "@/app/components/landing/FeaturesGrid";
-import PanelsSection from "@/app/components/landing/PanelsSection";
-import PricingSection from "@/app/components/landing/PricingSection";
-import FAQSection from "@/app/components/landing/FAQSection";
-import CTABanner from "@/app/components/landing/CTABanner";
-import ContactSection from "@/app/components/landing/ContactSection";
-import Footer from "@/app/components/landing/Footer";
-import { useScrollReveal } from "@/app/hooks/useScrollReveal";
+import Navbar from "@/components/landing/Navbar";
+import HeroSection from "@/components/landing/HeroSection";
+import ProblemSection from "@/components/landing/ProblemSection";
+import SolutionSection from "@/components/landing/SolutionSection";
+import FeaturesGrid from "@/components/landing/FeaturesGrid";
+import PanelsSection from "@/components/landing/PanelsSection";
+import PricingSection from "@/components/landing/PricingSection";
+import FAQSection from "@/components/landing/FAQSection";
+import CTABanner from "@/components/landing/CTABanner";
+import ContactSection from "@/components/landing/ContactSection";
+import Footer from "@/components/landing/Footer";
+import { useScrollReveal } from "@/hooks/useScrollReveal";
 
 export default function LandingPage() {
   useScrollReveal();

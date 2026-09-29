@@ -1,17 +1,19 @@
 'use client';
 
-import { OrderService } from '@/app/services/orders';
-import { ServiceOptionsService, ServiceOption } from '@/app/services/service-options.service';
-import { GlassWater as LucideGlassWater, Receipt as LucideReceipt, Utensils as LucideUtensils, HandPlatter as LucideHandPlatter, ChevronLeft as LucideChevronLeft, Disc as LucideDisc, Soup as LucideSoup, Wind as LucideWind, Droplet as LucideDroplet, GripHorizontal as LucideGripHorizontal, Pipette as LucidePipette, CheckCircle as LucideCheckCircle, Image as LucideImage } from 'lucide-react';
+import { OrderService } from '@/services/orders.service';
+import { ServiceOptionsService, ServiceOption } from '@/services/service-options.service';
+import { GlassWater as LucideGlassWater, Receipt as LucideReceipt, Utensils as LucideUtensils, HandPlatter as LucideHandPlatter, ChevronLeft as LucideChevronLeft, Disc as LucideDisc, Soup as LucideSoup, Wind as LucideWind, Droplet as LucideDroplet, GripHorizontal as LucideGripHorizontal, Pipette as LucidePipette, CheckCircle as LucideCheckCircle, Image as LucideImage, Trash2 as LucideTrash2 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { toast } from 'sonner';
-import { cn } from '@/app/lib/utils';
-import { getServiceRequestDetails } from '@/app/lib/service-utils';
-import { CustomerBottomNav } from '@/app/components/customer/CustomerBottomNav';
+import { cn } from '@/lib/utils';
+import { getServiceRequestDetails } from '@/lib/service-utils';
+import { CustomerBottomNav } from '@/components/customer/CustomerBottomNav';
 import { AnimatePresence, motion } from 'framer-motion';
+import { isVideoUrl } from '@/components/shared/homepage/ServiceCard';
+import { CutleryConfirmationModal } from '@/components/customer/CutleryConfirmationModal';
 
 
 
@@ -48,7 +50,7 @@ const ActiveRequestsList = ({ tableNumber, tableId, restaurantId }: { tableNumbe
                 const match = requestsRef.current.find(r => String(r.id) === String(deletedId));
 
                 if (match) {
-                    if (match.request_status === 'accepted' || match.request_status === 'completed' || match.request_status === 'delivered') {
+                    if (match.request_status === 'accepted' || match.request_status === 'completed') {
                         // Mark as delivered first to show success state briefly
                         setDeliveredIds(prev => [...prev, deletedId]);
 
@@ -58,16 +60,39 @@ const ActiveRequestsList = ({ tableNumber, tableId, restaurantId }: { tableNumbe
                             setDeliveredIds(prev => prev.filter(id => id !== deletedId));
                         }, 2000);
                     } else {
-                        // If it was not accepted (i.e. 'pending'), remove it immediately
+                        // If it was not accepted/completed (i.e. 'pending'), remove it immediately
                         updateRequests(requestsRef.current.filter(r => r.id !== deletedId));
                     }
                 }
-            } else if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            } else if (payload.eventType === 'UPDATE') {
+                const newRecord = payload.new;
+                if (String(newRecord.table_id) === String(tableId)) {
+                    if (newRecord.request_status === 'completed') {
+                        const reqId = newRecord.id;
+                        setDeliveredIds(prev => [...prev, reqId]);
+                        
+                        OrderService.fetchServiceRequestsForTable(tableId, restaurantId).then(activeRequests => {
+                            const combined = [...(activeRequests || []), newRecord];
+                            const unique = combined.filter((item, index, self) =>
+                                self.findIndex(t => t.id === item.id) === index
+                            );
+                            updateRequests(unique);
+                        });
+
+                        setTimeout(() => {
+                            setDeliveredIds(prev => prev.filter(id => id !== reqId));
+                            fetchRequests();
+                        }, 2000);
+                    } else {
+                        fetchRequests();
+                    }
+                }
+            } else if (payload.eventType === 'INSERT') {
                 const newRecord = payload.new;
                 if (String(newRecord.table_id) === String(tableId)) {
                     fetchRequests();
 
-                    // Show Popup/Toast for Order Ready (User requested popup only, no list item)
+                    // Show Popup/Toast for Order Ready
                     if (newRecord.request_type === 'order_ready') {
                         toast.success('Order Ready!', {
                             description: 'Your order is ready to be served.',
@@ -79,115 +104,183 @@ const ActiveRequestsList = ({ tableNumber, tableId, restaurantId }: { tableNumbe
             }
         }, undefined, tableId);
 
+        // Optimistic event listener for 0ms response on customer click
+        const handleOptimistic = (e: any) => {
+            if (e.detail) {
+                updateRequests([e.detail, ...requestsRef.current.filter(r => r.id !== e.detail.id)]);
+            }
+        };
+        window.addEventListener('service-request-added', handleOptimistic);
+
         return () => {
             sub.unsubscribe();
+            window.removeEventListener('service-request-added', handleOptimistic);
         };
     }, [tableNumber, tableId, restaurantId]);
+
+    const handleDeleteRequest = async (requestId: number) => {
+        // Optimistic remove
+        updateRequests(requestsRef.current.filter(r => r.id !== requestId));
+        try {
+            await OrderService.deleteServiceRequest(requestId, restaurantId);
+            toast.success('Request deleted');
+        } catch (err) {
+            console.error('Failed to delete request:', err);
+            fetchRequests();
+            toast.error('Failed to delete request');
+        }
+    };
 
     if (requests.length === 0) return null;
 
     return (
         <div className="mb-6 space-y-2">
-            <h3 className="text-sm font-bold text-black uppercase tracking-widest px-1">Active Requests</h3>
+            <div className="flex items-center justify-between px-1">
+                <h3 className="text-sm font-bold text-black uppercase tracking-widest">Active Requests</h3>
+                <span className="text-[10px] font-semibold text-neutral-400">Swipe left to delete</span>
+            </div>
             <div className="space-y-2">
                 <AnimatePresence mode='popLayout'>
                     {requests.map((req) => {
-                        const details = getServiceRequestDetails(req.request_type);
-                        const isDelivered = deliveredIds.includes(req.id) || req.request_status === 'completed' || req.request_status === 'delivered';
-                        const isAccepted = req.request_status === 'accepted'; // Check DB status
+                        const details = getServiceRequestDetails(req.request_type, restaurantId);
+                        const isDelivered = deliveredIds.includes(req.id) || req.request_status === 'completed';
+                        const isAccepted = req.request_status === 'accepted';
 
                         // Determine Visual State
                         let stateBgColor = '#ffffff';
                         let borderColor = '#f3f4f6';
                         let statusColor = 'text-orange-500 bg-orange-50';
-                        let statusText = 'Pending';
+                        let statusText = 'Waiting for waiter';
                         let iconBg = details.bg;
 
-                        if (isDelivered || isAccepted) {
+                        if (isDelivered) {
                             stateBgColor = '#ecfdf5'; // green-50
                             borderColor = '#10b981'; // green-500
                             statusColor = 'text-green-600 bg-green-100';
-                            statusText = 'Successfully Served';
+                            statusText = 'Served';
                             iconBg = 'bg-green-100';
+                        } else if (isAccepted) {
+                            stateBgColor = '#eff6ff'; // blue-50
+                            borderColor = '#3b82f6'; // blue-500
+                            statusColor = 'text-blue-600 bg-blue-100';
+                            statusText = 'Waiter is coming';
+                            iconBg = 'bg-blue-100';
                         }
 
                         return (
-                            <motion.div
-                                key={req.id}
-                                layout
-                                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                                animate={{
-                                    opacity: 1,
-                                    y: 0,
-                                    scale: 1,
-                                    backgroundColor: stateBgColor,
-                                    borderColor: borderColor
-                                }}
-                                exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
-                                className="rounded-xl p-4 shadow-sm border flex items-center justify-between relative overflow-hidden"
-                            >
-                                <div className="flex items-center gap-3 relative z-10">
-                                    <div className={cn("relative size-12 rounded-lg overflow-hidden shadow-sm transition-colors duration-300", iconBg)}>
-                                        {details.image ? (
-                                            <Image
-                                                src={details.image}
-                                                alt={details.label}
-                                                fill
-                                                sizes="48px"
-                                                className={cn("object-cover transition-opacity duration-300", (isDelivered || isAccepted) ? "opacity-50" : "opacity-100")}
-                                            />
-                                        ) : (
-                                            <div className={cn("size-full flex items-center justify-center", details.color)}>
-                                                <details.icon size={20} />
-                                            </div>
-                                        )}
-                                        {(isDelivered || isAccepted) && (
-                                            <div className="absolute inset-0 flex items-center justify-center text-green-600 bg-green-100/85 backdrop-blur-sm">
-                                                <LucideCheckCircle size={24} className="animate-bounce" />
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <p className={cn("font-bold transition-colors duration-300", (isDelivered || isAccepted) ? "text-green-900" : "text-black")}>
-                                            {details.label}
-                                        </p>
-                                        <p className={cn("text-xs font-medium transition-colors duration-300", (isDelivered || isAccepted) ? "text-green-600" : "text-black")}>
-                                            {(isDelivered || isAccepted) ? 'Successfully Served' : 'Notified Waiter'}
-                                        </p>
-                                        {req.quantity > 1 && !(isDelivered || isAccepted) && (
-                                            <p className="text-xs font-bold text-blue-600">x{req.quantity}</p>
-                                        )}
-                                    </div>
+                            <div key={req.id} className="relative overflow-hidden rounded-xl">
+                                {/* Red Background for Swipe Left Action */}
+                                <div 
+                                    onClick={() => handleDeleteRequest(req.id)}
+                                    className="absolute inset-0 bg-red-500 rounded-xl flex items-center justify-end px-5 gap-1.5 text-white font-black text-xs cursor-pointer select-none transition-colors hover:bg-red-600"
+                                >
+                                    <span>Delete</span>
+                                    <LucideTrash2 size={16} />
                                 </div>
-                                <div className="flex items-center gap-2 relative z-10">
-                                    {!isAccepted && !isDelivered && (
+
+                                {/* Draggable / Swipeable Card */}
+                                <motion.div
+                                    layout
+                                    drag="x"
+                                    dragDirectionLock
+                                    dragConstraints={{ left: -100, right: 0 }}
+                                    dragElastic={0.12}
+                                    onDragEnd={(_, info) => {
+                                        if (info.offset.x < -60 || info.velocity.x < -300) {
+                                            handleDeleteRequest(req.id);
+                                        }
+                                    }}
+                                    initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                                    animate={{
+                                        opacity: 1,
+                                        y: 0,
+                                        scale: 1,
+                                        backgroundColor: stateBgColor,
+                                        borderColor: borderColor,
+                                    }}
+                                    exit={{ opacity: 0, scale: 0.9, x: -200, transition: { duration: 0.2 } }}
+                                    className="rounded-xl p-4 shadow-sm border flex items-center justify-between relative z-10 select-none touch-pan-y"
+                                >
+                                    <div className="flex items-center gap-3 relative z-10 pointer-events-none">
+                                        <div className={cn("relative size-12 rounded-lg overflow-hidden shadow-sm transition-colors duration-300", iconBg)}>
+                                            {details.image ? (
+                                                isVideoUrl(details.image) ? (
+                                                    <video
+                                                        src={encodeURI(details.image)}
+                                                        autoPlay
+                                                        loop
+                                                        muted
+                                                        playsInline
+                                                        className={cn("w-full h-full object-cover transition-opacity duration-300", (isDelivered || isAccepted) ? "opacity-50" : "opacity-100")}
+                                                    />
+                                                ) : (
+                                                    <Image
+                                                        src={details.image}
+                                                        alt={details.label}
+                                                        fill
+                                                        sizes="48px"
+                                                        className={cn("object-cover transition-opacity duration-300", (isDelivered || isAccepted) ? "opacity-50" : "opacity-100")}
+                                                    />
+                                                )
+                                            ) : (
+                                                <div className={cn("size-full flex items-center justify-center", details.color)}>
+                                                    <details.icon size={20} />
+                                                </div>
+                                            )}
+                                            {isDelivered && (
+                                                <div className="absolute inset-0 flex items-center justify-center text-green-600 bg-green-100/85 backdrop-blur-sm">
+                                                    <LucideCheckCircle size={24} className="animate-bounce" />
+                                                </div>
+                                            )}
+                                            {isAccepted && !isDelivered && (
+                                                <div className="absolute inset-0 flex items-center justify-center text-blue-600 bg-blue-100/85 backdrop-blur-sm">
+                                                    <LucideCheckCircle size={24} className="animate-pulse" />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className={cn("font-bold transition-colors duration-300", isDelivered ? "text-green-900" : isAccepted ? "text-blue-900" : "text-black")}>
+                                                {details.label}
+                                            </p>
+                                            {req.notes && (
+                                                <p className="text-xs font-bold text-orange-600">
+                                                    {req.notes}
+                                                </p>
+                                            )}
+                                            <p className={cn("text-xs font-medium transition-colors duration-300", isDelivered ? "text-green-600" : isAccepted ? "text-blue-600" : "text-black")}>
+                                                {isDelivered ? 'Served' : isAccepted ? 'Waiter is coming' : 'Waiting for waiter'}
+                                            </p>
+                                            {req.quantity > 1 && !isDelivered && !isAccepted && (
+                                                <p className="text-xs font-bold text-blue-600">x{req.quantity}</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 relative z-10">
                                         <button
                                             onClick={async (e) => {
                                                 e.stopPropagation();
-                                                try {
-                                                    await OrderService.cancelServiceRequest(req.id, restaurantId);
-                                                    toast.success('Request Cancelled');
-                                                } catch (err) {
-                                                    toast.error('Failed to cancel request');
-                                                }
+                                                handleDeleteRequest(req.id);
                                             }}
                                             className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-full transition-all active:scale-95 border border-red-100 shrink-0"
                                         >
-                                            Cancel
+                                            Delete
                                         </button>
-                                    )}
-                                    <div className={cn(
-                                        "text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 flex items-center gap-1 shrink-0",
-                                        statusColor
-                                    )}>
-                                        {(isDelivered || isAccepted) ? (
-                                            <>Successfully Served <LucideCheckCircle size={12} /></>
-                                        ) : (
-                                            'Pending'
-                                        )}
+                                        <div className={cn(
+                                            "text-xs font-bold px-3 py-1 rounded-full transition-all duration-300 flex items-center gap-1 shrink-0 pointer-events-none",
+                                            statusColor
+                                        )}>
+                                            {isDelivered ? (
+                                                <>Served <LucideCheckCircle size={12} /></>
+                                            ) : isAccepted ? (
+                                                <>Waiter is coming</>
+                                            ) : (
+                                                'Waiting for waiter'
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            </motion.div>
+                                </motion.div>
+                            </div>
                         );
                     })}
                 </AnimatePresence>
@@ -209,6 +302,7 @@ export default function ServicePage() {
     const [selectedOption, setSelectedOption] = useState<any>(null);
     const [quantity, setQuantity] = useState(1);
     const [options, setOptions] = useState<ServiceOption[]>([]);
+    const [isCutleryModalOpen, setIsCutleryModalOpen] = useState(false);
 
     useEffect(() => {
         const loadTableData = async () => {
@@ -248,6 +342,17 @@ export default function ServicePage() {
     }, [tableNumber, urlRestaurantId]);
 
     const handleCall = async (option: any) => {
+        const isCutlery = 
+            option?.id === 'cutlery' || 
+            option?.id === 'cutlery_requested' || 
+            option?.service_key === 'cutlery' ||
+            option?.service_key === 'cutlery_requested' ||
+            option?.label?.toLowerCase().includes('cutlery');
+
+        if (isCutlery) {
+            setIsCutleryModalOpen(true);
+            return;
+        }
         setSelectedOption(option);
         setQuantity(1);
     };
@@ -257,19 +362,28 @@ export default function ServicePage() {
             toast.error('Restaurant ID not found');
             return;
         }
-        setLoading(true);
+
+        // Optimistic UI response: update local state & close modal immediately (0ms)
+        const optimisticReq = {
+            id: Date.now(),
+            table_id: tableId,
+            request_type: type,
+            request_status: 'pending',
+            quantity: qty,
+            created_at: new Date().toISOString()
+        };
+        window.dispatchEvent(new CustomEvent('service-request-added', { detail: optimisticReq }));
+        setSelectedOption(null);
+        toast.success('Request Sent!', {
+            description: 'A waiter will be with you shortly.',
+            duration: 3000,
+        });
+
         try {
             await OrderService.submitServiceRequest(tableNumber, type, urlRestaurantId, qty);
-            toast.success('Request Sent!', {
-                description: 'A waiter will be with you shortly.',
-                duration: 3000,
-            });
-            setSelectedOption(null);
         } catch (error) {
             console.error(error);
             toast.error('Failed to send request');
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -280,8 +394,8 @@ export default function ServicePage() {
                     <div className="size-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-black">
                         <LucideUtensils size={32} />
                     </div>
-                    <h2 className="text-xl font-bold text-black mb-2">No table number in this restaurant</h2>
-                    <p className="text-black mb-6 font-medium">Please scan a valid QR code.</p>
+                    <h2 className="text-xl font-bold text-black mb-2">No table named &ldquo;{tableNumber}&rdquo; in this restaurant</h2>
+                    <p className="text-black mb-6 font-medium">Table &ldquo;{tableNumber}&rdquo; does not exist or has not been created by the restaurant admin. Please scan a valid QR code.</p>
                 </div>
             </div>
         );
@@ -335,11 +449,22 @@ export default function ServicePage() {
                                     "relative size-16 rounded-xl overflow-hidden shadow-sm transition-transform duration-300 group-hover:scale-110"
                                 )}>
                                     {opt.image_url ? (
-                                        <img
-                                            src={opt.image_url}
-                                            alt={opt.label}
-                                            className="w-full h-full object-cover"
-                                        />
+                                        isVideoUrl(opt.image_url) ? (
+                                            <video
+                                                src={encodeURI(opt.image_url)}
+                                                autoPlay
+                                                loop
+                                                muted
+                                                playsInline
+                                                className="w-full h-full object-cover pointer-events-none"
+                                            />
+                                        ) : (
+                                            <img
+                                                src={opt.image_url}
+                                                alt={opt.label}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        )
                                     ) : (
                                         <div className="w-full h-full bg-neutral-100 flex items-center justify-center">
                                             <LucideImage size={24} className="text-black" />
@@ -363,73 +488,122 @@ export default function ServicePage() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+                        onClick={() => setSelectedOption(null)}
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 cursor-pointer"
+                        role="dialog"
+                        aria-modal="true"
                     >
                         <motion.div
-                            initial={{ scale: 0.9, y: 20 }}
+                            initial={{ scale: 0.92, y: 16 }}
                             animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.9, y: 20 }}
-                            className="bg-white rounded-[2rem] p-6 w-full max-w-sm shadow-2xl"
+                            exit={{ scale: 0.92, y: 16 }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                            className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-slate-100 cursor-default relative overflow-hidden"
+                            onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="text-center mb-6">
-                                <div className={cn("relative size-24 rounded-2xl mx-auto mb-4 overflow-hidden shadow-md")}>
-                                    <Image
-                                        src={selectedOption.image}
-                                        alt={selectedOption.label}
-                                        fill
-                                        sizes="96px"
-                                        className="object-cover"
-                                    />
+                            <div className="text-center mb-5">
+                                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-200/80 mb-3 shadow-2xs">
+                                    <LucideCheckCircle size={12} className="text-orange-600 animate-bounce" />
+                                    <span>Confirm Service Request</span>
                                 </div>
-                                {selectedOption.countable ? (
-                                    <>
-                                        <h3 className="text-xl font-bold text-black mb-1">How many?</h3>
-                                        <p className="text-black text-sm">Select quantity for {selectedOption.label}</p>
-                                    </>
-                                ) : (
-                                    <>
-                                        <h3 className="text-xl font-bold text-black mb-1">Confirm Request?</h3>
-                                        <p className="text-black text-sm">Do you want to request {selectedOption.label}?</p>
-                                    </>
-                                )}
+
+                                <div className="relative size-20 rounded-2xl mx-auto mb-3 overflow-hidden bg-slate-50 border border-slate-100 shadow-sm flex items-center justify-center">
+                                    {selectedOption.image ? (
+                                        isVideoUrl(selectedOption.image) ? (
+                                            <video
+                                                src={encodeURI(selectedOption.image)}
+                                                autoPlay
+                                                loop
+                                                muted
+                                                playsInline
+                                                className="w-full h-full object-contain p-1 pointer-events-none"
+                                            />
+                                        ) : (
+                                            <img
+                                                src={selectedOption.image}
+                                                alt={selectedOption.label}
+                                                className="w-full h-full object-contain p-2"
+                                            />
+                                        )
+                                    ) : (
+                                        <div className="size-full flex items-center justify-center text-orange-600">
+                                            <LucideUtensils size={28} />
+                                        </div>
+                                    )}
+                                </div>
+
+                                <h3 className="text-lg font-black text-slate-900 leading-tight mb-1">
+                                    Request {selectedOption.label}?
+                                </h3>
+                                <p className="text-xs text-slate-500 leading-relaxed max-w-[260px] mx-auto">
+                                    Are you sure you want to notify staff for <span className="font-bold text-slate-800">{selectedOption.label}</span> at Table {tableNumber}?
+                                </p>
                             </div>
 
                             {selectedOption.countable && (
-                                <div className="flex items-center justify-center gap-6 mb-8">
-                                    <button
-                                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                                        className="size-12 rounded-xl bg-gray-100 flex items-center justify-center text-black font-bold text-xl active:scale-95 transition-transform"
-                                    >
-                                        -
-                                    </button>
-                                    <span className="text-4xl font-black text-black w-16 text-center">{quantity}</span>
-                                    <button
-                                        onClick={() => setQuantity(Math.min(10, quantity + 1))}
-                                        className="size-12 rounded-xl bg-gray-900 text-white flex items-center justify-center font-bold text-xl active:scale-95 transition-transform"
-                                    >
-                                        +
-                                    </button>
+                                <div className="flex items-center justify-between bg-slate-50 p-3.5 rounded-2xl mb-5 border border-slate-200/70">
+                                    <div className="text-left">
+                                        <span className="text-xs font-bold text-slate-700 block">Quantity</span>
+                                        <span className="text-[10px] text-slate-400">Select number required</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 bg-orange-100/70 p-1 rounded-2xl border border-orange-300">
+                                        <button
+                                            type="button"
+                                            onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                                            className="size-9 rounded-xl bg-orange-600 text-white flex items-center justify-center font-bold text-base active:scale-95 transition-transform shadow-xs cursor-pointer hover:bg-orange-700"
+                                            aria-label="Decrease quantity"
+                                        >
+                                            -
+                                        </button>
+                                        <span className="w-6 text-center font-black text-base text-orange-950 tabular-nums">{quantity}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setQuantity(Math.min(10, quantity + 1))}
+                                            className="size-9 rounded-xl bg-orange-600 text-white flex items-center justify-center font-bold text-base active:scale-95 transition-transform shadow-xs cursor-pointer hover:bg-orange-700"
+                                            aria-label="Increase quantity"
+                                        >
+                                            +
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
-                            <div className="flex gap-3">
+                            <div className="flex items-center gap-2.5">
                                 <button
+                                    type="button"
                                     onClick={() => setSelectedOption(null)}
-                                    className="flex-1 py-4 rounded-xl font-bold bg-gray-100 text-black hover:bg-gray-200 transition-colors"
+                                    className="flex-1 py-3 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs sm:text-sm active:scale-95 transition-all cursor-pointer"
                                 >
                                     Cancel
                                 </button>
                                 <button
+                                    type="button"
+                                    disabled={loading}
                                     onClick={() => submitRequest(selectedOption.id, selectedOption.countable ? quantity : 1)}
-                                    className="flex-1 py-4 rounded-xl font-bold bg-gray-900 text-white hover:bg-gray-800 transition-colors shadow-lg active:scale-[0.98]"
+                                    className="flex-1 py-3 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-orange-600/25 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                                 >
-                                    Confirm Request
+                                    {loading ? (
+                                        <>
+                                            <div className="size-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            <span>Sending...</span>
+                                        </>
+                                    ) : (
+                                        <span>Confirm Request</span>
+                                    )}
                                 </button>
                             </div>
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <CutleryConfirmationModal
+                isOpen={isCutleryModalOpen}
+                onClose={() => setIsCutleryModalOpen(false)}
+                restaurantId={urlRestaurantId}
+                tableNumber={tableNumber}
+                tableId={tableId}
+            />
         </div>
     );
 

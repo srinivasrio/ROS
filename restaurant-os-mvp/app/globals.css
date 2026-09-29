@@ -7,6 +7,7 @@
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-inter), sans-serif;
+  --font-display: var(--font-outfit), var(--font-inter), sans-serif;
   
   --color-coral: #FF6B6B;
   --color-teal: #4ECDC4;
@@ -27,6 +28,26 @@
   --color-light-gray: #f2f2f7;
   --color-divider: #e5e7eb;
 
+  /* ── Waiter Panel Design System (mirrors waiter_app Flutter theme) ──
+     Brand: "Vibrant Coral Flame" #FF6B35 · canvas #F8FAFC · ink #0F172A
+     Status: available #10B981 · occupied #F59E0B · needBill #8B5CF6
+             dirty #64748B · onHold #0284C7 · reserved #6366F1 */
+  --color-w-brand: #FF6B35;
+  --color-w-brand-strong: #E85D2A;
+  --color-w-brand-deep: #9A3412;
+  --color-w-brand-soft: #FFEDE4;
+  --color-w-brand-softer: #FFF7F3;
+  --color-w-alert: #EF4444;
+  --color-w-alert-deep: #991B1B;
+  --color-w-alert-soft: #FEE2E2;
+  --color-w-ink: #0F172A;
+  --color-w-ink-soft: #475569;
+  --color-w-muted: #94A3B8;
+  --color-w-canvas: #F8FAFC;
+  --color-w-card: #FFFFFF;
+  --color-w-border: #E2E8F0;
+  --color-w-border-strong: #CBD5E1;
+
   --animation-spin-slow: spin-slow 3s linear infinite;
   @keyframes spin-slow {
     from { transform: rotate(0deg); }
@@ -44,16 +65,70 @@
   --foreground: #ededed;
 }
 
+html {
+  height: 100%;
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
+  height: 100%;
+  min-height: 100%;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-inter), sans-serif;
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-inter), sans-serif;
   font-weight: 700;
+}
+
+/* Premium Safe-area Helpers */
+.safe-bottom {
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* Premium UI/UX Design System Utilities */
+.premium-glass-card {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.03), 0 1px 2px 0 rgba(0, 0, 0, 0.02);
+}
+
+.dark .premium-glass-card {
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2), 0 1px 2px 0 rgba(0, 0, 0, 0.1);
+}
+
+.liquid-transition {
+  transition: all 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.premium-shadow-soft {
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04), 0 1px 1px 0 rgba(0, 0, 0, 0.01);
+}
+
+.dark .premium-shadow-soft {
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.3), 0 1px 1px 0 rgba(0, 0, 0, 0.1);
+}
+
+.premium-shadow-deep {
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.06), 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+}
+
+.dark .premium-shadow-deep {
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.4), 0 1px 3px 0 rgba(0, 0, 0, 0.15);
 }
 
 @layer utilities {
@@ -64,6 +139,28 @@ h1, h2, h3, h4, h5, h6 {
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Custom thin premium scrollbar */
+  .premium-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .premium-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .premium-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 99px;
+  }
+  .premium-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.16);
+  }
+  .dark .premium-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .dark .premium-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.16);
   }
 
   /* Gradient text utility */
@@ -79,6 +176,37 @@ h1, h2, h3, h4, h5, h6 {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  /* Animated text gradient & glow for Suggested Items & Highlights */
+  .animate-text-shimmer {
+    background-size: 200% auto;
+    animation: text-shimmer 3s linear infinite;
+  }
+
+  .animate-text-glow {
+    animation: text-glow 2.5s ease-in-out infinite;
+  }
+
+  @keyframes text-shimmer {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  @keyframes text-glow {
+    0%, 100% {
+      filter: drop-shadow(0 0 1px rgba(249, 115, 22, 0.2));
+    }
+    50% {
+      filter: drop-shadow(0 0 7px rgba(249, 115, 22, 0.5));
+    }
   }
 }
 
@@ -124,6 +252,54 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes marquee {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
+}
+
+/* ── Waiter panel shared motion / texture ─────────────────── */
+@keyframes w-shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+.w-skeleton {
+  background: linear-gradient(
+    100deg,
+    #ffffff 40%,
+    #e2e8f0 50%,
+    #ffffff 60%
+  );
+  background-size: 200% 100%;
+  animation: w-shimmer 1.6s ease-in-out infinite;
+}
+.w-num {
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .w-skeleton { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Isolated scroll container for table details sheet - prevents chaining & scroll bleeding */
+.table-details-scroll {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent auto-zooming into screen on iOS Safari and mobile browsers when clicking inputs/search */
+@media screen and (max-width: 768px) {
+  input[type="text"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="email"],
+  input[type="number"],
+  input[type="password"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 @plugin '@tailwindcss/typography';

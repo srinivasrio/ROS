@@ -29,15 +29,13 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
                             <Link
                                 key={tab.href}
                                 href={tab.href}
+                                prefetch={false}
                                 className={`flex items-center gap-2 pb-4 text-sm font-medium transition-colors relative ${isActive ? 'text-blue-600' : 'text-black hover:text-black'}`}
                             >
                                 <Icon size={16} />
                                 {tab.label}
                                 {isActive && (
-                                    <motion.div
-                                        layoutId="inventoryTab"
-                                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600"
-                                    />
+                                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
                                 )}
                             </Link>
                         )

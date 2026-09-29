@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { OrderService } from '@/app/services/orders';
-import OrderKanbanBoard from '@/app/components/admin/OrderKanbanBoard';
+import { OrderService } from '@/services/orders.service';
+import OrderKanbanBoard from '@/components/admin/OrderKanbanBoard';
 import { useParams } from 'next/navigation';
 
 export default function KitchenDashboard() {
@@ -19,27 +19,20 @@ export default function KitchenDashboard() {
     }, []);
 
     return (
-        <div className="flex flex-col h-screen overflow-hidden bg-neutral-50">
+        <div className="flex flex-col h-screen overflow-hidden bg-neutral-50 text-neutral-900 font-sans">
             {/* Top Bar */}
-            <header className="h-16 bg-white border-b border-neutral-200 flex items-center justify-between px-6 shrink-0 z-10 shadow-sm">
+            <header className="h-16 bg-white/80 backdrop-blur-xl border-b border-neutral-200 flex items-center justify-between px-6 shrink-0 z-10 shadow-sm shadow-black/5">
                 <div className="flex items-center gap-4">
-                    <div className="size-10 bg-orange-600 rounded-lg flex items-center justify-center shadow-lg shadow-orange-500/30">
-                        <span className="material-icons-outlined text-white text-2xl">restaurant</span>
+                    <div className="size-10 bg-gradient-to-br from-orange-500 to-rose-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-500/20">
+                        <span className="material-icons-outlined text-white text-xl">restaurant</span>
                     </div>
-                    <h1 className="text-xl font-bold tracking-wide text-black">KDS <span className="text-black font-medium ml-2">Main Kitchen</span></h1>
+                    <h1 className="text-lg font-black tracking-wider text-neutral-900">KDS <span className="text-neutral-500 font-semibold ml-2 text-sm uppercase tracking-widest bg-neutral-100 px-3 py-1 rounded-lg">Main Kitchen</span></h1>
                 </div>
 
                 <div className="flex items-center gap-4">
-                    {/* Test Button */}
-                    <button
-                        onClick={() => OrderService.createTestOrder(Math.floor(Math.random() * 20) + 1, restaurantId)}
-                        className="bg-neutral-100 hover:bg-neutral-200 text-black hover:text-black px-3 py-1 rounded text-xs border border-neutral-200 transition-colors font-medium"
-                    >
-                        + Test Order
-                    </button>
                     {/* Clock */}
-                    <div className="text-right">
-                        <p className="text-lg font-bold font-mono text-black">
+                    <div className="bg-white border border-neutral-200 px-4 py-1.5 rounded-xl shadow-sm">
+                        <p className="text-base font-black font-mono text-orange-600 tracking-wider">
                             {time}
                         </p>
                     </div>
@@ -47,7 +40,7 @@ export default function KitchenDashboard() {
             </header>
 
             {/* Kanban Board Component */}
-            <div className="flex-1 h-full overflow-hidden">
+            <div className="flex-1 h-full overflow-hidden bg-neutral-50">
                 <OrderKanbanBoard />
             </div>
         </div>

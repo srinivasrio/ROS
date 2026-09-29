@@ -2,354 +2,396 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter, usePathname, useParams } from 'next/navigation';
-import { OrderService, Order } from '@/app/services/orders';
-import { ChefHat as LucideChefHat, Clock as LucideClock, CheckCircle2 as LucideCheckCircle2, ArrowRight as LucideArrowRight, X as LucideX } from 'lucide-react';
-import Image from 'next/image';
-import { getServiceRequestDetails, preloadServiceOptions, subscribeServiceOptionsCache } from '@/app/lib/service-utils';
-import Timer from '@/app/components/Timer';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
+import { useParams } from 'next/navigation';
+import { toast } from 'sonner';
+import { OrderService } from '@/services/orders.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { CheckCheck, BellRing, X, ArrowRightLeft, Users, Phone, LayoutGrid } from "lucide-react";
+import { getServiceRequestDetails, preloadServiceOptions, subscribeServiceOptionsCache, parseRequesterMeta, cleanDisplayNote } from '@/lib/service-utils';
+import { alertCountStore, haptic, springSoft, Spinner } from './ui';
+import { isVideoUrl } from '@/components/shared/homepage/ServiceCard';
+import WaiterOverloadModal from './WaiterOverloadModal';
 
-// Standard "Ding" sound for notifications
+// Same sound asset as the Flutter APK (assets/sounds/alert.mp3)
 const ALERT_SOUND_URL = '/sounds/alert.mp3';
 
 interface ServiceRequest {
     id: number;
     table_id: number;
-    tables: { table_number: string };
+    tables: {
+        table_number: string;
+        assigned_waiter_id?: string | null;
+        co_waiter_ids?: string[] | null;
+    };
     request_type: string;
     request_status: string;
     created_at: string;
     quantity?: number;
+    notes?: string | null;
     assigned_waiter_id?: string;
 }
 
 
+/* ── Table-access / Handover dialog (Flutter TableAccessRequestSheet parity) ── */
+function TableAccessAlert({ request, onApprove, onDecline, onDismiss }: {
+    request: ServiceRequest & { count: number; ids?: number[] };
+    onApprove: (transferType: 'share' | 'transfer') => Promise<void> | void;
+    onDecline: () => Promise<void> | void;
+    onDismiss: () => void;
+}) {
+    const [transferMode, setTransferMode] = useState<'share' | 'transfer'>('share');
+    const [submitting, setSubmitting] = useState<'approve' | 'decline' | null>(null);
 
-// --- Kitchen Ready Alert Component ---
-const KitchenReadyAlert = ({ request, restaurantId, onAccept, onDismiss }: { request: ServiceRequest, restaurantId: string, onAccept: (id: number) => void, onDismiss: (id: number) => void }) => {
-    const [order, setOrder] = useState<Order | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(false);
-    const activeRef = useRef(true);
-    const lastResolvedTableId = useRef<number | null>(null);
-
-    useEffect(() => {
-        console.log(`[KitchenReadyAlert] Effect running for request ${request.id}, table ${request.table_id}`);
-        activeRef.current = true;
-        
-        // Only set loading if the table changed or we have no data
-        if (lastResolvedTableId.current !== request.table_id || !order) {
-            setLoading(true);
-            setError(false);
-        }
-
-        const timer = setTimeout(() => {
-            if (activeRef.current && loading) {
-                console.warn("[KitchenReadyAlert] Loading timed out for request:", request.id);
-                setLoading(false);
-                setError(true);
-            }
-        }, 10000);
-
-        OrderService.getActiveOrderForTable(request.table_id, restaurantId)
-            .then((data) => {
-                if (activeRef.current) {
-                    console.log(`[KitchenReadyAlert] Order loaded for table ${request.table_id}`);
-                    setOrder(data);
-                    setLoading(false);
-                    setError(false);
-                    lastResolvedTableId.current = request.table_id;
-                    clearTimeout(timer);
-                }
-            })
-            .catch(err => {
-                console.error("Failed to load order for alert:", err);
-                if (activeRef.current) {
-                    setLoading(false);
-                    setError(true);
-                    clearTimeout(timer);
-                }
-            });
-
-        return () => { 
-            console.log(`[KitchenReadyAlert] Cleanup for request ${request.id}`);
-            activeRef.current = false;
-            clearTimeout(timer);
-        };
-    }, [request.table_id, restaurantId]);
-
-    const readyItems = order?.items?.filter((i: any) => i.status === 'ready') || [];
-    const preparingItems = order?.items?.filter((i: any) => ['placed', 'preparing'].includes(i.status)) || [];
-
-    // Loading State
-    if (loading) {
-        return (
-            <motion.div
-                layout
-                initial={{ opacity: 0, scale: 0.8, y: 50 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.8, y: 50 }}
-                className="md:max-w-sm w-full max-w-[90vw] bg-white text-black rounded-[2rem] shadow-2xl p-10 flex flex-col items-center justify-center font-sans mb-auto min-h-[250px] relative"
-            >
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-500 mb-4"></div>
-                <p className="text-sm font-bold text-black uppercase tracking-widest animate-pulse">Syncing...</p>
-                <button 
-                    onClick={() => onDismiss(request.id)}
-                    className="mt-8 text-[10px] font-bold text-black uppercase tracking-widest hover:text-black transition-colors"
-                >
-                    Dismiss if stuck
-                </button>
-            </motion.div>
-        );
-    }
-
-    // No Order Found State (Fallback)
-    if (!order) {
-        return (
-            <motion.div
-                layout
-                initial={{ opacity: 0, scale: 0.8, y: 50 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.8, y: 50 }}
-                className="md:max-w-sm w-full max-w-[90vw] bg-white text-black rounded-[2rem] shadow-2xl p-8 flex flex-col items-center justify-center font-sans mb-auto text-center"
-            >
-                <div className="size-16 bg-neutral-100 rounded-full flex items-center justify-center mb-4 text-black">
-                    <LucideX size={32} />
-                </div>
-                <h3 className="text-xl font-bold mb-2">Order Not Found</h3>
-                <p className="text-black text-sm mb-6">The kitchen update is ready but the order details couldn't be loaded.</p>
-                <button
-                    onClick={() => onDismiss(request.id)}
-                    className="w-full py-3 bg-neutral-900 text-white font-bold rounded-xl active:scale-95 transition-all"
-                >
-                    Close Alert
-                </button>
-            </motion.div>
-        );
-    }
-
-    if (readyItems.length === 0 && preparingItems.length === 0) {
-        return (
-            <motion.div
-                layout
-                initial={{ opacity: 0, scale: 0.8, y: 50 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.8, y: 50 }}
-                className="md:max-w-sm w-full max-w-[90vw] bg-white text-black rounded-[2rem] shadow-2xl p-8 flex flex-col items-center justify-center font-sans mb-auto text-center"
-            >
-                <LucideCheckCircle2 size={48} className="text-green-500 mb-4" />
-                <h3 className="text-2xl font-black mb-1">Items Served</h3>
-                <p className="text-black font-medium mb-6 text-sm">System is cleaning up...</p>
-                <button
-                    onClick={() => onDismiss(request.id)}
-                    className="w-full py-3 bg-neutral-100 hover:bg-neutral-200 active:scale-95 text-black font-bold rounded-xl transition-all"
-                >
-                    Close
-                </button>
-            </motion.div>
-        );
-    }
+    const requester = parseRequesterMeta(request.notes);
+    const cleanNote = cleanDisplayNote(request.notes);
 
     return (
         <motion.div
-            layout
-            initial={{ opacity: 0, scale: 0.8, y: 50 }}
+            initial={{ opacity: 0, scale: 0.9, y: 30 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.8, y: 50 }}
-            className="md:max-w-sm w-full max-w-[90vw] bg-white text-black rounded-[2rem] shadow-2xl overflow-hidden flex flex-col font-sans mb-auto"
+            exit={{ opacity: 0, scale: 0.94, y: 16 }}
+            transition={springSoft}
+            className="relative w-[92vw] max-w-[370px] bg-white rounded-[28px] shadow-2xl p-5 overflow-hidden"
+            style={{
+                border: '2px solid #6366F1',
+                boxShadow: '0 0 0 3px rgba(99,102,241,0.12), 0 24px 48px -12px rgba(99,102,241,0.28)',
+            }}
         >
-            {/* Header */}
-            <div className="bg-green-500 p-6 flex justify-between items-start text-white relative overflow-hidden">
-                <div className="absolute -right-4 -top-4 text-green-400 opacity-20 transform rotate-12">
-                    <LucideChefHat size={120} />
-                </div>
-                <div className="relative z-10 text-left">
-                    <div className="text-xs font-bold uppercase tracking-widest opacity-80 mb-1">Kitchen Update</div>
-                    <h3 className="text-3xl font-black leading-none">Order Ready</h3>
-                </div>
-                <div className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap z-10">
-                    Table {request.tables?.table_number}
+            {/* Ambient decorative gradient */}
+            <div className="absolute -top-16 -right-16 size-36 bg-gradient-to-br from-indigo-100 to-indigo-50/20 rounded-full blur-2xl pointer-events-none -z-10" />
+
+            {/* Header: Badge + Status + Dismiss */}
+            <div className="flex items-center justify-between mb-3.5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-100/80 text-indigo-700 text-[11px] font-black tracking-wide">
+                    <ArrowRightLeft size={13} className="text-indigo-600" />
+                    TABLE ACCESS REQUEST
+                </span>
+                <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200/80 text-amber-700 text-[10px] font-extrabold uppercase tracking-wider">
+                        <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        Pending
+                    </span>
+                    <button
+                        onClick={() => { haptic.light(); onDismiss(); }}
+                        aria-label="Dismiss"
+                        className="size-7 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                        <X size={16} />
+                    </button>
                 </div>
             </div>
 
-            {/* Body */}
-            <div className="flex-1 p-6 overflow-y-auto space-y-6 max-h-[70vh]">
-                {/* Ready Items */}
-                {readyItems.length > 0 && (
-                    <div className="space-y-3">
-                        <div className="text-xs font-bold text-green-600 uppercase tracking-wider flex items-center gap-2">
-                            <LucideCheckCircle2 size={16} />
-                            Ready to Serve
-                        </div>
-                        {readyItems.map((item: any) => (
-                            <div key={item.id} className="flex items-center gap-3 bg-green-50 p-2 rounded-xl border border-green-100">
-                                <div className="relative size-12 rounded-lg overflow-hidden shrink-0 border border-green-200">
-                                    {item.image_url ? (
-                                        <Image
-                                            src={item.image_url}
-                                            alt={item.name}
-                                            fill
-                                            className="object-cover"
-                                        />
-                                    ) : (
-                                        <div className="w-full h-full bg-green-200 flex items-center justify-center">
-                                            <LucideChefHat size={20} className="text-green-700 opacity-50" />
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="font-bold text-black text-left text-sm leading-tight line-clamp-2">{item.name}</div>
-                                </div>
-                                <div className="bg-green-200 text-green-800 text-xs font-bold px-2 py-1 rounded-md shrink-0">x{item.quantity}</div>
-                            </div>
-                        ))}
+            {/* Target Table Hero Card */}
+            <div className="flex items-center justify-between px-3.5 py-2.5 rounded-2xl bg-indigo-50/70 border border-indigo-100/90 mb-3.5">
+                <div className="flex items-center gap-2.5">
+                    <div className="size-9 rounded-xl bg-white shadow-xs border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
+                        <LayoutGrid size={18} />
                     </div>
-                )}
-
-                {/* Preparing Items */}
-                {preparingItems.length > 0 && (
-                    <div className="space-y-3 pt-4 border-t border-dashed border-gray-200">
-                        <div className="text-xs font-bold text-orange-500 uppercase tracking-wider flex items-center gap-2">
-                            <LucideClock size={16} />
-                            Still Cooking
-                        </div>
-                        {preparingItems.map((item: any) => {
-                            const prepTime = item.menu_items?.preparation_time || 15;
-                            const created = new Date(item.created_at || order?.created_at || Date.now());
-                            const target = new Date(created.getTime() + prepTime * 60000);
-                            const diff = Math.max(0, Math.ceil((target.getTime() - Date.now()) / 60000));
-
-                            return (
-                                <div key={item.id} className="flex items-center gap-3 bg-orange-50 p-2 rounded-xl border border-orange-100 opacity-80">
-                                    <div className="relative size-12 rounded-lg overflow-hidden shrink-0 border border-orange-200">
-                                        {item.image_url ? (
-                                            <Image
-                                                src={item.image_url}
-                                                alt={item.name}
-                                                fill
-                                                className="object-cover grayscale"
-                                            />
-                                        ) : (
-                                            <div className="w-full h-full bg-orange-200 flex items-center justify-center">
-                                                <LucideChefHat size={20} className="text-orange-700 opacity-50" />
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-bold text-black text-left text-sm leading-tight line-clamp-2">{item.name}</div>
-                                    </div>
-                                    <div className="text-xs font-mono font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded shrink-0">{diff}m left</div>
-                                </div>
-                            );
-                        })}
+                    <div>
+                        <p className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600/80">Target Table</p>
+                        <h4 className="text-base font-black text-slate-900 leading-tight">
+                            Table {request.tables?.table_number || '—'}
+                        </h4>
                     </div>
-                )}
+                </div>
+                <span className="px-2 py-0.5 rounded-lg bg-white/90 text-slate-600 text-[10px] font-extrabold border border-indigo-100/70 shrink-0">
+                    Assigned to You
+                </span>
             </div>
 
-            {/* Actions */}
-            <div className="p-4 bg-gray-50 flex gap-3 border-t border-gray-100">
+            {/* Requester Profile Card */}
+            <div className="rounded-2xl bg-slate-50/90 border border-slate-200/80 p-3.5 mb-3.5">
+                <div className="flex items-center gap-3">
+                    {/* Avatar with Initials Fallback */}
+                    <div className="relative size-12 rounded-2xl overflow-hidden shrink-0 bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white font-black text-lg shadow-sm">
+                        {requester.requester_avatar ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={requester.requester_avatar}
+                                alt={requester.requester_name}
+                                className="size-full object-cover"
+                            />
+                        ) : (
+                            <span>{requester.requester_name.charAt(0).toUpperCase() || 'W'}</span>
+                        )}
+                        <span className="absolute bottom-0.5 right-0.5 size-2.5 bg-emerald-500 rounded-full border-2 border-white" />
+                    </div>
+
+                    {/* Requester Details */}
+                    <div className="min-w-0 flex-1">
+                        <span className="inline-block px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase tracking-wider">
+                            Requesting Waiter
+                        </span>
+                        <h3 className="text-base font-black text-slate-900 tracking-tight truncate leading-snug">
+                            {requester.requester_name}
+                        </h3>
+                        {requester.requester_mobile && (
+                            <p className="flex items-center gap-1 text-xs font-semibold text-slate-500 mt-0.5">
+                                <Phone size={11} className="text-indigo-500" />
+                                {requester.requester_mobile}
+                            </p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Friendly explanation text */}
+                <div className="mt-2.5 pt-2.5 border-t border-slate-200/60 text-xs text-slate-600 leading-relaxed">
+                    <span className="font-bold text-slate-800">{requester.requester_name}</span> has requested permission to manage Table {request.tables?.table_number}.
+                    {cleanNote && (
+                        <p className="mt-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200/80 italic text-slate-700 text-[11px]">
+                            &ldquo;{cleanNote}&rdquo;
+                        </p>
+                    )}
+                </div>
+            </div>
+
+            {/* Permission Mode Selector */}
+            <div className="mb-4">
+                <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5 px-0.5">
+                    Select Permission Type
+                </p>
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 border border-slate-200/70">
+                    <button
+                        type="button"
+                        onClick={() => { haptic.selection(); setTransferMode('share'); }}
+                        className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-black transition-all ${
+                            transferMode === 'share'
+                                ? 'bg-white text-indigo-700 shadow-xs border border-indigo-100'
+                                : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                    >
+                        <Users size={13} />
+                        Co-Waiter (Share)
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { haptic.selection(); setTransferMode('transfer'); }}
+                        className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-black transition-all ${
+                            transferMode === 'transfer'
+                                ? 'bg-white text-indigo-700 shadow-xs border border-indigo-100'
+                                : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                    >
+                        <ArrowRightLeft size={13} />
+                        Full Handover
+                    </button>
+                </div>
+
+                {/* Dynamic guidance text */}
+                <p className="text-[11px] text-slate-500 mt-2 px-1 leading-snug">
+                    {transferMode === 'share' ? (
+                        <span className="flex items-start gap-1">
+                            <span className="text-emerald-600 font-bold">✓</span>
+                            <span><strong>Shared Access:</strong> Both you and {requester.requester_name} can take orders, add items, and attend to Table {request.tables?.table_number}.</span>
+                        </span>
+                    ) : (
+                        <span className="flex items-start gap-1">
+                            <span className="text-amber-600 font-bold">⚠️</span>
+                            <span><strong>Full Handover:</strong> Table {request.tables?.table_number} & active orders will be completely transferred to {requester.requester_name}.</span>
+                        </span>
+                    )}
+                </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2.5">
                 <button
-                    onClick={() => onDismiss(request.id)}
-                    className="p-4 rounded-xl font-bold bg-white border border-gray-200 text-black hover:text-black transition-colors shadow-sm"
+                    type="button"
+                    disabled={submitting !== null}
+                    onClick={async () => {
+                        setSubmitting('decline');
+                        try {
+                            await onDecline();
+                        } finally {
+                            setSubmitting(null);
+                        }
+                    }}
+                    className="flex-1 h-12 rounded-[14px] bg-white border border-slate-300 text-slate-700 text-xs font-bold active:scale-[0.97] hover:bg-slate-50 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
                 >
-                    <LucideX size={20} />
+                    {submitting === 'decline' ? <Spinner className="size-4 border-slate-400 border-t-slate-700" /> : 'Decline'}
                 </button>
+
                 <button
-                    onClick={() => onAccept(request.id)}
-                    className="flex-1 py-4 bg-green-600 text-white font-bold rounded-xl shadow-lg shadow-green-600/20 hover:bg-green-700 transition-all flex items-center justify-center gap-2 active:scale-95"
+                    type="button"
+                    disabled={submitting !== null}
+                    onClick={async () => {
+                        setSubmitting('approve');
+                        try {
+                            await onApprove(transferMode);
+                        } finally {
+                            setSubmitting(null);
+                        }
+                    }}
+                    className="flex-[1.8] h-12 rounded-[14px] bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-xs font-black shadow-[0_4px_14px_rgba(79,70,229,0.35)] active:scale-[0.97] transition-all disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
                 >
-                    <span>Pickup Now</span>
-                    <LucideArrowRight size={18} />
+                    {submitting === 'approve' ? (
+                        <Spinner className="size-4 text-white" />
+                    ) : transferMode === 'share' ? (
+                        <>
+                            <CheckCheck size={16} />
+                            Approve (Share)
+                        </>
+                    ) : (
+                        <>
+                            <ArrowRightLeft size={15} />
+                            Approve & Transfer
+                        </>
+                    )}
                 </button>
             </div>
         </motion.div>
     );
-};
+}
 
+/* ── Service-request dialog (Flutter IncomingRequestAlertSheet) ── */
+function IncomingRequestAlert({ request, details, onAccept, onDismiss }: {
+    request: ServiceRequest & { count: number };
+    details: { label: string; icon: any; image?: string | null; color: string };
+    onAccept: () => void;
+    onDismiss: () => void;
+}) {
+    const Icon = details.icon;
+    const cleanNote = cleanDisplayNote(request.notes);
+    return (
+        <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 30 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.94, y: 16 }}
+            transition={springSoft}
+            className="relative w-[88vw] max-w-[340px] bg-white rounded-[28px] shadow-2xl p-5"
+            style={{ border: '2px solid #FF6B35', boxShadow: '0 0 0 3px rgba(255,107,53,0.1), 0 24px 48px -12px rgba(255,107,53,0.25)' }}
+        >
+            <div className="flex items-center justify-between mb-4">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-w-brand-soft text-w-brand text-[11px] font-black tracking-wide">
+                    <BellRing size={13} /> NEW SERVICE REQUEST
+                </span>
+                <button onClick={() => { haptic.light(); onDismiss(); }} aria-label="Dismiss" className="size-8 rounded-full hover:bg-w-canvas flex items-center justify-center text-w-muted">
+                    <X size={17} />
+                </button>
+            </div>
+
+            <div className="flex items-center gap-4">
+                <div className="size-[72px] rounded-[18px] bg-[#F1F5F9] overflow-hidden shrink-0 flex items-center justify-center">
+                    {details.image ? (
+                        isVideoUrl(details.image) ? (
+                            <video
+                                src={encodeURI(details.image)}
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                                className="size-full object-cover pointer-events-none"
+                            />
+                        ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={details.image} alt="" className="size-full object-cover" />
+                        )
+                    ) : (
+                        <span className={details.color}><Icon size={30} /></span>
+                    )}
+                </div>
+                <div className="min-w-0">
+                    <span className="inline-block px-2.5 py-0.5 rounded-md bg-w-border text-[11px] font-extrabold text-w-ink mb-1.5">
+                        Table {request.tables?.table_number}
+                    </span>
+                    <h3 className="text-xl font-black text-w-ink tracking-tight leading-tight">{details.label}</h3>
+                    {request.count > 1 && (
+                        <p className="text-sm font-bold text-w-brand mt-0.5">Quantity: {request.count}</p>
+                    )}
+                    {cleanNote && <p className="text-xs italic text-w-ink-soft mt-1">Note: {cleanNote}</p>}
+                </div>
+            </div>
+
+            <div className="flex gap-2.5 mt-5">
+                <button
+                    onClick={() => { haptic.light(); onDismiss(); }}
+                    className="flex-1 h-12 rounded-[14px] bg-white border-[1.5px] border-w-border-strong text-w-ink-soft text-sm font-bold active:scale-[0.97] transition-transform"
+                >
+                    Dismiss
+                </button>
+                <button
+                    onClick={() => { haptic.success(); onAccept(); }}
+                    className="flex-[2] h-12 rounded-[14px] bg-w-brand text-white text-sm font-extrabold shadow-[0_4px_12px_rgba(255,107,53,0.35)] active:scale-[0.97] transition-transform inline-flex items-center justify-center gap-2"
+                >
+                    <CheckCheck size={18} /> Accept Request
+                </button>
+            </div>
+        </motion.div>
+    );
+}
+
+/* ── System root (logic identical to previous build) ─────────── */
 export default function WaiterAlertSystem() {
-    const pathname = usePathname();
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
-    const router = useRouter();
     const [alerts, setAlerts] = useState<ServiceRequest[]>([]);
     const [hiddenRequests, setHiddenRequests] = useState<Set<number>>(new Set());
     const audioRef = useRef<HTMLAudioElement | null>(null);
-    const prevCountRef = useRef(0);
     const isFirstLoad = useRef(true);
     const params = useParams();
     const staffMobile = params?.staffMobile as string;
     const [currentWaiter, setCurrentWaiter] = useState<any>(null);
 
-    // Fetch logged-in waiter profile
     useEffect(() => {
+        let active = true;
+        try {
+            const cached = localStorage.getItem('waiterSession');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed?.id) setCurrentWaiter(parsed);
+            }
+        } catch (_) {}
+
         const fetchWaiter = async () => {
             if (restaurantId && staffMobile) {
                 try {
                     const waiter = await OrderService.getStaffByMobile(staffMobile, restaurantId);
-                    setCurrentWaiter(waiter);
+                    if (active && waiter) setCurrentWaiter(waiter);
                 } catch (err) {
                     console.error('[WaiterAlertSystem] Failed to fetch waiter profile:', err);
                 }
             }
         };
         fetchWaiter();
+        return () => { active = false; };
     }, [restaurantId, staffMobile]);
 
-    // Initialize Audio
     useEffect(() => {
         audioRef.current = new Audio(ALERT_SOUND_URL);
         audioRef.current.load();
     }, []);
 
-    // Preload service options from DB (for dynamic services)
     useEffect(() => {
-        preloadServiceOptions();
-        const sub = subscribeServiceOptionsCache();
-        return () => { sub.unsubscribe(); };
-    }, []);
+        if (!restaurantId) return;
+        preloadServiceOptions(restaurantId);
+        const sub = subscribeServiceOptionsCache(restaurantId);
+        return () => {
+            sub.unsubscribe();
+        };
+    }, [restaurantId]);
 
-    // Play sound on new alert (Check if any NEW ID exists that wasn't there before)
-    const prevAlertIds = useRef<Set<number>>(new Set());
 
-    useEffect(() => {
-        const currentIds = new Set(alerts.map(a => a.id));
-
-        // Find if any current ID is NOT in previous set
-        const hasNewAlert = alerts.some(a => !prevAlertIds.current.has(a.id));
-
-        if (hasNewAlert) {
-            if (!isFirstLoad.current) {
-                const playPromise = audioRef.current?.play();
-                if (playPromise !== undefined) {
-                    playPromise.catch(error => {
-                        console.warn('Audio playback failed:', error);
-                    });
-                }
-            }
-        }
-
-        // Update ref
-        prevAlertIds.current = currentIds;
-        prevCountRef.current = alerts.length; // Keep for fallback if needed
-
-        if (alerts.length > 0) {
-            isFirstLoad.current = false;
-        }
-    }, [alerts]);
 
     useEffect(() => {
         let active = true;
         let debounceTimer: NodeJS.Timeout;
 
         const fetchAlerts = async () => {
-            if (!restaurantId || !active) return;
+            if (!restaurantId || !active || !currentWaiter?.id) return;
             try {
-                const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter?.id);
+                const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id);
                 if (active && activeRequests) {
-                    setAlerts(activeRequests);
+                    setAlerts((prev) => {
+                        const completing = prev.filter((req) => req.request_status === 'completed');
+                        const completingIds = new Set(completing.map((r) => r.id));
+                        const activeFiltered = activeRequests.filter((req: any) => !completingIds.has(req.id));
+                        return [...activeFiltered, ...completing];
+                    });
                 }
-            } catch (err) {
-                console.error("[WaiterAlertSystem] Failed to fetch alerts:", err);
+            } catch (err: any) {
+                const msg = String(err?.message || err);
+                if (!msg.toLowerCase().includes('failed to fetch')) {
+                    console.error('[WaiterAlertSystem] Failed to fetch alerts:', msg);
+                }
             }
         };
 
@@ -357,340 +399,230 @@ export default function WaiterAlertSystem() {
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
                 if (active) fetchAlerts();
-            }, 500);
+            }, 1000);
         };
 
-        if (!restaurantLoading) {
-            fetchAlerts();
-        }
+        if (!restaurantLoading && currentWaiter?.id) fetchAlerts();
+        if (!restaurantId || !currentWaiter?.id) return;
 
-        if (!restaurantId) return;
-
-        let sub: { unsubscribe: () => void } | null = null;
-        if (currentWaiter?.id) {
-            console.log("[WaiterAlertSystem] Setting up subscriptions for:", restaurantId, "waiter:", currentWaiter.id);
-
-            // 1. Subscribe to service_requests changes specific to this waiter
-            sub = OrderService.subscribeToServiceRequests(restaurantId, (payload) => {
-                console.log("[WaiterAlertSystem] Service Request Change:", payload.eventType);
+        const sub = OrderService.subscribeToServiceRequests(
+            restaurantId,
+            () => {
                 isFirstLoad.current = false;
                 debouncedRefresh();
-            }, currentWaiter.id);
-        }
+            },
+            currentWaiter.id,
+        );
 
-        // 2. Kitchen Ready: Subscribe to order_items status changes to auto-generate alerts
-        const notifiedItemIds = new Set<string>();
-        const itemSub = OrderService.subscribeToOrderItems(restaurantId, async (payload) => {
-            if (!active) return;
-            if (payload.eventType !== 'UPDATE' && payload.eventType !== 'INSERT') return;
-            
-            const newItem = payload.new as any;
-            if (newItem?.status !== 'ready') return;
-
-            const itemKey = String(newItem.id);
-            if (notifiedItemIds.has(itemKey)) return;
-            notifiedItemIds.add(itemKey);
-
-            console.log("[WaiterAlertSystem] Order item ready, checking if we need to upsert alert:", newItem.id);
-
-            // Fetch the parent order to get table_id
-            const fullOrder = await OrderService.getOrderDetails(newItem.order_id, restaurantId).catch(() => null);
-            if (!fullOrder || !active) return;
-
-            const tableId = fullOrder.table_id;
-            if (!tableId) return;
-
-            // Submit an order_ready service request for this table
-            // This ensures that even if the itemSub triggers multiple times, we only have one 'pending' alert per table
-            try {
-                await OrderService.submitServiceRequest(tableId, 'order_ready', restaurantId);
-            } catch (err) {
-                console.error("[WaiterAlertSystem] Failed to upsert order_ready alert:", err);
-            }
-        });
+        /* 25s silent polling — realtime handles instant updates */
+        const poll = setInterval(() => {
+            if (active) fetchAlerts();
+        }, 25000);
 
         return () => {
-            console.log("[WaiterAlertSystem] Cleaning up subscriptions");
             active = false;
             clearTimeout(debounceTimer);
+            clearInterval(poll);
             if (sub) sub.unsubscribe();
-            itemSub.unsubscribe();
         };
     }, [restaurantId, restaurantLoading, currentWaiter?.id]);
 
+
+
     const handleDismissGroup = async (requestIds: number[]) => {
-        // Only Hide locally. Do NOT resolve in DB.
-        setHiddenRequests(prev => {
+        setHiddenRequests((prev) => {
             const next = new Set(prev);
-            requestIds.forEach(id => next.add(id));
+            requestIds.forEach((id) => next.add(id));
             return next;
         });
     };
 
     const handleAcceptGroup = async (requestIds: number[]) => {
         if (!restaurantId || !currentWaiter?.id) return;
-
-        // Optimistically update status to 'accepted' in local state
-        setAlerts(prev =>
-            prev.map(alert =>
-                requestIds.includes(alert.id)
-                    ? { ...alert, request_status: 'accepted' }
-                    : alert
-            )
+        setAlerts((prev) =>
+            prev.map((alert) => (requestIds.includes(alert.id) ? { ...alert, request_status: 'accepted' } : alert)),
         );
-
         try {
-            await Promise.all(requestIds.map(id => OrderService.acceptServiceRequest(id, restaurantId, currentWaiter.id)));
+            await Promise.all(requestIds.map((id) => OrderService.acceptServiceRequest(id, restaurantId, currentWaiter.id)));
         } catch (err: any) {
-            console.error("Failed to accept some requests:", err);
-            // Revert optimistic update on error by re-fetching
+            console.error('Failed to accept some requests:', err);
             try {
                 const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id);
                 if (activeRequests) setAlerts(activeRequests);
             } catch (fetchErr) {
-                console.error("Failed to revert optimistic update:", fetchErr);
+                console.error('Failed to revert optimistic update:', fetchErr);
             }
-            alert(err.message || "Failed to accept service request.");
+            toast.error(err.message || 'Failed to accept service request.');
         }
     };
 
     const handleServedGroup = async (requestIds: number[]) => {
         if (!restaurantId) return;
-
-        // Optimistically update status to 'completed' in local state
-        setAlerts(prev =>
-            prev.map(alert =>
-                requestIds.includes(alert.id)
-                    ? { ...alert, request_status: 'completed' }
-                    : alert
-            )
+        setAlerts((prev) =>
+            prev.map((alert) => (requestIds.includes(alert.id) ? { ...alert, request_status: 'completed' } : alert)),
         );
-
         try {
-            // 1. Mark as Delivered (DB)
-            await Promise.all(requestIds.map(id => OrderService.markRequestDelivered(id, restaurantId)));
-
-            // 2. Auto Delete after 2 seconds
-            setTimeout(async () => {
-                if (!restaurantId) return;
-                try {
-                    await Promise.all(requestIds.map(id => OrderService.completeServiceRequest(id, restaurantId)));
-                } catch (err) {
-                    console.error("Failed to complete requests:", err);
-                }
-            }, 2000);
+            await Promise.all(requestIds.map((id) => OrderService.completeServiceRequest(id, restaurantId, currentWaiter?.id)));
+            setTimeout(() => {
+                setAlerts((prev) => prev.filter((alert) => !requestIds.includes(alert.id)));
+            }, 1500);
         } catch (err: any) {
-            console.error("Failed to mark requests delivered:", err);
-            // Revert on error
+            console.error('Failed to complete requests:', err?.message);
             if (currentWaiter?.id) {
                 const activeRequests = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id).catch(() => null);
                 if (activeRequests) setAlerts(activeRequests);
             }
-            alert(err.message || "Failed to deliver service request.");
+            toast.error(err.message || 'Failed to complete service request.');
         }
     };
 
-    const visibleAlerts = alerts.filter(req => {
+    const visibleAlerts = alerts.filter((req) => {
         if (hiddenRequests.has(req.id)) return false;
+        // Kitchen order-ready popups are handled exclusively by OrderReadyModal
+        if (req.request_type === 'order_ready') return false;
 
-        // Hide Order Ready alerts specifically on the order details page to avoid redundancy
-        if (pathname.includes('/waiter/order/') && req.request_type === 'order_ready') {
-            return false;
+        // Strict waiter routing check:
+        if (!currentWaiter?.id) return false;
+        const waiterIdLower = String(currentWaiter.id).toLowerCase();
+        const reqAssigned = req.assigned_waiter_id ? String(req.assigned_waiter_id).toLowerCase() : null;
+        const tableAssigned = req.tables?.assigned_waiter_id ? String(req.tables.assigned_waiter_id).toLowerCase() : null;
+        const coWaiters: string[] = Array.isArray(req.tables?.co_waiter_ids)
+            ? req.tables.co_waiter_ids.map((c: any) => String(c).toLowerCase())
+            : [];
+
+        // For table access request, only the primary table owner can receive & approve it
+        if (req.request_type === 'table_access_request') {
+            return reqAssigned === waiterIdLower || tableAssigned === waiterIdLower;
         }
+
+        // For customer service requests: must be primary assigned waiter or approved co-waiter
+        const isAssigned = (reqAssigned === waiterIdLower) || (tableAssigned === waiterIdLower) || coWaiters.includes(waiterIdLower);
+        if (!isAssigned) return false;
 
         return true;
     });
 
-    // Grouping Logic: Now includes STATUS
+    /* BottomNav badge feed — strictly count only alerts assigned to this waiter */
+    const pendingCount = visibleAlerts.filter((a) => a.request_status !== 'completed').length;
+    useEffect(() => {
+        alertCountStore.set(pendingCount);
+    }, [pendingCount]);
+
+    /* Audio alert — strictly trigger only on visible alerts for this waiter */
+    const prevAlertIds = useRef<Set<number>>(new Set());
+    useEffect(() => {
+        const currentIds = new Set(visibleAlerts.map((a) => a.id));
+        const hasNewAlert = visibleAlerts.some((a) => !prevAlertIds.current.has(a.id));
+
+        if (hasNewAlert && !isFirstLoad.current) {
+            haptic.heavy();
+            const playPromise = audioRef.current?.play();
+            if (playPromise !== undefined) {
+                playPromise.catch((error) => {
+                    console.warn('Audio playback failed:', error);
+                });
+            }
+        }
+
+        prevAlertIds.current = currentIds;
+        if (visibleAlerts.length > 0) isFirstLoad.current = false;
+    }, [visibleAlerts]);
+
     const groupedAlerts = Object.values(
         visibleAlerts.reduce((acc, alert) => {
-            // Group by Table + Type + Status
-            // This splits "Pending" and "Accepted" requests into separate cards
             const key = `${alert.table_id}-${alert.request_type}-${alert.request_status}`;
-            if (!acc[key]) {
-                acc[key] = { ...alert, count: 0, ids: [] };
-            }
-            acc[key].count += (alert.quantity || 1);
+            if (!acc[key]) acc[key] = { ...alert, count: 0, ids: [] };
+            acc[key].count += alert.quantity || 1;
             acc[key].ids.push(alert.id);
             return acc;
-        }, {} as Record<string, ServiceRequest & { count: number; ids: number[] }>)
-    );
+        }, {} as Record<string, ServiceRequest & { count: number; ids: number[] }>),
+    ).filter((r) => r.request_status === 'pending' || r.request_status === 'accepted');
+
+    const topAlert = groupedAlerts[groupedAlerts.length - 1];
 
     return (
+        <>
         <AnimatePresence>
-            {groupedAlerts.length > 0 && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none p-4 bg-black/80 backdrop-blur-xl">
-                    <div className="w-full h-full flex items-center justify-center pointer-events-auto">
-                        {groupedAlerts.map((request, index) => {
-                            if (!restaurantId) return null;
-                            // Show only the last one (stack effect) or loop?
-                            // Code logic: `if (index !== groupedAlerts.length - 1) return null;`
-                            // We should probably show specific one.
-                            if (index !== groupedAlerts.length - 1) return null;
+            {topAlert && restaurantId && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-5 bg-black/40">
+                    {topAlert.request_type === 'table_access_request' ? (
+                        <TableAccessAlert
+                            key={topAlert.id}
+                            request={topAlert}
+                            onApprove={async (transferType) => {
+                                const approverId = currentWaiter?.id || currentWaiter?.employee_id || staffMobile;
+                                if (!approverId) {
+                                    toast.error('Staff profile still loading, please try again.');
+                                    return;
+                                }
+                                haptic.success();
+                                handleDismissGroup(topAlert.ids);
+                                try {
+                                    for (const id of topAlert.ids) {
+                                        await OrderService.approveTableAccess(id, approverId, transferType);
+                                    }
+                                    const meta = parseRequesterMeta(topAlert.notes);
+                                    if (transferType === 'transfer') {
+                                        toast.success(`Table ${topAlert.tables?.table_number || ''} transferred to ${meta.requester_name}`);
+                                    } else {
+                                        toast.success(`Shared Table ${topAlert.tables?.table_number || ''} with ${meta.requester_name}`);
+                                    }
+                                } catch (err: any) {
+                                    console.error('Failed to approve table access:', err);
+                                    toast.error(err.message || 'Failed to approve table access');
+                                    if (currentWaiter?.id && restaurantId) {
+                                        const refreshed = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id).catch(() => null);
+                                        if (refreshed) setAlerts(refreshed);
+                                    }
+                                }
+                            }}
+                            onDecline={async () => {
+                                const declinerId = currentWaiter?.id || currentWaiter?.employee_id || staffMobile;
+                                if (!declinerId) {
+                                    toast.error('Staff profile still loading, please try again.');
+                                    return;
+                                }
+                                haptic.light();
+                                handleDismissGroup(topAlert.ids);
+                                try {
+                                    for (const id of topAlert.ids) {
+                                        await OrderService.declineTableAccess(id, declinerId);
+                                    }
+                                    toast.info(`Declined table access request for Table ${topAlert.tables?.table_number || ''}`);
+                                } catch (err: any) {
+                                    console.error('Failed to decline table access:', err);
+                                    toast.error(err.message || 'Failed to decline request');
+                                    if (currentWaiter?.id && restaurantId) {
+                                        const refreshed = await OrderService.fetchActiveServiceRequests(restaurantId, currentWaiter.id).catch(() => null);
+                                        if (refreshed) setAlerts(refreshed);
+                                    }
+                                }
+                            }}
+                            onDismiss={() => handleDismissGroup(topAlert.ids)}
+                        />
+                    ) : (
+                        <IncomingRequestAlert
+                            key={topAlert.id}
+                            request={topAlert}
+                            details={getServiceRequestDetails(topAlert.request_type, restaurantId || undefined)}
+                            onAccept={async () => {
+                                await handleAcceptGroup(topAlert.ids);
+                                toast.success(`Accepted request from Table ${topAlert.tables?.table_number}`);
+                            }}
+                            onDismiss={() => handleDismissGroup(topAlert.ids)}
+                        />
+                    )}
 
-                            if (request.request_type === 'order_ready') {
-                                return (
-                                    <KitchenReadyAlert
-                                        key={request.id}
-                                        request={request}
-                                        restaurantId={restaurantId}
-                                        onAccept={() => {
-                                            // Delete the service request from DB so it doesn't re-appear
-                                            request.ids.forEach((id: number) => OrderService.completeServiceRequest(id, restaurantId));
-                                            handleDismissGroup(request.ids);
-                                            router.push(`/${restaurantId}/waiter/${staffMobile}/order/${request.table_id}`);
-                                        }}
-                                        onDismiss={() => {
-                                            // Delete from DB so the popup doesn't re-appear on next fetch
-                                            request.ids.forEach((id: number) => OrderService.completeServiceRequest(id, restaurantId));
-                                            handleDismissGroup(request.ids);
-                                        }}
-                                    />
-                                );
-                            }
-
-                            const details = getServiceRequestDetails(request.request_type);
-                            const isAccepted = request.request_status === 'accepted';
-                            const isDelivered = request.request_status === 'completed';
-
-                            return (
-                                <motion.div
-                                    key={request.id}
-                                    layout
-                                    initial={{ opacity: 0, scale: 0.8, y: 100 }}
-                                    animate={{
-                                        opacity: 1,
-                                        scale: 1,
-                                        y: 0,
-                                        transition: { type: "spring", stiffness: 300, damping: 25 },
-                                        borderColor: isAccepted ? 'rgba(34, 197, 94, 0.5)' : 'rgba(255, 255, 255, 0.1)', // Green border if accepted
-                                        backgroundColor: isDelivered ? '#10b981' : '#000000' // Green bg if delivered
-                                    }}
-                                    exit={{ opacity: 0, scale: 0.9, y: -20 }}
-                                    className="relative w-[90vw] max-w-sm aspect-[4/5] bg-neutral-900 rounded-[2.5rem] p-6 shadow-2xl border border-white/10 overflow-hidden flex flex-col justify-between"
-                                >
-                                    {/* Animated Background Mesh */}
-                                    <div className="absolute inset-0 overflow-hidden">
-                                        <div className={`absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl opacity-30 ${details.color}`} />
-                                        <div className={`absolute -bottom-20 -left-20 w-64 h-64 rounded-full blur-3xl opacity-20 ${details.color} animate-pulse`} />
-                                    </div>
-
-                                    {/* Header: Timer & Dismiss */}
-                                    <div className="relative z-10 flex justify-between items-center w-full">
-                                        <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/5">
-                                            <LucideClock size={14} className="text-white/60" />
-                                            <span className="text-xs font-bold text-white font-mono tracking-wider">
-                                                <Timer startTime={request.created_at} variant="digital" />
-                                            </span>
-                                        </div>
-                                        {/* Only show dismiss if not delivered/accepted? Or allow dismiss always? */}
-                                        <button
-                                            onClick={() => handleDismissGroup(request.ids)}
-                                            className="size-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/20 text-white/40 hover:text-white transition-all active:scale-90"
-                                        >
-                                            <LucideX size={16} />
-                                        </button>
-                                    </div>
-
-                                    {/* Center Content */}
-                                    <div className="relative z-10 flex-grow flex flex-col items-center justify-center gap-6 py-4">
-
-                                        {/* Image Container with Glow */}
-                                        <div className="relative">
-                                            <div className={`absolute inset-0 rounded-full blur-2xl opacity-40 ${details.color}`} />
-                                            <div className="relative size-32 bg-white rounded-3xl overflow-hidden shadow-2xl ring-4 ring-white/10">
-                                                {details.image ? (
-                                                    <Image
-                                                        src={details.image}
-                                                        alt={details.label}
-                                                        fill
-                                                        className="object-cover"
-                                                    />
-                                                ) : (
-                                                    <div className="flex items-center justify-center w-full h-full text-black">
-                                                        <details.icon size={48} />
-                                                    </div>
-                                                )}
-                                                {isDelivered && (
-                                                    <div className="absolute inset-0 flex items-center justify-center bg-green-500/80 backdrop-blur-sm text-white">
-                                                        <LucideCheckCircle2 size={48} className="animate-bounce" />
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Enhanced Quantity Badge */}
-                                            {request.count > 1 && (
-                                                <motion.div
-                                                    initial={{ scale: 0 }}
-                                                    animate={{ scale: 1 }}
-                                                    className="absolute -top-2 -right-3 bg-white text-black font-black text-lg px-3 py-1 rounded-full shadow-xl shadow-black/20 border-2 border-neutral-900 z-20 flex items-center gap-0.5"
-                                                >
-                                                    <span className="text-xs opacity-50">x</span>
-                                                    {request.count}
-                                                </motion.div>
-                                            )}
-                                        </div>
-
-                                        {/* Text Content */}
-                                        <div className="text-center space-y-1">
-                                            <h3 className="text-lg font-bold text-white/50 tracking-widest uppercase mb-1">Table {request.tables?.table_number || '?'}</h3>
-                                            <h2 className={`text-4xl font-black text-white leading-none ${details.label.length > 10 ? 'text-3xl' : ''}`}>
-                                                {details.label}
-                                            </h2>
-                                            {isAccepted && !isDelivered && (
-                                                <p className="text-green-400 font-bold tracking-wider text-sm mt-2">ACCEPTED</p>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Action Button */}
-                                    <div className="relative z-10 w-full mt-auto">
-                                        {!isDelivered ? (
-                                            <>
-                                                <button
-                                                    onClick={() => {
-                                                        if (isAccepted) {
-                                                            handleServedGroup(request.ids);
-                                                        } else {
-                                                            handleAcceptGroup(request.ids);
-                                                        }
-                                                    }}
-                                                    className={`group relative w-full py-4 rounded-2xl ${isAccepted ? 'bg-green-500 text-white' : 'bg-white text-black'} font-black text-lg uppercase tracking-widest overflow-hidden shadow-lg shadow-white/10 active:scale-[0.98] transition-transform`}
-                                                >
-                                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/50 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out" />
-                                                    <span className="relative z-10 flex items-center justify-center gap-2">
-                                                        {isAccepted ? 'Mark as Served' : 'Accept Request'}
-                                                        {!isAccepted && <LucideArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />}
-                                                        {isAccepted && <LucideCheckCircle2 size={20} />}
-                                                    </span>
-                                                </button>
-                                                {!isAccepted && (
-                                                    <button
-                                                        onClick={() => handleDismissGroup(request.ids)}
-                                                        className="w-full mt-3 py-2 text-xs font-bold text-white/20 hover:text-white/50 transition-colors uppercase tracking-widest"
-                                                    >
-                                                        Dismiss for now
-                                                    </button>
-                                                )}
-                                            </>
-                                        ) : (
-                                            <button className="w-full py-4 rounded-2xl bg-white/20 text-white font-black text-lg uppercase tracking-widest cursor-default">
-                                                Completed
-                                            </button>
-                                        )}
-                                    </div>
-                                </motion.div>
-                            );
-                        })}
-
-                        {groupedAlerts.length > 1 && (
-                            <div className="absolute bottom-10 text-white/50 text-sm font-bold uppercase tracking-widest bg-black/50 px-4 py-2 rounded-full backdrop-blur">
-                                {groupedAlerts.length - 1} more types of alerts...
-                            </div>
-                        )}
-                    </div>
+                    {groupedAlerts.length > 1 && (
+                        <div className="absolute bottom-8 w-num text-white/60 text-xs font-bold bg-black/50 px-4 py-2 rounded-full backdrop-blur">
+                            +{groupedAlerts.length - 1} more alert{groupedAlerts.length > 2 ? 's' : ''}
+                        </div>
+                    )}
                 </div>
             )}
         </AnimatePresence>
+        <WaiterOverloadModal waiterRecord={currentWaiter} />
+        </>
     );
 }
+

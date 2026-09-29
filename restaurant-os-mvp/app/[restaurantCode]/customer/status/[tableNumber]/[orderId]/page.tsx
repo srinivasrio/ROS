@@ -1,16 +1,25 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { OrderService, Order } from '@/app/services/orders';
-import { CheckCircle as LucideCheckCircle, Clock as LucideClock, ChefHat as LucideChefHat, Utensils as LucideUtensils, Receipt as LucideReceipt, ChevronLeft as LucideChevronLeft, Loader2 as LucideLoader2, Ticket as LucideTicket, Check as LucideCheck, X as LucideX } from 'lucide-react';
-import { OfferService } from '@/app/services/offers';
+import { OrderService, Order } from '@/services/orders.service';
+import { supabase } from '@/lib/supabase';
+import {
+    CheckCircle as LucideCheckCircle, Clock as LucideClock, ChefHat as LucideChefHat,
+    Utensils as LucideUtensils, Receipt as LucideReceipt, ChevronLeft as LucideChevronLeft,
+    Loader2 as LucideLoader2, Ticket as LucideTicket, Check as LucideCheck, X as LucideX,
+    Bike as LucideBike, Phone as LucidePhone, MapPin as LucideMapPin,
+    ShoppingBag as LucideShoppingBag, Package as LucidePackage,
+    Navigation as LucideNavigation, ExternalLink as LucideExternalLink
+} from 'lucide-react';
+import { OfferService } from '@/services/offers.service';
 import { toast } from 'sonner';
-import SharedComboCard from '@/app/components/shared/SharedComboCard';
+import SharedComboCard from '@/components/shared/SharedComboCard';
 import { motion } from 'framer-motion';
 
-import BillRequestModal from '@/app/components/customer/BillRequestModal';
-import ConfirmationModal from '@/app/components/ui/ConfirmationModal';
+import BillRequestModal from '@/components/customer/BillRequestModal';
+import ConfirmationModal from '@/components/ui/ConfirmationModal';
+import { formatAddress } from '@/lib/utils';
 
 export default function OrderStatusPage() {
     const params = useParams();
@@ -18,6 +27,14 @@ export default function OrderStatusPage() {
     const orderId = typeof params.orderId === 'string' ? params.orderId : '';
     const urlRestaurantId = (params.restaurantCode || params.restaurantId) as string;
     const tableNumber = params.tableNumber as string;
+
+    const isMountedRef = useRef(true);
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(true);
@@ -30,18 +47,17 @@ export default function OrderStatusPage() {
     const loadOrder = async () => {
         try {
             const data = await OrderService.getOrderDetails(orderId, urlRestaurantId);
-            console.log('[OrderStatusPage] Loaded order:', data?.id, 'Items:', data?.items?.length);
-            if (data?.items) {
-                console.log('[OrderStatusPage] Item statuses:', data.items.map((i: any) => i.status));
-            }
+            if (!isMountedRef.current) return;
             setOrder(data);
-            if (data && (data as any).restaurant_id) {
+            if (data && (data as any).restaurant_id && isMountedRef.current) {
                 setOrderRestaurantId((data as any).restaurant_id);
             }
         } catch (error) {
             console.error('Failed to load order:', error);
         } finally {
-            setLoading(false);
+            if (isMountedRef.current) {
+                setLoading(false);
+            }
         }
     };
 
@@ -51,9 +67,9 @@ export default function OrderStatusPage() {
             
             // Resolve the restaurant ID first if it's a slug
             const actualId = await OrderService.resolveRestaurantId(urlRestaurantId);
-            if (actualId) setOrderRestaurantId(actualId);
+            if (actualId && isMountedRef.current) setOrderRestaurantId(actualId);
             
-            await loadOrder();
+            if (isMountedRef.current) await loadOrder();
         };
         init();
     }, [orderId, urlRestaurantId]);
@@ -74,9 +90,27 @@ export default function OrderStatusPage() {
             }
         });
 
+        // Realtime updates for delivery partner assignment & delivery tracking
+        const deliverySub = supabase
+            .channel(`order-delivery-${orderId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'delivery_assignments',
+                    filter: `order_id=eq.${orderId}`
+                },
+                () => {
+                    loadOrder();
+                }
+            )
+            .subscribe();
+
         return () => {
             orderSub.unsubscribe();
             itemSub.unsubscribe();
+            supabase.removeChannel(deliverySub);
         };
     }, [orderId, orderRestaurantId]);
 
@@ -92,7 +126,9 @@ export default function OrderStatusPage() {
             } else {
                 // Timer finished, auto-confirm queued items to placed
                 OrderService.updateOrderStatus(orderId, urlRestaurantId, 'placed')
-                    .then(() => loadOrder());
+                    .then(() => {
+                        if (isMountedRef.current) loadOrder();
+                    });
             }
         } else {
             // Reset timer if no queued items exist (confirmed or cancelled)
@@ -218,15 +254,117 @@ export default function OrderStatusPage() {
         }
     };
 
-    const getStatusStep = (status: string) => {
-        switch (status) {
-            case 'placed': return 1;
-            case 'preparing': return 2;
-            case 'ready': return 3;
-            case 'served': return 4;
-            case 'paid': return 5;
-            default: return 0;
+    const isTakeaway = order?.order_type === 'TAKEAWAY' || tableNumber === 'takeaway';
+    const isDelivery = order?.order_type === 'DELIVERY' || tableNumber === 'delivery';
+    const isDineIn = !isTakeaway && !isDelivery;
+
+    const getStepsConfig = () => {
+        if (!order) return { currentStep: 1, totalSteps: 4, steps: [] };
+
+        if (isDelivery) {
+            const daStatus = order.delivery_assignment?.status;
+            let current = 1;
+            if (['preparing', 'ready', 'served', 'paid'].includes(order.status)) current = 2;
+            if (['ready', 'served', 'paid'].includes(order.status)) current = 3;
+            if (['PICKED_UP', 'OUT_FOR_DELIVERY'].includes(daStatus || '')) current = 4;
+            if (daStatus === 'DELIVERED' || ['served', 'paid'].includes(order.status)) current = 5;
+
+            return {
+                currentStep: current,
+                totalSteps: 5,
+                steps: [
+                    { step: 1, icon: LucideClock, label: 'Placed', color: 'bg-blue-500' },
+                    { step: 2, icon: LucideChefHat, label: 'Cooking', color: 'bg-orange-500' },
+                    { step: 3, icon: LucidePackage, label: 'Ready', color: 'bg-amber-500' },
+                    { step: 4, icon: LucideBike, label: 'On The Way', color: 'bg-orange-600' },
+                    { step: 5, icon: LucideCheckCircle, label: 'Delivered', color: 'bg-emerald-600' },
+                ]
+            };
         }
+
+        if (isTakeaway) {
+            let current = 1;
+            if (['preparing', 'ready', 'served', 'paid'].includes(order.status)) current = 2;
+            if (['ready', 'served', 'paid'].includes(order.status)) current = 3;
+            if (order.status === 'served' || order.is_completed) current = 4;
+
+            return {
+                currentStep: current,
+                totalSteps: 4,
+                steps: [
+                    { step: 1, icon: LucideClock, label: 'Placed', color: 'bg-blue-500' },
+                    { step: 2, icon: LucideChefHat, label: 'Cooking', color: 'bg-orange-500' },
+                    { step: 3, icon: LucideShoppingBag, label: 'Pickup Ready', color: 'bg-emerald-500' },
+                    { step: 4, icon: LucideCheckCircle, label: 'Collected', color: 'bg-neutral-900' },
+                ]
+            };
+        }
+
+        // DINE IN
+        let current = 1;
+        if (['preparing', 'ready', 'served', 'paid'].includes(order.status)) current = 2;
+        if (['ready', 'served', 'paid'].includes(order.status)) current = 3;
+        if (['served', 'paid'].includes(order.status)) current = 4;
+
+        return {
+            currentStep: current,
+            totalSteps: 4,
+            steps: [
+                { step: 1, icon: LucideClock, label: 'Placed', color: 'bg-blue-500' },
+                { step: 2, icon: LucideChefHat, label: 'Cooking', color: 'bg-orange-500' },
+                { step: 3, icon: LucideUtensils, label: 'Ready', color: 'bg-emerald-500' },
+                { step: 4, icon: LucideCheckCircle, label: 'Served', color: 'bg-neutral-900' },
+            ]
+        };
+    };
+
+    const getStatusMessage = () => {
+        if (!order) return null;
+        if (isDelivery) {
+            const da = order.delivery_assignment;
+            if (da?.status === 'DELIVERED' || order.status === 'served') {
+                return <p className="text-emerald-600 font-black">Order Delivered! Enjoy your meal! 😋</p>;
+            }
+            if (da?.status === 'OUT_FOR_DELIVERY') {
+                return <p className="text-orange-600 font-bold animate-pulse">Delivery Partner is on the way to your doorstep! 🛵</p>;
+            }
+            if (da?.status === 'PICKED_UP') {
+                return <p className="text-orange-600 font-bold">Food picked up from restaurant and heading to you!</p>;
+            }
+            if (da?.status === 'ACCEPTED' || da?.status === 'ASSIGNED') {
+                return <p className="text-blue-600 font-bold">Delivery partner assigned ({da.delivery_boy?.name || 'Partner'}). Preparing to pick up!</p>;
+            }
+            if (order.status === 'ready') {
+                return <p className="text-amber-600 font-bold">Food is prepared! Waiting for delivery partner assignment.</p>;
+            }
+            if (order.status === 'preparing') {
+                return <p className="text-orange-600 font-bold animate-pulse">Chefs are preparing your meal in the kitchen!</p>;
+            }
+            return <p className="text-neutral-700 font-medium animate-pulse">Order placed! Waiting for kitchen confirmation...</p>;
+        }
+
+        if (isTakeaway) {
+            if (order.status === 'served' || order.is_completed) {
+                return <p className="text-emerald-600 font-black">Order Collected! Enjoy your food! 😋</p>;
+            }
+            if (order.status === 'paid') {
+                return <p className="text-emerald-600 font-black text-base animate-pulse">✓ Payment Received via {order.paid_by || 'Verified'}! Handing over your package at the counter.</p>;
+            }
+            if (order.status === 'ready') {
+                return <p className="text-emerald-600 font-black text-base animate-pulse">🎉 Order is READY for Pickup! Show Order #{order.order_number || order.id.slice(0, 6)} at the counter.</p>;
+            }
+            if (order.status === 'preparing') {
+                return <p className="text-orange-600 font-bold animate-pulse">Chefs are preparing your takeaway meal!</p>;
+            }
+            return <p className="text-neutral-700 font-medium animate-pulse">Takeaway order received! Preparing shortly...</p>;
+        }
+
+        // DINE IN
+        if (order.status === 'served') return <p className="text-neutral-900 font-bold">Enjoy your meal! 😋</p>;
+        if (order.status === 'ready') return <p className="text-emerald-600 font-bold">Your food is ready and being served to your table!</p>;
+        if (order.status === 'preparing') return <p className="text-orange-600 font-bold animate-pulse">Chefs are preparing your meal!</p>;
+        if (order.status === 'paid') return <p className="text-blue-600 font-bold">Payment Received by {order.paid_by || 'Staff'}. Thank you! 🙏</p>;
+        return <p className="text-neutral-700 font-medium animate-pulse">Waiting for kitchen confirmation...</p>;
     };
 
     if (loading) {
@@ -258,7 +396,7 @@ export default function OrderStatusPage() {
         );
     }
 
-    const currentStep = getStatusStep(order.status);
+    const stepConfig = getStepsConfig();
 
     return (
         <div className="flex flex-col h-screen bg-gray-50">
@@ -269,16 +407,19 @@ export default function OrderStatusPage() {
                     Menu
                 </button>
                 <div className="text-right">
-                    <h1 className="text-sm font-black text-black uppercase tracking-wide">Order #{order.id.slice(0, 6)}</h1>
-                    <p className="text-xs text-black font-medium">
-                        {order?.table_number ? (order.table_number.toLowerCase().includes('table') ? order.table_number : `Table ${order.table_number}`) : `Table ${tableNumber}`}
+                    <h1 className="text-sm font-black text-black uppercase tracking-wide">Order #{order.order_number || order.id.slice(0, 6)}</h1>
+                    <p className="text-xs text-black font-semibold">
+                        {isDelivery ? '🛵 Home Delivery' : isTakeaway ? '🛍️ Takeaway Pickup' : (() => {
+                            const raw = order?.table_name || order?.table_number || tableNumber || '';
+                            return raw.toLowerCase().startsWith('table') ? raw : `Table ${raw}`;
+                        })()}
                     </p>
                 </div>
             </header>
 
-            <main className="flex-1 overflow-y-auto p-4 space-y-6">
+            <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-36">
 
-                {/* UNDO / QUEUED BANNER REMOVED */}
+                {/* UNDO / QUEUED BANNER */}
                 {hasQueuedItems && (
                     <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 mb-4 flex items-start gap-3">
                         <div className="p-2 bg-orange-100 rounded-full text-orange-600">
@@ -293,31 +434,33 @@ export default function OrderStatusPage() {
                     </div>
                 )}
 
-                {/* Status Tracker (Hide if entire order is queued?) */}
+                {/* Status Tracker */}
                 {order.status !== 'queued' && (
                     <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
                         <div className="flex justify-between items-center mb-6 relative">
                             {/* Connecting Line */}
                             <div className="absolute top-1/2 left-0 w-full h-1 bg-gray-100 -z-10 rounded-full"></div>
                             <div
-                                className="absolute top-1/2 left-0 h-1 bg-green-500 -z-10 transition-all duration-500 rounded-full"
-                                style={{ width: `${((currentStep - 1) / 3) * 100}%` }}
+                                className="absolute top-1/2 left-0 h-1 bg-gradient-to-r from-orange-500 to-emerald-500 -z-10 transition-all duration-500 rounded-full"
+                                style={{ width: `${((stepConfig.currentStep - 1) / Math.max(1, stepConfig.totalSteps - 1)) * 100}%` }}
                             ></div>
 
                             {/* Steps */}
-                            {[
-                                { step: 1, icon: LucideClock, label: 'Placed', color: 'bg-blue-500' },
-                                { step: 2, icon: LucideChefHat, label: 'Cooking', color: 'bg-orange-500' },
-                                { step: 3, icon: LucideUtensils, label: 'Ready', color: 'bg-green-500' },
-                                { step: 4, icon: LucideCheckCircle, label: 'Served', color: 'bg-neutral-900' },
-                            ].map((s, idx) => {
-                                const isActive = currentStep >= s.step;
+                            {stepConfig.steps.map((s, idx) => {
+                                const isActive = stepConfig.currentStep >= s.step;
+                                const isCurrent = stepConfig.currentStep === s.step;
                                 return (
-                                    <div key={idx} className="flex flex-col items-center gap-2 bg-white px-2">
-                                        <div className={`size-10 rounded-full flex items-center justify-center transition-all duration-300 border-4 border-white shadow-sm ${isActive ? s.color + ' text-white scale-110' : 'bg-gray-200 text-black'}`}>
+                                    <div key={idx} className="flex flex-col items-center gap-2 bg-white px-1">
+                                        <div className={`size-10 rounded-full flex items-center justify-center transition-all duration-300 border-4 border-white shadow-sm ${
+                                            isActive 
+                                                ? s.color + ' text-white ' + (isCurrent ? 'scale-110 ring-2 ring-orange-400/40' : '') 
+                                                : 'bg-gray-200 text-neutral-400'
+                                        }`}>
                                             <s.icon size={16} />
                                         </div>
-                                        <span className={`text-[10px] font-bold uppercase tracking-wider ${isActive ? 'text-black' : 'text-black'}`}>
+                                        <span className={`text-[10px] font-bold uppercase tracking-wider text-center max-w-[65px] ${
+                                            isActive ? 'text-black' : 'text-neutral-400'
+                                        }`}>
                                             {s.label}
                                         </span>
                                     </div>
@@ -325,12 +468,134 @@ export default function OrderStatusPage() {
                             })}
                         </div>
                         <div className="text-center p-4 bg-gray-50 rounded-xl">
-                            {order.status === 'placed' && <p className="text-black font-medium animate-pulse">Waiting for kitchen confirmation...</p>}
-                            {order.status === 'preparing' && <p className="text-orange-600 font-bold animate-pulse">Chefs are preparing your meal!</p>}
-                            {order.status === 'ready' && <p className="text-green-600 font-bold text-lg">Your food is ready!</p>}
-                            {order.status === 'served' && <p className="text-black font-bold">Enjoy your meal! 😋</p>}
-                            {order.status === 'paid' && <p className="text-blue-600 font-bold">Payment Received by {order.paid_by || 'Staff'}. Thank you! 🙏</p>}
+                            {getStatusMessage()}
                         </div>
+                    </div>
+                )}
+
+                {/* Takeaway Pickup Info Card */}
+                {isTakeaway && (
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-amber-100 relative overflow-hidden">
+                        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700">
+                                <LucideShoppingBag size={16} />
+                                <span>Takeaway Counter Pickup</span>
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                Self Pickup
+                            </span>
+                        </div>
+                        <div className="pt-3 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs text-neutral-500 font-medium">Pickup Token:</span>
+                                <span className="text-sm font-black text-neutral-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
+                                    Order #{order.order_number || order.id.slice(0, 6)}
+                                </span>
+                            </div>
+                            {(order as any).delivery_phone && (
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-neutral-500">Customer Contact:</span>
+                                    <span className="font-semibold text-neutral-800">{(order as any).customer_name ? `${(order as any).customer_name} • ` : ''}{(order as any).delivery_phone}</span>
+                                </div>
+                            )}
+                            <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/60 text-xs text-amber-900 font-medium">
+                                💡 Please present your Order # at the restaurant pickup counter when status shows <strong>Pickup Ready</strong>.
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Delivery Info / Partner Card */}
+                {isDelivery && (
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-orange-100 relative overflow-hidden">
+                        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-orange-600">
+                                <LucideBike size={16} />
+                                <span>Home Delivery</span>
+                            </div>
+                            <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                                order.delivery_assignment?.status === 'DELIVERED'
+                                    ? 'bg-green-100 text-green-700'
+                                    : ['OUT_FOR_DELIVERY', 'PICKED_UP'].includes(order.delivery_assignment?.status || '')
+                                    ? 'bg-emerald-500 text-white animate-pulse'
+                                    : order.delivery_assignment?.status
+                                    ? 'bg-orange-100 text-orange-700'
+                                    : 'bg-neutral-100 text-neutral-600'
+                            }`}>
+                                {order.delivery_assignment?.status === 'OUT_FOR_DELIVERY' ? 'On The Way' :
+                                 order.delivery_assignment?.status === 'PICKED_UP' ? 'Picked Up' :
+                                 order.delivery_assignment?.status === 'DELIVERED' ? 'Delivered' :
+                                 order.delivery_assignment?.status === 'ACCEPTED' ? 'Partner Assigned' :
+                                 order.delivery_assignment?.status || 'Finding Partner'}
+                            </span>
+                        </div>
+
+                        {order.delivery_assignment?.delivery_boy ? (
+                            <div className="flex items-center justify-between pt-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="relative size-12 rounded-full bg-neutral-100 border-2 border-orange-200 overflow-hidden flex-shrink-0 flex items-center justify-center font-black text-base text-neutral-700 shadow-sm">
+                                        {order.delivery_assignment.delivery_boy.avatar_url ? (
+                                            <img
+                                                src={order.delivery_assignment.delivery_boy.avatar_url}
+                                                alt={order.delivery_assignment.delivery_boy.name}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <span>{order.delivery_assignment.delivery_boy.name?.charAt(0)?.toUpperCase() || 'D'}</span>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-black text-neutral-900 leading-tight">
+                                            {order.delivery_assignment.delivery_boy.name}
+                                        </h4>
+                                        <p className="text-xs text-neutral-500 font-medium mt-0.5">
+                                            {order.delivery_assignment.delivery_boy.vehicle_type ? (
+                                                <span className="capitalize">{order.delivery_assignment.delivery_boy.vehicle_type}</span>
+                                            ) : 'Delivery Partner'}
+                                            {order.delivery_assignment.delivery_boy.vehicle_number ? ` • ${order.delivery_assignment.delivery_boy.vehicle_number}` : ''}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {order.delivery_assignment.delivery_boy.mobile && (
+                                    <a
+                                        href={`tel:${order.delivery_assignment.delivery_boy.mobile}`}
+                                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-bold text-xs shadow-md shadow-orange-500/20 transition-all cursor-pointer"
+                                    >
+                                        <LucidePhone size={14} />
+                                        <span>Call</span>
+                                    </a>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="pt-3">
+                                <p className="text-xs text-neutral-600">
+                                    Your food is being prepared. A delivery partner will be assigned once your meal is ready for packing.
+                                </p>
+                            </div>
+                        )}
+
+                        {order.delivery_address && (
+                            <div className="mt-3 pt-2.5 border-t border-dashed border-gray-100">
+                                <div className="flex items-start gap-1.5 text-xs text-neutral-600 font-medium">
+                                    <LucideMapPin size={13} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                                    <span className="line-clamp-2">{formatAddress(order.delivery_address)}</span>
+                                </div>
+                                <a
+                                    href={(order as any).delivery_lat && (order as any).delivery_lng
+                                        ? `https://www.google.com/maps?q=${(order as any).delivery_lat},${(order as any).delivery_lng}`
+                                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formatAddress(order.delivery_address))}`
+                                    }
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 underline mt-1.5 ml-4"
+                                >
+                                    <LucideNavigation size={11} />
+                                    <span>View on Google Maps</span>
+                                    <LucideExternalLink size={10} />
+                                </a>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -472,90 +737,189 @@ export default function OrderStatusPage() {
                 )}
 
                 {/* Total & Payment Status */}
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-2">
-                    <div className="flex justify-between items-center text-sm font-medium text-black">
-                        <span>Original Total</span>
-                        <span>₹{order.total_amount}</span>
-                    </div>
+                {(() => {
+                    const ceil2 = (num: number) => {
+                        const n = Number(num || 0);
+                        const clean = Math.round(n * 1e8) / 1e8;
+                        return Math.ceil(clean * 100) / 100;
+                    };
+                    const round2 = ceil2;
+                    const formatAmount = (num: number) => ceil2(num).toFixed(2);
 
-                    {(order.discount_amount || 0) > 0 && (
-                        <div className="flex justify-between items-center text-green-600 font-bold text-sm">
-                            <span>🎫 Coupon Discount {order.coupon_code ? `(${order.coupon_code})` : ''}</span>
-                            <span>- ₹{order.discount_amount}</span>
+                    const calculatedCgst = (order.items || []).reduce((sum, item) => {
+                        const rate = (item as any).cgst_percent ?? (item as any).cgst_percentage ?? (((item as any).tax_percent ?? (item as any).gst_percentage ?? 5) / 2);
+                        return sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1) * (rate / 100));
+                    }, 0);
+                    const calculatedSgst = (order.items || []).reduce((sum, item) => {
+                        const rate = (item as any).sgst_percent ?? (item as any).sgst_percentage ?? (((item as any).tax_percent ?? (item as any).gst_percentage ?? 5) / 2);
+                        return sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1) * (rate / 100));
+                    }, 0);
+
+                    const cgstAmount = (order as any).cgst_amount != null && Number((order as any).cgst_amount) > 0
+                        ? round2(Number((order as any).cgst_amount))
+                        : round2(calculatedCgst);
+                    const sgstAmount = (order as any).sgst_amount != null && Number((order as any).sgst_amount) > 0
+                        ? round2(Number((order as any).sgst_amount))
+                        : round2(calculatedSgst);
+
+                    const sumCgstSgst = round2(cgstAmount + sgstAmount);
+                    const gstAmount = sumCgstSgst > 0
+                        ? sumCgstSgst
+                        : ((order as any).gst_amount != null && Number((order as any).gst_amount) > 0
+                            ? round2(Number((order as any).gst_amount))
+                            : round2(calculatedCgst + calculatedSgst));
+
+                    const deliveryFee = round2(Number(order.delivery_fee || 0));
+                    const discountAmount = round2(Number(order.discount_amount || 0));
+
+                    const itemSubtotal = round2(
+                        order.items && order.items.length > 0
+                            ? order.items.reduce((sum, item) => sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1)), 0)
+                            : Math.max(0, (Number(order.total_amount) || 0) - gstAmount - deliveryFee + discountAmount)
+                    );
+
+                    const finalTotal = round2(
+                        order.total_amount != null && Number(order.total_amount) > 0
+                            ? Number(order.total_amount) - discountAmount
+                            : (itemSubtotal + gstAmount + deliveryFee - discountAmount)
+                    );
+
+                    const amountPaid = round2(Number(order.amount_paid || 0));
+                    const balanceDue = round2(Math.max(0, finalTotal - amountPaid));
+
+                    return (
+                        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-2">
+                            <div className="flex justify-between items-center text-sm font-medium text-black">
+                                <span>Item Total</span>
+                                <span>₹{formatAmount(itemSubtotal)}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-sm font-medium text-black">
+                                <span>GST / Taxes</span>
+                                <span>₹{formatAmount(gstAmount)}</span>
+                            </div>
+
+                            {cgstAmount > 0 && sgstAmount > 0 && (
+                                <div className="flex justify-between items-center text-[11px] text-gray-500 pl-2">
+                                    <span>CGST + SGST</span>
+                                    <span>₹{formatAmount(cgstAmount)} + ₹{formatAmount(sgstAmount)}</span>
+                                </div>
+                            )}
+
+                            {deliveryFee > 0 && (
+                                <div className="flex justify-between items-center text-sm font-medium text-black">
+                                    <span>Delivery Fee</span>
+                                    <span>₹{formatAmount(deliveryFee)}</span>
+                                </div>
+                            )}
+
+                            {discountAmount > 0 && (
+                                <div className="flex justify-between items-center text-green-600 font-bold text-sm">
+                                    <span>🎫 Coupon Discount {order.coupon_code ? `(${order.coupon_code})` : ''}</span>
+                                    <span>- ₹{formatAmount(discountAmount)}</span>
+                                </div>
+                            )}
+
+                            <div className="flex justify-between items-center border-t border-gray-50 pt-2 mt-1">
+                                <span className="font-bold text-black">Total</span>
+                                <span className="font-black text-xl text-black">
+                                    ₹{formatAmount(finalTotal)}
+                                </span>
+                            </div>
+
+                            {amountPaid > 0 && (
+                                <div className="flex justify-between items-center text-green-600">
+                                    <span className="font-bold text-sm">Paid</span>
+                                    <span className="font-black text-lg">- ₹{formatAmount(amountPaid)}</span>
+                                </div>
+                            )}
+
+                            {amountPaid > 0 && balanceDue > 0 && (
+                                <div className="flex justify-between items-center text-orange-600 pt-2 border-t border-gray-50">
+                                    <span className="font-bold text-sm">Balance Due</span>
+                                    <span className="font-black text-2xl">
+                                        ₹{formatAmount(balanceDue)}
+                                    </span>
+                                </div>
+                            )}
                         </div>
-                    )}
+                    );
+                })()}
+        </main>
 
-                    <div className="flex justify-between items-center border-t border-gray-50 pt-2 mt-1">
-                        <span className="font-bold text-black">Total</span>
-                        <span className="font-black text-xl text-black">
-                            ₹{(order.total_amount || 0) - (order.discount_amount || 0)}
-                        </span>
-                    </div>
-
-                    {(order.amount_paid || 0) > 0 && (
-                        <div className="flex justify-between items-center text-green-600">
-                            <span className="font-bold text-sm">Paid</span>
-                            <span className="font-black text-lg">- ₹{order.amount_paid}</span>
+            {/* Actions - Floating above Bottom Nav */}
+            <div 
+                className="fixed left-0 w-full flex justify-center z-40 pointer-events-none"
+                style={{ bottom: 'calc(4.85rem + env(safe-area-inset-bottom, 0px))' }}
+            >
+                <div className="w-full max-w-xs px-4 flex gap-3">
+                    {hasQueuedItems ? (
+                        <div className="flex gap-3 w-full pointer-events-auto">
+                            <button
+                                onClick={handleCancelQueuedItems}
+                                className="flex-1 py-2.5 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 active:scale-95 transition-all text-xs shadow-sm cursor-pointer"
+                            >
+                                Undo
+                            </button>
+                            <button
+                                onClick={() => {
+                                    OrderService.updateOrderStatus(orderId, urlRestaurantId, 'placed')
+                                        .then(() => loadOrder())
+                                        .catch(e => console.error('Failed to confirm', e));
+                                }}
+                                className="flex-1 py-2.5 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 active:scale-95 transition-all text-xs shadow-md shadow-green-500/20 cursor-pointer"
+                            >
+                                Confirm Now ({timeLeft}s)
+                            </button>
                         </div>
-                    )}
-
-                    {(order.amount_paid || 0) > 0 && ((order.total_amount || 0) - (order.discount_amount || 0)) > (order.amount_paid || 0) && (
-                        <div className="flex justify-between items-center text-orange-600 pt-2 border-t border-gray-50">
-                            <span className="font-bold text-sm">Balance Due</span>
-                            <span className="font-black text-2xl">
-                                ₹{((order.total_amount || 0) - (order.discount_amount || 0)) - (order.amount_paid || 0)}
-                            </span>
-                        </div>
+                    ) : (
+                        <>
+                            <button
+                                onClick={() => router.push(`/${urlRestaurantId}/customer/menu/${tableNumber}`)}
+                                className="flex-1 py-2.5 bg-white border border-neutral-200 text-black font-bold rounded-xl active:scale-95 transition-transform text-xs pointer-events-auto shadow-md cursor-pointer"
+                            >
+                                Add More Items
+                            </button>
+                            {isDineIn ? (
+                                <button
+                                    onClick={() => {
+                                        setConfirmationModal({
+                                            isOpen: true,
+                                            title: 'Confirm Bill Request',
+                                            message: `Are you sure you want to request the bill for Table ${tableNumber}? A waiter will bring your bill.`,
+                                            confirmText: 'Request Bill',
+                                            onConfirm: async () => {
+                                                try {
+                                                    if (tableNumber && orderRestaurantId) {
+                                                        await OrderService.setTableAlert(tableNumber, 'bill_requested', orderRestaurantId);
+                                                    }
+                                                    closeConfirmationModal();
+                                                    setIsBillRequested(true);
+                                                } catch (e) {
+                                                    console.error(e);
+                                                    closeConfirmationModal();
+                                                    toast.error('Failed to request bill');
+                                                }
+                                            }
+                                        });
+                                    }}
+                                    className="flex-1 py-2.5 bg-neutral-900 text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-1.5 text-xs pointer-events-auto shadow-md cursor-pointer"
+                                >
+                                    <span>Request Bill</span>
+                                    <LucideReceipt size={14} className="text-white" />
+                                </button>
+                            ) : isDelivery && order.delivery_assignment?.delivery_boy?.mobile ? (
+                                <a
+                                    href={`tel:${order.delivery_assignment.delivery_boy.mobile}`}
+                                    className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-1.5 text-xs pointer-events-auto shadow-md shadow-orange-500/20 cursor-pointer text-center"
+                                >
+                                    <LucidePhone size={14} />
+                                    <span>Call Partner</span>
+                                </a>
+                            ) : null}
+                        </>
                     )}
                 </div>
-            </main>
-
-            {/* Actions - Sticky Footer */}
-            <div className="p-4 bg-white border-t border-gray-100 flex gap-3 sticky bottom-[64px] z-30 shadow-[0_-4px_15px_rgba(0,0,0,0.03)]">
-                {hasQueuedItems ? (
-                    <div className="flex gap-3 w-full">
-                        <button
-                            onClick={handleCancelQueuedItems}
-                            className="flex-1 py-4 bg-red-100 text-red-600 font-bold rounded-xl hover:bg-red-200 transition-colors shadow-sm"
-                        >
-                            Undo
-                        </button>
-                        <button
-                            onClick={() => {
-                                OrderService.updateOrderStatus(orderId, urlRestaurantId, 'placed')
-                                    .then(() => loadOrder())
-                                    .catch(e => console.error('Failed to confirm', e));
-                            }}
-                            className="flex-1 py-4 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 transition-colors shadow-xl shadow-green-500/20"
-                        >
-                            Confirm Now ({timeLeft}s)
-                        </button>
-                    </div>
-                ) : (
-                    <>
-                        <button
-                            onClick={() => router.push(`/${urlRestaurantId}/customer/menu/${tableNumber}`)}
-                            className="flex-1 py-4 bg-white border border-neutral-200 text-black font-bold rounded-xl hover:bg-neutral-50 transition-colors shadow-sm"
-                        >
-                            Add More Items
-                        </button>
-                        <button
-                            onClick={async () => {
-                                try {
-                                    if (tableNumber && orderRestaurantId) {
-                                        await OrderService.setTableAlert(tableNumber, 'bill_requested', orderRestaurantId);
-                                    }
-                                    setIsBillRequested(true);
-                                } catch (e) {
-                                    console.error(e);
-                                }
-                            }}
-                            className="flex-1 py-4 bg-neutral-900 text-white font-bold rounded-xl hover:bg-black transition-colors shadow-xl shadow-neutral-900/10"
-                        >
-                            Request Bill 📄
-                        </button>
-                    </>
-                )}
             </div>
 
             <BillRequestModal

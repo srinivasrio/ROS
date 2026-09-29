@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, useState, useCallback, use, useRef } from 'react';
-import { HomepageBuilderService } from '@/app/services/homepage-builder.service';
-import { HomepageCache } from '@/app/services/homepage-cache.service';
-import { OrderService } from '@/app/services/orders';
-import SharedHomepageLayout from '@/app/components/shared/homepage/SharedHomepageLayout';
-import { SharedSkeleton } from '@/app/components/customer/SharedSkeleton';
-import { useCartSafe } from '@/app/context/CartContext';
+import { HomepageBuilderService } from '@/services/homepage-builder.service';
+import { HomepageCache } from '@/services/homepage-cache.service';
+import { OrderService } from '@/services/orders.service';
+import SharedHomepageLayout from '@/components/shared/homepage/SharedHomepageLayout';
+import HomepageSkeleton from '@/components/shared/homepage/HomepageSkeleton';
+import { SharedSkeleton } from '@/components/customer/SharedSkeleton';
+import { useCartSafe } from '@/context/CartContext';
 import { useRouter } from 'next/navigation';
+import { Utensils as LucideUtensils, AlertCircle as LucideAlertCircle } from 'lucide-react';
 
 export default function CustomerHome({ params: paramsPromise }: any) {
     const params: any = use(paramsPromise);
@@ -22,6 +24,7 @@ export default function CustomerHome({ params: paramsPromise }: any) {
     const [theme, setTheme] = useState<any>(cachedData?.theme || null);
     const [sections, setSections] = useState<any>(cachedData?.sections || []);
     const [displayTableNumber, setDisplayTableNumber] = useState(tableNumber);
+    const [tableNotFound, setTableNotFound] = useState(false);
     
     const isFirstRun = useRef(true);
 
@@ -31,7 +34,25 @@ export default function CustomerHome({ params: paramsPromise }: any) {
             setLoading(true);
         }
 
+        const normalized = String(tableNumber || '').trim().toLowerCase();
+        const isVirtualMode = normalized === 'takeaway' || normalized === 'delivery';
+
         try {
+            if (isVirtualMode) {
+                setDisplayTableNumber(normalized === 'takeaway' ? 'Takeaway' : 'Delivery');
+                setTableNotFound(false);
+            } else {
+                const tableData = await OrderService.findTableAnywhere(tableNumber, restaurantId);
+                if (tableData) {
+                    setDisplayTableNumber(tableData.display_name?.replace('Table ', '') || tableData.table_number?.toString() || tableNumber);
+                    setTableNotFound(false);
+                } else {
+                    setTableNotFound(true);
+                    setLoading(false);
+                    return;
+                }
+            }
+
             const homepageData = await HomepageBuilderService.getHomepageData(restaurantId, tableNumber);
 
             // Update cache
@@ -42,12 +63,6 @@ export default function CustomerHome({ params: paramsPromise }: any) {
             setTheme(homepageData.theme);
             setSections(homepageData.sections);
             setData(homepageData);
-
-            // Background table resolution
-            const tableData = await OrderService.findTableAnywhere(tableNumber, restaurantId);
-            if (tableData) {
-                setDisplayTableNumber(tableData.display_name || tableData.table_number?.toString() || tableNumber);
-            }
         } catch (err: any) {
             console.error('Failed to load homepage data:', err);
         } finally {
@@ -59,7 +74,7 @@ export default function CustomerHome({ params: paramsPromise }: any) {
         // Initial load
         loadData(isFirstRun.current && !cachedData);
         isFirstRun.current = false;
-    }, [loadData, cachedData]);
+    }, [loadData]);
 
     useEffect(() => {
         let active = true;
@@ -69,7 +84,9 @@ export default function CustomerHome({ params: paramsPromise }: any) {
             try {
                 sub = await HomepageBuilderService.subscribeToAll(restaurantId, (table, payload) => {
                     console.log(`Real-time update from ${table}:`, payload);
-                    if (active) loadData(false); // Background refresh
+                    if (active && document.visibilityState === 'visible') {
+                        loadData(false); // Background refresh only when visible
+                    }
                 });
                 if (!active && sub) sub.unsubscribe();
             } catch (err) {
@@ -77,11 +94,24 @@ export default function CustomerHome({ params: paramsPromise }: any) {
             }
         };
 
+        let lastVisFetch = Date.now();
+        const handleVisibilityChange = () => {
+            if (active && document.visibilityState === 'visible') {
+                const now = Date.now();
+                if (now - lastVisFetch > 45000) {
+                    lastVisFetch = now;
+                    loadData(false);
+                }
+            }
+        };
+
         setupSubs();
+        document.addEventListener('visibilitychange', handleVisibilityChange);
 
         return () => {
             active = false;
             if (sub?.unsubscribe) sub.unsubscribe();
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [restaurantId, loadData]);
 
@@ -106,7 +136,7 @@ export default function CustomerHome({ params: paramsPromise }: any) {
 
     // Use cached rendering if available even while loading fresh data
     if (loading && !data) {
-        return <SharedSkeleton type="home" />;
+        return <HomepageSkeleton />;
     }
 
     if (!profile || !data) {
@@ -129,6 +159,32 @@ export default function CustomerHome({ params: paramsPromise }: any) {
                         Retry Loading
                     </button>
                 </div>
+            </div>
+        );
+    }
+
+    if (tableNotFound) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[70vh] p-6 text-center">
+                <div className="w-20 h-20 bg-rose-50 border border-rose-100 rounded-3xl flex items-center justify-center mb-6 shadow-lg shadow-rose-500/10">
+                    <LucideUtensils className="text-rose-500" size={36} />
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200/80 text-rose-700 text-xs font-bold uppercase tracking-wider mb-4">
+                    <LucideAlertCircle size={14} />
+                    <span>Table Not Found</span>
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">
+                    No table named &ldquo;{tableNumber}&rdquo; in this restaurant
+                </h2>
+                <p className="text-slate-500 text-sm mb-8 leading-relaxed max-w-xs">
+                    Table <span className="font-bold text-slate-800">{tableNumber}</span> does not exist or has not been created by the restaurant admin. Customers can only view the menu and place orders from valid, admin-created tables.
+                </p>
+                <button 
+                    onClick={() => window.location.reload()}
+                    className="py-3.5 px-8 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-slate-900/20 text-sm cursor-pointer"
+                >
+                    Try Again
+                </button>
             </div>
         );
     }

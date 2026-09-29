@@ -1,383 +1,369 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Undo2, Redo2, Save, Loader2, Check, Smartphone, Tablet, Monitor,
-    Sparkles, Eye, Layout, Palette, Settings
+  Undo2, Redo2, Save, Loader2, Check, Smartphone, Tablet, Monitor,
+  Eye, ArrowLeft, ExternalLink, Sparkles
 } from 'lucide-react';
-import { useParams } from 'next/navigation';
-import { HomepageBuilderService } from '@/app/services/homepage-builder.service';
-import { BannerService } from '@/app/services/banner.service';
-import { MenuService } from '@/app/services/menu';
-import { compressImage, validateImageFile } from '@/app/lib/image-compress';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { LoadingState } from '@/components/ui/LoadingState';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
-import SharedHomepageLayout from '@/app/components/shared/homepage/SharedHomepageLayout';
-import { useBuilderState } from '@/app/components/admin/homepage-builder/useBuilderState';
-import { CartProvider } from '@/app/context/CartContext';
-import { useRef } from 'react';
 
-const generateId = () => {
-    try {
-        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-            return crypto.randomUUID();
-        }
-    } catch (e) {}
-    
-    // Fallback UUID v4 generator
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-};
+import { HomepageBuilderService } from '@/services/homepage-builder.service';
+import { BannerService } from '@/services/banner.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { requestManager } from '@/lib/cache/request-manager';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
+import { LoadingState } from '@/components/ui/LoadingState';
+import SharedHomepageLayout from '@/components/shared/homepage/SharedHomepageLayout';
+import { useBuilderState } from '@/components/admin/homepage-builder/useBuilderState';
+import SectionManager from '@/components/admin/homepage-builder/SectionManager';
+import PropertiesPanel from '@/components/admin/homepage-builder/PropertiesPanel';
+import { CartProvider } from '@/context/CartContext';
 
 export default function HomepageBuilderPage() {
-    const params = useParams();
-    const { restaurantId, loading: restaurantLoading } = useRestaurantId();
-    const [dataLoading, setDataLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-    const [previewMode, setPreviewMode] = useState<'mobile' | 'tablet' | 'desktop'>('mobile');
+  const params = useParams();
+  const router = useRouter();
+  const restaurantCode = (params?.restaurantCode as string) || '';
+  const { restaurantId, loading: restaurantLoading } = useRestaurantId();
 
-    const { state, dispatch, undo, redo, canUndo, canRedo } = useBuilderState();
+  const cacheKey = `homepage-builder-${restaurantId || restaurantCode}`;
+  const cached = getCached<any>(cacheKey);
 
-    // ─── Load Data ───
-    useEffect(() => {
-        if (restaurantLoading || !restaurantId) return;
-        loadData();
-    }, [restaurantId, restaurantLoading]);
+  const [dataLoading, setDataLoading] = useState(!cached);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [previewMode, setPreviewMode] = useState<'mobile' | 'tablet' | 'desktop'>('desktop');
 
-    const loadData = async () => {
-        if (!restaurantId) return;
-        try {
-            const homepageData = await HomepageBuilderService.getHomepageData(restaurantId, '', 'admin');
+  const { state, dispatch, undo, redo, canUndo, canRedo } = useBuilderState();
 
-            dispatch({ type: 'SET_THEME', theme: homepageData.theme });
-            dispatch({ type: 'UPDATE_PROFILE', profile: homepageData.profile });
-            dispatch({ type: 'SET_SECTIONS', sections: homepageData.sections });
-            dispatch({ type: 'SET_HOMEPAGE_DATA', data: homepageData });
-            
-            setDataLoading(false);
-        } catch (err) {
-            console.error('Failed to load homepage builder:', err);
-            toast.error('Failed to load homepage data');
-        } finally {
-            setDataLoading(false);
-        }
+  // Hydrate immediately from cache on first render
+  useEffect(() => {
+    if (cached) {
+      if (cached.theme) dispatch({ type: 'SET_THEME', theme: cached.theme });
+      if (cached.profile) dispatch({ type: 'UPDATE_PROFILE', profile: cached.profile });
+      if (cached.sections) dispatch({ type: 'SET_SECTIONS', sections: cached.sections });
+      dispatch({ type: 'SET_HOMEPAGE_DATA', data: cached });
+    }
+  }, []);
+
+  const loadData = useCallback(async (force = false) => {
+    const targetId = restaurantId || restaurantCode;
+    if (!targetId) return;
+    const key = `homepage-builder-${targetId}`;
+
+    const currentCached = getCached<any>(key);
+    if (currentCached && !state.profile?.name) {
+      if (currentCached.theme) dispatch({ type: 'SET_THEME', theme: currentCached.theme });
+      if (currentCached.profile) dispatch({ type: 'UPDATE_PROFILE', profile: currentCached.profile });
+      if (currentCached.sections) dispatch({ type: 'SET_SECTIONS', sections: currentCached.sections });
+      dispatch({ type: 'SET_HOMEPAGE_DATA', data: currentCached });
+      setDataLoading(false);
+    }
+
+    if (!force && hasFreshCache(key)) {
+      setDataLoading(false);
+      return;
+    }
+
+    if (!currentCached && !state.profile?.name) {
+      setDataLoading(true);
+    } else {
+      setIsSyncing(true);
+    }
+
+    try {
+      const homepageData = await requestManager.coalesce(key, () => 
+        HomepageBuilderService.getHomepageData(restaurantId || targetId, '', 'admin')
+      , 3);
+
+      if (homepageData) {
+        dispatch({ type: 'SET_THEME', theme: homepageData.theme });
+        dispatch({ type: 'UPDATE_PROFILE', profile: homepageData.profile });
+        dispatch({ type: 'SET_SECTIONS', sections: homepageData.sections });
+        dispatch({ type: 'SET_HOMEPAGE_DATA', data: homepageData });
+        setCache(key, homepageData, { ttlMs: 15 * 60 * 1000 });
+        if (restaurantId) setCache(`homepage-builder-${restaurantId}`, homepageData, { ttlMs: 15 * 60 * 1000 });
+        setLastSync(new Date());
+      }
+    } catch (err) {
+      console.error('Failed to load homepage builder:', err);
+      toast.error('Failed to load homepage data');
+    } finally {
+      setDataLoading(false);
+      setIsSyncing(false);
+    }
+  }, [restaurantId, restaurantCode, state.profile?.name, dispatch]);
+
+  // Load Initial Data
+  useEffect(() => {
+    if (!restaurantLoading && (restaurantId || restaurantCode)) {
+      loadData();
+    }
+  }, [restaurantId, restaurantCode, restaurantLoading, loadData]);
+
+  // Refresh banners from DB
+  const refreshBanners = useCallback(async () => {
+    if (!restaurantId) return;
+    try {
+      const freshBanners = await BannerService.getBanners(restaurantId, false);
+      dispatch({ type: 'SET_HOMEPAGE_DATA', data: { ...state.data, banners: freshBanners } });
+    } catch (err) {
+      console.error('[Admin] Failed to refresh banners:', err);
+    }
+  }, [restaurantId, dispatch, state.data]);
+
+  // Section / Content update handler
+  const handleUpdate = useCallback(
+    (type: string, payload: any) => {
+      if (type === 'sections') {
+        dispatch({ type: 'SET_SECTIONS', sections: payload });
+        dispatch({ type: 'SET_DIRTY', isDirty: true });
+      } else if (type === 'profile') {
+        dispatch({ type: 'UPDATE_PROFILE', profile: payload });
+        dispatch({ type: 'SET_DIRTY', isDirty: true });
+      } else if (type === 'update_section_data') {
+        dispatch({ type: 'UPDATE_SECTION_DATA', section: payload.section, payload: payload.data });
+        dispatch({ type: 'SET_DIRTY', isDirty: true });
+      }
+    },
+    [dispatch]
+  );
+
+  // Save full state
+  const handleSave = useCallback(async () => {
+    if (!restaurantId || saving) return;
+    setSaving(true);
+    setSaveStatus('saving');
+
+    try {
+      await HomepageBuilderService.saveFullState(restaurantId, state);
+
+      const targetId = restaurantId || restaurantCode;
+      const currentData = state.data || state;
+      setCache(`homepage-builder-${targetId}`, currentData);
+      if (restaurantId) setCache(`homepage-builder-${restaurantId}`, currentData);
+      setLastSync(new Date());
+
+      dispatch({ type: 'SET_DIRTY', isDirty: false });
+      setSaveStatus('saved');
+      toast.success('Homepage published successfully!');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (err: any) {
+      console.error('Save failed:', err);
+      toast.error(`Save failed: ${err?.message || 'Unknown error'}`);
+      setSaveStatus('idle');
+    } finally {
+      setSaving(false);
+    }
+  }, [restaurantId, restaurantCode, state, saving, dispatch]);
+
+  // Keyboard Shortcuts (Cmd+Z, Cmd+Shift+Z, Cmd+S)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
     };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [undo, redo, handleSave]);
 
-    // ─── Refresh banners from DB (called after BannerService direct CRUD) ───
-    const refreshBanners = useCallback(async () => {
-        if (!restaurantId) return;
-        try {
-            const freshBanners = await BannerService.getBanners(restaurantId, false);
-            dispatch({ type: 'SET_HOMEPAGE_DATA', data: { ...state.data, banners: freshBanners } });
-        } catch (err) {
-            console.error('[Admin] Failed to refresh banners:', err);
-        }
-    }, [restaurantId, dispatch, state.data]);
+  if (dataLoading) return <LoadingState message="Launching Studio Editor..." fullScreen />;
 
-    // ─── Update Handlers ───
-    const [uploadConfig, setUploadConfig] = useState<{ type: string; payload: any } | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+  // Find currently selected section
+  const selectedSection = state.sections.find(
+    (s) => s.id === state.selectedSectionId || s.section_type === state.selectedSectionId || (s as any).type === state.selectedSectionId
+  ) || null;
 
-    const handleUpdate = useCallback(async (type: string, payload: any) => {
-        // Banner uploads are now handled directly by BannerManager component,
-        // so we only handle non-banner uploads here.
-        if (type === 'upload_banner') {
-            // Legacy path: still supported via file input for edge cases
-            setUploadConfig({ type, payload });
-            fileInputRef.current?.click();
-            return;
-        }
-
-        if (type.includes('upload')) {
-            setUploadConfig({ type, payload });
-            fileInputRef.current?.click();
-            return;
-        }
-
-        if (type === 'sections') {
-            dispatch({ type: 'SET_SECTIONS', sections: payload });
-        } else if (type === 'profile') {
-            dispatch({ type: 'UPDATE_PROFILE', profile: payload });
-        } else if (type === 'theme') {
-            dispatch({ type: 'UPDATE_THEME', updates: payload });
-        } else if (type === 'update_section_style') {
-            dispatch({ type: 'UPDATE_SECTION_STYLE', section_name: payload.section_name, style: payload.style });
-        } else if (type === 'delete_special') {
-            dispatch({ type: 'REMOVE_SECTION_ITEM', section: 'specials', id: payload.id });
-        } else if (type === 'delete_combo') {
-            dispatch({ type: 'REMOVE_SECTION_ITEM', section: 'combos', id: payload.id });
-        } else if (type === 'delete_banner') {
-            dispatch({ type: 'REMOVE_SECTION_ITEM', section: 'banners', id: payload.id });
-        } else if (type === 'add_element') {
-            dispatch({ type: 'ADD_ELEMENT', sectionId: payload.sectionId, element: payload.element });
-        } else if (type === 'remove_element') {
-            dispatch({ type: 'REMOVE_ELEMENT', sectionId: payload.sectionId, elementId: payload.elementId });
-        } else if (type === 'update_element_content') {
-            dispatch({ type: 'UPDATE_ELEMENT_CONTENT', sectionId: payload.sectionId, elementId: payload.elementId, content: payload.content });
-        } else {
-            // Section specific updates - map "update_banner" to "banners", etc.
-            const sectionMap: Record<string, string> = {
-                'update_banner': 'banners',
-                'update_category': 'categories',
-                'update_service': 'services',
-                'update_special': 'specials',
-                'update_combo': 'combos',
-                'update_offer': 'offers',
-                'banners': 'banners',
-                'categories': 'categories',
-                'services': 'services',
-                'specials': 'specials',
-                'combos': 'combos',
-                'offers': 'offers'
-            };
-            const section = sectionMap[type] || type;
-            dispatch({ type: 'UPDATE_SECTION_DATA', section, payload });
-        }
-    }, [dispatch]);
-
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file || !uploadConfig) return;
-
-        const validationError = validateImageFile(file);
-        if (validationError) {
-            toast.error(validationError);
-            return;
-        }
-
-        try {
-            const compressed = await compressImage(file);
-            const imageUrl = await MenuService.uploadMenuImage(compressed.file);
-            
-            const { type, payload } = uploadConfig;
-            
-            // Helper to update or add to section data
-            const updateOrAdd = (section: string, fieldName: string) => {
-                const currentData = state.data[section] || [];
-                const exists = currentData.some((item: any) => item.id === payload.id);
-                
-                if (exists && payload.id !== 'empty') {
-                    dispatch({ 
-                        type: 'UPDATE_SECTION_DATA', 
-                        section, 
-                        payload: { id: payload.id, data: { [fieldName]: imageUrl } } 
-                    });
-                } else {
-                    // Create new item
-                    const newItem = {
-                        id: generateId(),
-                        restaurant_id: restaurantId,
-                        [fieldName]: imageUrl,
-                        // Add some defaults based on type
-                        ...(section === 'banners' ? { title: 'New Offer', description: 'Limited time', active: true, order_index: currentData.length } : {}),
-                        ...(section === 'categories' ? { name: 'New Category', active: true, order_index: currentData.length } : {}),
-                        ...(section === 'specials' ? { title: 'New Special', price: 0, active: true, special_type: 'single', items: [] } : {}),
-                        ...(section === 'combos' ? { title: 'New Combo', price: 0, active: true, special_type: 'combo', items: [] } : {}),
-                        ...(section === 'offers' ? { title: 'New Offer', description: 'Special discount just for you', code: 'SAVE10', active: true } : {}),
-                        ...(section === 'services' ? { service_title: 'New Service', active: true, service_image: '', items: [] } : {}),
-                    };
-                    dispatch({ 
-                        type: 'UPDATE_SECTION_DATA', 
-                        section, 
-                        payload: [...currentData, newItem] 
-                    });
-                }
-            };
-
-            if (type === 'upload_banner') {
-                updateOrAdd('banners', 'image_url');
-            } else if (type === 'upload_category') {
-                updateOrAdd('categories', 'image_url');
-            } else if (type === 'upload_service') {
-                updateOrAdd('services', 'service_image');
-            } else if (type === 'upload_special') {
-                updateOrAdd('specials', 'image_url');
-            } else if (type === 'upload_combo') {
-                updateOrAdd('combos', 'image_url');
-            } else if (type === 'upload_offer') {
-                updateOrAdd('offers', 'banner_image');
-            } else if (type === 'upload_logo') {
-                if (payload.elementId) {
-                    dispatch({ 
-                        type: 'UPDATE_ELEMENT_CONTENT', 
-                        sectionId: 'header', 
-                        elementId: payload.elementId,
-                        content: { url: imageUrl }
-                    });
-                } else {
-                    dispatch({ type: 'UPDATE_PROFILE', profile: { logo_url: imageUrl } });
-                }
-            }
-            toast.success('Image uploaded successfully!');
-        } catch (error) {
-            console.error('Upload failed:', error);
-            toast.error('Failed to upload image. Please try again.');
-        } finally {
-            setUploadConfig(null);
-            if (fileInputRef.current) fileInputRef.current.value = '';
-        }
-    };
-
-    // ─── Save ───
-    const handleSave = useCallback(async () => {
-        if (!restaurantId || saving) return;
-        setSaving(true);
-        setSaveStatus('saving');
-
-        try {
-            await HomepageBuilderService.saveFullState(restaurantId, state);
-
-            dispatch({ type: 'SET_DIRTY', isDirty: false });
-            setSaveStatus('saved');
-            toast.success('Homepage saved successfully!');
-            setTimeout(() => setSaveStatus('idle'), 2000);
-        } catch (err: any) {
-            console.error('Save failed:', err);
-            toast.error(`Save failed: ${err?.message || 'Unknown error'}`);
-            setSaveStatus('idle');
-        } finally {
-            setSaving(false);
-        }
-    }, [restaurantId, state, saving, dispatch]);
-
-    // ─── Keyboard Shortcuts ───
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
-            if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); handleSave(); }
-        };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
-    }, [undo, redo, handleSave]);
-
-    if (dataLoading) return <LoadingState message="Launching Live Editor..." fullScreen />;
-
-    return (
-        <div className="flex flex-col h-screen overflow-hidden bg-neutral-100">
-            {/* ═══ Top Toolbar ═══ */}
-            <div className="h-16 bg-white/80 backdrop-blur-md border-b border-neutral-200 flex items-center justify-between px-6 shrink-0 z-50 sticky top-0">
-                <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center border border-orange-600">
-                        <Sparkles className="text-white" size={20} />
-                    </div>
-                    <div>
-                        <h1 className="text-sm font-black text-black leading-none">Live Editor</h1>
-                        <p className="text-[10px] text-black font-bold uppercase tracking-wider mt-1">Direct Storefront Preview</p>
-                    </div>
-                </div>
-
-                {/* Device Switcher */}
-                <div className="hidden md:flex items-center bg-neutral-100 p-1 rounded-xl gap-1">
-                    <button 
-                        onClick={() => setPreviewMode('mobile')}
-                        className={`p-2 rounded-lg transition-all ${previewMode === 'mobile' ? 'bg-white text-orange-600 border border-neutral-100' : 'text-black hover:text-black'}`}
-                    >
-                        <Smartphone size={18} />
-                    </button>
-                    <button 
-                        onClick={() => setPreviewMode('tablet')}
-                        className={`p-2 rounded-lg transition-all ${previewMode === 'tablet' ? 'bg-white text-orange-600 border border-neutral-100' : 'text-black hover:text-black'}`}
-                    >
-                        <Tablet size={18} />
-                    </button>
-                    <button 
-                        onClick={() => setPreviewMode('desktop')}
-                        className={`p-2 rounded-lg transition-all ${previewMode === 'desktop' ? 'bg-white text-orange-600 border border-neutral-100' : 'text-black hover:text-black'}`}
-                    >
-                        <Monitor size={18} />
-                    </button>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
-                        <button onClick={undo} disabled={!canUndo} className="p-2 rounded-xl text-black hover:bg-neutral-50 disabled:opacity-30 transition-colors">
-                            <Undo2 size={18} />
-                        </button>
-                        <button onClick={redo} disabled={!canRedo} className="p-2 rounded-xl text-black hover:bg-neutral-50 disabled:opacity-30 transition-colors">
-                            <Redo2 size={18} />
-                        </button>
-                    </div>
-                    
-                    <div className="h-8 w-px bg-neutral-200 mx-1" />
-
-                    <motion.button
-                        onClick={handleSave}
-                        disabled={saving || !state.isDirty}
-                        whileTap={{ scale: 0.96 }}
-                        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black transition-all border ${
-                            state.isDirty
-                                ? 'bg-orange-600 hover:bg-orange-700 text-white border-orange-700'
-                                : saveStatus === 'saved'
-                                    ? 'bg-emerald-500 text-white border-emerald-600'
-                                    : 'bg-neutral-200 text-black border-neutral-300 shadow-none cursor-not-allowed'
-                        }`}
-                    >
-                        {saving ? <Loader2 size={16} className="animate-spin" />
-                            : saveStatus === 'saved' ? <Check size={16} />
-                            : <Save size={16} />
-                        }
-                        {saving ? 'Publishing...' : saveStatus === 'saved' ? 'Published!' : 'Publish Changes'}
-                    </motion.button>
-                </div>
+  return (
+    <div className="flex flex-col h-screen overflow-hidden bg-slate-100 select-none">
+      {/* ═══ Top Studio Toolbar ═══ */}
+      <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-4 sm:px-6 shrink-0 z-50">
+        {/* Left: Navigation & Branding */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.back()}
+            className="size-9 rounded-xl border border-slate-200/80 hover:bg-slate-50 flex items-center justify-center text-slate-600 transition-colors"
+            title="Go Back"
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-bold text-slate-900 font-display">
+                {state.profile?.name || 'Restaurant'}
+              </h1>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-200/60">
+                Studio
+              </span>
             </div>
-
-            {/* ═══ Main Content ═══ */}
-            <div className="flex-1 overflow-y-auto scrollbar-hide py-12 px-4">
-                <div className={`mx-auto transition-all duration-500 ${
-                    previewMode === 'mobile' ? 'max-w-[400px]' : 
-                    previewMode === 'tablet' ? 'max-w-[768px]' : 'max-w-full'
-                }`}>
-                    <CartProvider>
-                        <SharedHomepageLayout 
-                            mode="admin"
-                            restaurantId={restaurantId!}
-                            profile={state.profile}
-                            theme={state.theme}
-                            sections={state.sections}
-                            data={state.data}
-                            onUpdate={handleUpdate}
-                            addToCart={() => {}}
-                            updateQuantity={() => {}}
-                            getItemQtyInCart={() => 0}
-                            addSpecialToCart={() => {}}
-                            onSearchClick={() => {}}
-                            onCategoryClick={() => {}}
-                            onServiceClick={() => {}}
-                            onServicesHeaderClick={() => {}}
-                            onBannersChange={refreshBanners}
-                        />
-                    </CartProvider>
-                </div>
-            </div>
-
-            {/* Float Controls Overlay */}
-            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/80 backdrop-blur-xl border border-neutral-200 shadow-none px-6 py-3 rounded-2xl flex items-center gap-6 z-[60]">
-                <button className="flex items-center gap-2 text-xs font-bold text-black hover:text-orange-600 transition-colors">
-                    <Layout size={14} /> Sections
-                </button>
-                <div className="w-px h-4 bg-neutral-200" />
-                <button className="flex items-center gap-2 text-xs font-bold text-black hover:text-orange-600 transition-colors">
-                    <Palette size={14} /> Theme
-                </button>
-                <div className="w-px h-4 bg-neutral-200" />
-                <button className="flex items-center gap-2 text-xs font-bold text-black hover:text-orange-600 transition-colors">
-                    <Settings size={14} /> Settings
-                </button>
-            </div>
-
-            {/* Hidden File Input for Image Uploads */}
-            <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                className="hidden"
-                accept="image/*"
-            />
+            <p className="text-[11px] text-slate-500">Homepage Builder</p>
+          </div>
         </div>
-    );
+
+        {/* Center: Device Viewport Switcher */}
+        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+          <button
+            onClick={() => setPreviewMode('mobile')}
+            aria-label="Mobile preview"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              previewMode === 'mobile'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Smartphone className="size-3.5" />
+            <span className="hidden sm:inline">Mobile (390px)</span>
+          </button>
+          <button
+            onClick={() => setPreviewMode('tablet')}
+            aria-label="Tablet preview"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              previewMode === 'tablet'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Tablet className="size-3.5" />
+            <span className="hidden sm:inline">Tablet (768px)</span>
+          </button>
+          <button
+            onClick={() => setPreviewMode('desktop')}
+            aria-label="Desktop preview"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              previewMode === 'desktop'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Monitor className="size-3.5" />
+            <span className="hidden sm:inline">Desktop</span>
+          </button>
+        </div>
+
+        {/* Right: Actions (Undo/Redo, View Live, Publish) */}
+        <div className="flex items-center gap-2.5">
+          <SyncIndicator isSyncing={isSyncing} lastSync={lastSync} onRefresh={() => loadData(true)} />
+          <div className="flex items-center border border-slate-200/80 rounded-xl overflow-hidden bg-white">
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo (Ctrl+Z)"
+              className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <Undo2 className="size-4" />
+            </button>
+            <div className="w-px h-4 bg-slate-200" />
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo (Ctrl+Shift+Z)"
+              className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <Redo2 className="size-4" />
+            </button>
+          </div>
+
+          <a
+            href={`/${restaurantCode || restaurantId}/customer/home/1`}
+            target="_blank"
+            rel="noreferrer"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 bg-white border border-slate-200/80 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+          >
+            <ExternalLink className="size-3.5" />
+            <span>View Live</span>
+          </a>
+
+          <button
+            onClick={handleSave}
+            disabled={saving || !state.isDirty}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs ${
+              state.isDirty
+                ? 'bg-orange-600 hover:bg-orange-700 text-white active:scale-95'
+                : saveStatus === 'saved'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            {saving ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : saveStatus === 'saved' ? (
+              <Check className="size-3.5" />
+            ) : (
+              <Save className="size-3.5" />
+            )}
+            <span>{saving ? 'Publishing...' : saveStatus === 'saved' ? 'Published!' : 'Publish Changes'}</span>
+          </button>
+        </div>
+      </header>
+
+      {/* ═══ 3-Panel Studio Layout ═══ */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar: Section Manager */}
+        <aside className="w-80 shrink-0 h-full overflow-hidden hidden md:block">
+          <SectionManager
+            sections={state.sections}
+            selectedSectionId={state.selectedSectionId}
+            dispatch={dispatch}
+          />
+        </aside>
+
+        {/* Center Canvas: Live Homepage Preview */}
+        <main className="flex-1 h-full overflow-y-auto bg-slate-200/70 p-4 sm:p-8 flex justify-center items-start">
+          <div
+            className={`transition-all duration-300 mx-auto ${
+              previewMode === 'mobile'
+                ? 'w-[390px] min-h-[780px] shadow-2xl rounded-[2.5rem] border-[6px] border-slate-900 overflow-hidden bg-slate-50'
+                : previewMode === 'tablet'
+                ? 'w-[768px] min-h-[850px] shadow-2xl rounded-3xl border-4 border-slate-800 overflow-hidden bg-slate-50'
+                : 'w-full max-w-6xl shadow-xl rounded-2xl border border-slate-200/80 overflow-hidden bg-slate-50'
+            }`}
+          >
+            <CartProvider>
+              <SharedHomepageLayout
+                mode="admin"
+                restaurantId={restaurantId!}
+                profile={state.profile}
+                theme={state.theme}
+                sections={state.sections}
+                data={state.data}
+                onUpdate={handleUpdate}
+                addToCart={() => {}}
+                updateQuantity={() => {}}
+                getItemQtyInCart={() => 0}
+                addSpecialToCart={() => {}}
+                onSearchClick={() => {}}
+                onCategoryClick={() => {}}
+                onServiceClick={() => {}}
+                onServicesHeaderClick={() => {}}
+                onBannersChange={refreshBanners}
+                selectedSectionId={state.selectedSectionId}
+                onSelectSection={(sectionId) => dispatch({ type: 'SELECT_SECTION', sectionId })}
+              />
+            </CartProvider>
+          </div>
+        </main>
+
+        {/* Right Panel: Content Configuration */}
+        <aside className="w-84 shrink-0 h-full overflow-hidden hidden lg:block">
+          <PropertiesPanel
+            selectedSection={selectedSection}
+            state={state}
+            dispatch={dispatch}
+          />
+        </aside>
+      </div>
+    </div>
+  );
 }

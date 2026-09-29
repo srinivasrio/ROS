@@ -3,18 +3,25 @@
 import React, { useEffect, useState } from 'react';
 import { TrendingUp as LucideTrendingUp, Utensils as LucideUtensils, Users as LucideUsers, ArrowUpRight as LucideArrowUpRight, Clock as LucideClock, AlertCircle as LucideAlertCircle, CheckCircle2 as LucideCheckCircle2, Timer as LucideTimer } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AnalyticsService, AnalyticsMetrics, TimeRange } from '@/app/services/analytics';
-import { OrderService } from '@/app/services/orders';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { getCached, setCache } from '@/app/lib/data-cache';
-import { formatCurrency } from '@/app/lib/utils';
+import { AnalyticsService, AnalyticsMetrics, TimeRange } from '@/services/analytics.service';
+import { OrderService } from '@/services/orders.service';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { formatCurrency } from '@/lib/utils';
 import { LineChart, DonutChart, BarChart } from '@/components/admin/analytics/ProfessionalCharts';
 import { LoadingState } from '@/components/ui/LoadingState';
 
+import { useParams } from 'next/navigation';
+
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
+
 export default function AdminDashboard() {
+    const params = useParams();
+    const urlRestaurantCode = (params?.restaurantCode as string) || '';
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
-    const cacheKey = `dashboard-v2-${restaurantId}`;
-    const cached = getCached<any>(cacheKey);
+    const activeResId = restaurantId || urlRestaurantCode;
+    const cacheKey = `dashboard-v2-${activeResId}`;
+    const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`dashboard-v2-${urlRestaurantCode}`) : null);
 
     const [metrics, setMetrics] = useState<AnalyticsMetrics>(cached?.metrics || { 
         totalRevenue: 0, totalOrders: 0, avgOrderValue: 0, cancellationRate: 0, 
@@ -24,67 +31,98 @@ export default function AdminDashboard() {
     const [statusData, setStatusData] = useState(cached?.statusData || []);
     const [peakData, setPeakData] = useState(cached?.peakData || []);
     const [loading, setLoading] = useState(!cached);
+    const [isRevalidating, setIsRevalidating] = useState(false);
 
-    const loadData = async () => {
-        if (!restaurantId) return;
+    const loadData = async (force = false) => {
+        const targetId = restaurantId || urlRestaurantCode;
+        if (!targetId) return;
+        const currentCacheKey = `dashboard-v2-${targetId}`;
+
+        // If fresh cache exists and not forced by Realtime event, use cache and skip network queries
+        if (!force && hasFreshCache(currentCacheKey)) {
+            const cachedData = getCached<any>(currentCacheKey);
+            if (cachedData) {
+                if (cachedData.metrics) setMetrics(cachedData.metrics);
+                if (cachedData.revenueData) {
+                    setRevenueData(cachedData.revenueData);
+                    setPeakData(cachedData.revenueData);
+                }
+                if (cachedData.statusData) setStatusData(cachedData.statusData);
+                setLoading(false);
+                return;
+            }
+        }
+
+        setIsRevalidating(true);
         try {
-            const [kpis, revenue, status, top] = await Promise.all([
-                AnalyticsService.fetchKPIMetrics(restaurantId, 'today'),
-                AnalyticsService.fetchRevenueTrends(restaurantId, 'today'),
-                AnalyticsService.fetchOrderStatusBreakdown(restaurantId, 'today'),
-                AnalyticsService.fetchTopSellingItems(restaurantId, 'today', 24) // Using for peak hours feel
+            const [kpis, revenue, status] = await Promise.all([
+                AnalyticsService.fetchKPIMetrics(targetId, 'today'),
+                AnalyticsService.fetchRevenueTrends(targetId, 'today'),
+                AnalyticsService.fetchOrderStatusBreakdown(targetId, 'today'),
             ]);
 
-            setMetrics(kpis);
-            setRevenueData(revenue);
-            setStatusData(status);
-            
-            // Re-mapping revenue to peak hours format if needed, 
-            // but let's use revenue data for the chart directly
-            setPeakData(revenue); 
+            if (kpis) setMetrics(kpis);
+            if (revenue) {
+                setRevenueData(revenue);
+                setPeakData(revenue);
+            }
+            if (status) setStatusData(status);
 
-            setCache(cacheKey, { metrics: kpis, revenueData: revenue, statusData: status });
+            const payload = { metrics: kpis, revenueData: revenue, statusData: status, peakData: revenue };
+            setCache(currentCacheKey, payload, { isRealtime: true });
+            if (restaurantId && urlRestaurantCode && restaurantId !== urlRestaurantCode) {
+                setCache(`dashboard-v2-${restaurantId}`, payload, { isRealtime: true });
+                setCache(`dashboard-v2-${urlRestaurantCode}`, payload, { isRealtime: true });
+            }
         } catch (error) {
             console.error('Dashboard load error:', error);
         } finally {
             setLoading(false);
+            setIsRevalidating(false);
         }
     };
 
     useEffect(() => {
-        if (!restaurantLoading && restaurantId) {
-            loadData();
+        if (!restaurantLoading && activeResId) {
+            loadData(false);
             
-            // Subscriptions for realtime updates
-            const subOrders = OrderService.subscribeToOrders(restaurantId, () => loadData());
-            const subItems = OrderService.subscribeToOrderItems(restaurantId, () => loadData());
-            const subTables = OrderService.subscribeToTables(restaurantId, () => loadData());
+            let debounceTimer: NodeJS.Timeout | null = null;
+            const debouncedLoad = () => {
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    loadData(true);
+                }, 400);
+            };
+
+            // Subscriptions for realtime updates with debouncing
+            const subOrders = OrderService.subscribeToOrders(activeResId, debouncedLoad);
+            const subItems = OrderService.subscribeToOrderItems(activeResId, debouncedLoad);
+            const subTables = OrderService.subscribeToTables(activeResId, debouncedLoad);
 
             return () => {
+                if (debounceTimer) clearTimeout(debounceTimer);
                 subOrders.unsubscribe();
                 subItems.unsubscribe();
                 subTables.unsubscribe();
             };
         }
-    }, [restaurantId, restaurantLoading]);
+    }, [activeResId, restaurantLoading]);
 
-    if (loading) return <LoadingState message="Preparing your kitchen snapshot..." fullScreen />;
+    if (loading && !cached) return <LoadingState message="Preparing your kitchen snapshot..." fullScreen />;
 
     return (
-        <div className="min-h-screen bg-[#FDFCFD] dark:bg-zinc-950 p-8 pt-6 space-y-8 overflow-y-auto no-scrollbar">
+        <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="min-h-screen p-8 pt-6 space-y-8 overflow-y-auto premium-scrollbar"
+        >
             {/* Header */}
-            <header className="flex justify-between items-end">
-                <div>
-                    <h1 className="text-3xl font-black text-black dark:text-white tracking-tight">
-                        Today's <span className="text-orange-500">Live Snapshot</span> 🚀
-                    </h1>
-                    <p className="text-black font-medium mt-1">
-                        Real-time tracking of your restaurant's performance.
-                    </p>
-                </div>
-                <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                    <span className="text-sm font-bold text-black dark:text-black uppercase tracking-wider">Live System Sync</span>
+            <header className="flex justify-end items-center gap-3">
+                <SyncIndicator isRevalidating={isRevalidating} />
+                <div className="bg-white/80 dark:bg-zinc-900/60 backdrop-blur-md border border-neutral-200/50 dark:border-zinc-800/40 px-4 py-2.5 rounded-2xl flex items-center gap-2.5 shadow-sm shadow-black/5">
+                    <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shadow-md shadow-emerald-500/50" />
+                    <span className="text-[11px] font-black text-neutral-700 dark:text-neutral-300 uppercase tracking-widest">Live Sync</span>
                 </div>
             </header>
 
@@ -95,126 +133,125 @@ export default function AdminDashboard() {
                     value={formatCurrency(metrics.totalRevenue)} 
                     icon={LucideTrendingUp}
                     color="text-emerald-500"
-                    bg="bg-emerald-50 dark:bg-emerald-500/10"
+                    bg="bg-emerald-500/10"
+                    index={0}
                 />
                 <KPICard 
                     label="Orders Placed" 
                     value={(metrics.totalOrders ?? 0).toString()} 
                     icon={LucideUtensils}
                     color="text-orange-500"
-                    bg="bg-orange-50 dark:bg-orange-500/10"
+                    bg="bg-orange-500/10"
+                    index={1}
                 />
                 <KPICard 
                     label="Active Tables" 
                     value={(metrics.activeTables ?? 0).toString()} 
-                    icon={LucideUsers}
+                    icon={LucideUtensils}
                     color="text-blue-500"
-                    bg="bg-blue-50 dark:bg-blue-500/10"
+                    bg="bg-blue-500/10"
                     pulse
+                    index={2}
                 />
                 <KPICard 
                     label="Kitchen Progress" 
                     value={(metrics.pendingKitchenOrders ?? 0).toString()} 
                     icon={LucideTimer}
                     color="text-purple-500"
-                    bg="bg-purple-50 dark:bg-purple-500/10"
+                    bg="bg-purple-500/10"
                     pulse
+                    index={3}
                 />
             </div>
 
             {/* KPI Row 2 - Efficiency */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex items-center justify-between shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl text-indigo-500">
+                <motion.div 
+                    whileHover={{ y: -3 }}
+                    className="premium-glass-card p-6 rounded-3xl flex items-center justify-between premium-shadow-soft relative overflow-hidden group border-neutral-200/40"
+                >
+                    <div className="flex items-center gap-4 relative z-10">
+                        <div className="p-3.5 bg-indigo-500/10 rounded-2xl text-indigo-500 transition-transform group-hover:scale-110">
                             <LucideArrowUpRight className="w-6 h-6" />
                         </div>
                         <div>
-                            <p className="text-xs font-bold text-black uppercase tracking-widest">Avg Order Value</p>
-                            <h3 className="text-xl font-black text-black dark:text-white">{formatCurrency(metrics.avgOrderValue)}</h3>
+                            <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Avg Order Value</p>
+                            <h3 className="text-2xl font-black text-neutral-800 dark:text-white mt-0.5">{formatCurrency(metrics.avgOrderValue)}</h3>
                         </div>
                     </div>
-                </div>
-                <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex items-center justify-between shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className={`p-3 rounded-xl ${metrics.cancellationRate > 10 ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'}`}>
+                </motion.div>
+                <motion.div 
+                    whileHover={{ y: -3 }}
+                    className="premium-glass-card p-6 rounded-3xl flex items-center justify-between premium-shadow-soft relative overflow-hidden group border-neutral-200/40"
+                >
+                    <div className="flex items-center gap-4 relative z-10">
+                        <div className={`p-3.5 rounded-2xl transition-transform group-hover:scale-110 ${metrics.cancellationRate > 10 ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
                             {metrics.cancellationRate > 10 ? <LucideAlertCircle className="w-6 h-6" /> : <LucideCheckCircle2 className="w-6 h-6" />}
                         </div>
                         <div>
-                            <p className="text-xs font-bold text-black uppercase tracking-widest">Cancellation Rate</p>
-                            <h3 className="text-xl font-black text-black dark:text-white">{metrics.cancellationRate}%</h3>
+                            <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Cancellation Rate</p>
+                            <h3 className="text-2xl font-black text-neutral-800 dark:text-white mt-0.5">{metrics.cancellationRate}%</h3>
                         </div>
                     </div>
-                </div>
+                </motion.div>
             </div>
 
             {/* Main Content Area */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Revenue Streams */}
-                <div className="lg:col-span-2 bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-6">
+                <div className="lg:col-span-2 premium-glass-card p-8 rounded-[2rem] premium-shadow-soft space-y-6 border-neutral-200/40">
                     <div className="flex justify-between items-center">
                         <div>
-                            <h2 className="text-xl font-bold text-black dark:text-white">Revenue Timeline</h2>
-                            <p className="text-sm text-black font-medium">Hourly breakdown of sales today</p>
+                            <h2 className="text-xl font-black text-neutral-800 dark:text-white">Revenue Timeline</h2>
+                            <p className="text-sm text-neutral-400 font-semibold">Hourly breakdown of sales today</p>
                         </div>
                     </div>
-                    <LineChart data={revenueData} color="#F97316" />
+                    <div className="pt-2">
+                        <LineChart data={revenueData} color="#F97316" />
+                    </div>
                 </div>
 
                 {/* Order Status Breakdown */}
-                <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-6">
-                    <h2 className="text-xl font-bold text-black dark:text-white">Order Status</h2>
-                    <DonutChart data={statusData} />
+                <div className="premium-glass-card p-8 rounded-[2rem] premium-shadow-soft space-y-6 border-neutral-200/40">
+                    <div>
+                        <h2 className="text-xl font-black text-neutral-800 dark:text-white">Order Status</h2>
+                        <p className="text-sm text-neutral-400 font-semibold">Total fulfillment state</p>
+                    </div>
+                    <div className="flex items-center justify-center pt-2">
+                        <DonutChart data={statusData} />
+                    </div>
                 </div>
             </div>
 
-            {/* Bottom Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-6">
-                    <div className="flex items-center gap-2">
-                        <LucideUsers className="w-5 h-5 text-orange-500" />
-                        <h2 className="text-xl font-bold text-black dark:text-white">Customer Load By Hour</h2>
-                    </div>
-                    <BarChart data={peakData} color="#8B5CF6" />
-                </div>
 
-                <div className="bg-gradient-to-br from-orange-500 to-rose-600 p-8 rounded-3xl text-white shadow-xl shadow-orange-500/20 relative overflow-hidden">
-                    <div className="relative z-10 space-y-4">
-                        <h2 className="text-2xl font-black italic">CHEF'S INSIGHT 💡</h2>
-                        <p className="text-lg font-medium opacity-90 leading-relaxed">
-                            {metrics.activeTables > 5 
-                                ? "Peak hours are starting! Ensure the kitchen is stocked and the floor team is ready." 
-                                : "Steady pace today. A good time to refresh prep stations and check inventory levels."}
-                        </p>
-                        <button className="px-6 py-3 bg-white text-orange-600 font-bold rounded-xl shadow-lg hover:scale-105 transition-transform">
-                            Optimize Operations
-                        </button>
-                    </div>
-                    <LucideUtensils className="absolute -bottom-10 -right-10 w-64 h-64 opacity-10" />
-                </div>
-            </div>
-        </div>
+        </motion.div>
     );
 }
 
-function KPICard({ label, value, icon: Icon, color, bg, pulse = false }: any) {
+function KPICard({ label, value, icon: Icon, color, bg, pulse = false, index = 0 }: any) {
     return (
-        <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm relative group hover:scale-[1.02] transition-all">
+        <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: index * 0.08 }}
+            whileHover={{ y: -4 }}
+            className="premium-glass-card p-6 rounded-3xl premium-shadow-soft relative overflow-hidden group border-neutral-200/40"
+        >
             <div className="flex justify-between items-start mb-4">
-                <div className={`p-3 rounded-xl ${bg} ${color} transition-transform group-hover:scale-110`}>
-                    <Icon className="w-6 h-6" strokeWidth={2.5} />
+                <div className={`p-3.5 rounded-2xl ${bg} ${color} transition-transform group-hover:scale-110 shadow-sm shadow-black/2`}>
+                    <Icon className="w-5 h-5" strokeWidth={2.5} />
                 </div>
                 {pulse && (
-                    <span className="flex h-3 w-3">
+                    <span className="flex h-3.5 w-3.5 relative">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500 border-2 border-white"></span>
+                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-orange-500 border-2.5 border-white dark:border-zinc-900 shadow-sm shadow-orange-500/50"></span>
                     </span>
                 )}
             </div>
             <div>
-                <p className="text-xs font-bold text-black uppercase tracking-widest mb-1">{label}</p>
-                <h3 className="text-2xl font-black text-black dark:text-white">{value}</h3>
+                <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">{label}</p>
+                <h3 className="text-3xl font-black text-neutral-800 dark:text-white tracking-tight">{value}</h3>
             </div>
-        </div>
+        </motion.div>
     );
 }

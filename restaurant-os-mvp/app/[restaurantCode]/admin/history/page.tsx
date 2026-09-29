@@ -1,51 +1,117 @@
 'use client';
 
-import { Calendar as LucideCalendar, Download as LucideDownload, Search as LucideSearch } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { OrderService, Order } from '@/app/services/orders';
-import OrderDetailsModal from '@/app/components/admin/OrderDetailsModal';
-import Timer from '@/app/components/Timer';
-import { formatCurrency } from '@/app/lib/utils';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { getCached, setCache } from '@/app/lib/data-cache';
+import { Calendar as LucideCalendar, Download as LucideDownload, Search as LucideSearch, UtensilsCrossed, ShoppingBag, Truck, LayoutGrid } from 'lucide-react';
+import { useEffect, useState, useMemo } from 'react';
+import { OrderService, Order } from '@/services/orders.service';
+import OrderDetailsModal from '@/components/admin/OrderDetailsModal';
+import Timer from '@/components/Timer';
+import { formatCurrency } from '@/lib/utils';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { useParams } from 'next/navigation';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
+
+type OrderCategory = 'ALL' | 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
 
 export default function OrderHistory() {
+    const params = useParams();
+    const urlRestaurantCode = (params?.restaurantCode as string) || '';
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
-    const cached = getCached<Order[]>(`history-${restaurantId}`);
+    const activeResId = restaurantId || urlRestaurantCode;
+    const cacheKey = `history-${activeResId}`;
+    const cached = getCached<Order[]>(cacheKey) || (urlRestaurantCode ? getCached<Order[]>(`history-${urlRestaurantCode}`) : null);
     const [orders, setOrders] = useState<Order[]>(cached || []);
-    const [loading, setLoading] = useState(!cached);
+    const [loading, setLoading] = useState(!cached && orders.length === 0);
+    const [isRevalidating, setIsRevalidating] = useState(false);
+    const [activeCategory, setActiveCategory] = useState<OrderCategory>('ALL');
 
     useEffect(() => {
-        if (!restaurantLoading && restaurantId) {
-            const loadHistory = () => {
-                OrderService.fetchHistoryOrders(restaurantId)
+        if (!restaurantLoading && activeResId) {
+            const loadHistory = (force = false) => {
+                const targetKey = `history-${activeResId}`;
+                if (!force && hasFreshCache(targetKey)) {
+                    const freshCached = getCached<Order[]>(targetKey);
+                    if (freshCached) {
+                        setOrders(freshCached);
+                        setLoading(false);
+                        return;
+                    }
+                }
+
+                setIsRevalidating(true);
+                OrderService.fetchHistoryOrders(activeResId)
                     .then(data => {
-                        setOrders(data);
-                        setCache(`history-${restaurantId}`, data);
+                        const bounded = Array.isArray(data) ? data.slice(0, 100) : [];
+                        setOrders(bounded);
+                        setCache(targetKey, bounded);
+                        if (restaurantId && urlRestaurantCode && restaurantId !== urlRestaurantCode) {
+                            setCache(`history-${restaurantId}`, bounded);
+                            setCache(`history-${urlRestaurantCode}`, bounded);
+                        }
                     })
                     .catch(console.error)
-                    .finally(() => setLoading(false));
+                    .finally(() => {
+                        setLoading(false);
+                        setIsRevalidating(false);
+                    });
             };
 
-            loadHistory();
+            loadHistory(false);
 
-            // Optional: Subscribe to see new history items appear (e.g. when order is marked served)
-            const sub = OrderService.subscribeToOrders(restaurantId, () => {
-                OrderService.fetchHistoryOrders(restaurantId).then(setOrders);
+            let debounceTimer: NodeJS.Timeout | null = null;
+            const sub = OrderService.subscribeToOrders(activeResId, () => {
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    loadHistory(true);
+                }, 1000);
             });
-            return () => { sub.unsubscribe(); };
+            return () => { 
+                if (debounceTimer) clearTimeout(debounceTimer);
+                sub.unsubscribe(); 
+            };
         }
-    }, [restaurantId, restaurantLoading]);
-
-
+    }, [activeResId, restaurantId, urlRestaurantCode, restaurantLoading]);
 
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+    // Counts per category
+    const categoryCounts = useMemo(() => {
+        const counts = { ALL: 0, DINE_IN: 0, TAKEAWAY: 0, DELIVERY: 0 };
+        orders.forEach(o => {
+            counts.ALL++;
+            const type = (o.order_type || 'DINE_IN').toUpperCase();
+            if (type === 'TAKEAWAY') counts.TAKEAWAY++;
+            else if (type === 'DELIVERY') counts.DELIVERY++;
+            else counts.DINE_IN++;
+        });
+        return counts;
+    }, [orders]);
+
+    // Filtered orders based on selected category
+    const filteredOrders = useMemo(() => {
+        if (activeCategory === 'ALL') return orders;
+        return orders.filter(o => {
+            const type = (o.order_type || 'DINE_IN').toUpperCase();
+            if (activeCategory === 'DINE_IN') return type !== 'TAKEAWAY' && type !== 'DELIVERY';
+            return type === activeCategory;
+        });
+    }, [orders, activeCategory]);
+
+    const categoryButtons: { key: OrderCategory; label: string; icon: React.ReactNode; color: string; activeColor: string }[] = [
+        { key: 'ALL', label: 'All Orders', icon: <LayoutGrid size={15} />, color: 'text-neutral-600', activeColor: 'bg-neutral-900 text-white shadow-sm' },
+        { key: 'DINE_IN', label: 'Dine In', icon: <UtensilsCrossed size={15} />, color: 'text-amber-700', activeColor: 'bg-amber-600 text-white shadow-sm' },
+        { key: 'TAKEAWAY', label: 'Take Away', icon: <ShoppingBag size={15} />, color: 'text-emerald-700', activeColor: 'bg-emerald-600 text-white shadow-sm' },
+        { key: 'DELIVERY', label: 'Delivery', icon: <Truck size={15} />, color: 'text-blue-700', activeColor: 'bg-blue-600 text-white shadow-sm' },
+    ];
 
     return (
         <div className="p-8 flex flex-col h-screen space-y-7 overflow-hidden">
             <div className="flex justify-between items-center shrink-0">
                 <div>
-                    <h2 className="text-2xl font-black text-black tracking-tight">Order History</h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-2xl font-black text-black tracking-tight">Order History</h2>
+                        <SyncIndicator isRevalidating={isRevalidating} />
+                    </div>
                     <p className="text-sm font-medium text-black mt-1">View and export past transactions (Served/Paid).</p>
                 </div>
                 <button className="flex items-center px-5 py-2.5 bg-white border border-neutral-200 text-black text-xs font-bold rounded-lg hover:bg-neutral-50 transition-all shadow-sm">
@@ -53,6 +119,35 @@ export default function OrderHistory() {
                     Export to CSV
                 </button>
             </div>
+
+            {/* Category Filter Tabs */}
+            <div className="flex items-center gap-2 shrink-0">
+                {categoryButtons.map(cat => {
+                    const isActive = activeCategory === cat.key;
+                    const count = categoryCounts[cat.key];
+                    return (
+                        <button
+                            key={cat.key}
+                            type="button"
+                            onClick={() => setActiveCategory(cat.key)}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                                isActive
+                                    ? `${cat.activeColor} border-transparent`
+                                    : `bg-white ${cat.color} border-neutral-200 hover:border-neutral-300 hover:shadow-sm`
+                            }`}
+                        >
+                            {cat.icon}
+                            <span>{cat.label}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                isActive ? 'bg-white/20 text-white' : 'bg-neutral-100 text-neutral-500'
+                            }`}>
+                                {count}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
             <div className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
 
 
@@ -75,7 +170,7 @@ export default function OrderHistory() {
                             <tr>
                                 <th className="px-6 py-4">Order ID</th>
                                 <th className="px-6 py-4">Date & Time</th>
-                                <th className="px-6 py-4">Table</th>
+                                <th className="px-6 py-4">Type / Table</th>
                                 <th className="px-6 py-4">Duration</th>
                                 <th className="px-6 py-4">Items Count</th>
                                 <th className="px-6 py-4">Status</th>
@@ -88,12 +183,14 @@ export default function OrderHistory() {
                                 <tr>
                                     <td colSpan={8} className="px-6 py-10 text-center text-black">Loading history...</td>
                                 </tr>
-                            ) : orders.length === 0 ? (
+                            ) : filteredOrders.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="px-6 py-10 text-center text-black">No history found.</td>
+                                    <td colSpan={8} className="px-6 py-10 text-center text-black">
+                                        {activeCategory === 'ALL' ? 'No history found.' : `No ${activeCategory === 'DINE_IN' ? 'Dine In' : activeCategory === 'TAKEAWAY' ? 'Take Away' : 'Delivery'} orders found.`}
+                                    </td>
                                 </tr>
                             ) : (
-                                orders.map((order) => (
+                                filteredOrders.map((order) => (
                                     <tr
                                         key={order.id}
                                         className="hover:bg-neutral-50 transition-colors cursor-pointer group"
@@ -103,7 +200,21 @@ export default function OrderHistory() {
                                         <td className="px-6 py-4 text-black">
                                             {new Date(order.created_at).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                         </td>
-                                        <td className="px-6 py-4 text-black font-medium">Table {order.table_number || order.table_id}</td>
+                                        <td className="px-6 py-4 text-black font-medium">
+                                            {order.order_type === 'TAKEAWAY' ? (
+                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                                                    🛍️ Takeaway
+                                                </span>
+                                            ) : order.order_type === 'DELIVERY' ? (
+                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+                                                    🛵 Delivery
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                                                    🍽️ Table {order.table_number || order.table_id}
+                                                </span>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4 text-black">
                                             {order.completed_at ? (
                                                 <Timer

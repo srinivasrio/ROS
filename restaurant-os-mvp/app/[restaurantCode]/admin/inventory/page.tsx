@@ -3,23 +3,29 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TrendingDown as LucideTrendingDown, AlertTriangle as LucideAlertTriangle, PackageSearch as LucidePackageSearch, Package as LucidePackage, Plus as LucidePlus, Edit2 as LucideEdit2, Trash2 as LucideTrash2, X as LucideX, Truck as LucideTruck, Search as LucideSearch } from 'lucide-react';
-import { InventoryService, InventoryItem, InventoryCategory } from '@/app/services/inventory.service';
-import { SupplierService, Supplier } from '@/app/services/supplier.service';
-import ConfirmationModal from '@/app/components/ui/ConfirmationModal';
-import { useRestaurantId } from '@/app/hooks/useRestaurantId';
-import { getCached, setCache } from '@/app/lib/data-cache';
-
+import { InventoryService, InventoryItem, InventoryCategory } from '@/services/inventory.service';
+import { SupplierService, Supplier } from '@/services/supplier.service';
+import ConfirmationModal from '@/components/ui/ConfirmationModal';
+import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { toast } from 'sonner';
+import { useParams } from 'next/navigation';
+import { SyncIndicator } from '@/components/admin/SyncIndicator';
 import { LoadingState } from '@/components/ui/LoadingState';
 
 export default function InventoryDashboard() {
+    const params = useParams();
+    const urlRestaurantCode = (params?.restaurantCode as string) || '';
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
-    const cacheKey = `inventory-${restaurantId}`;
-    const cached = getCached<any>(cacheKey);
+    const activeResId = restaurantId || urlRestaurantCode;
+    const cacheKey = `inventory-${activeResId}`;
+    const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`inventory-${urlRestaurantCode}`) : null);
     const [stats, setStats] = useState(cached?.stats || { totalValue: 0, lowStockCount: 0, predictedShortageCount: 0, wastagePercent: 0 });
     const [items, setItems] = useState<InventoryItem[]>(cached?.items || []);
     const [categories, setCategories] = useState<InventoryCategory[]>(cached?.categories || []);
     const [suppliers, setSuppliers] = useState<Supplier[]>(cached?.suppliers || []);
-    const [loading, setLoading] = useState(!cached);
+    const [loading, setLoading] = useState(!cached && items.length === 0);
+    const [isRevalidating, setIsRevalidating] = useState(false);
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('All');
 
     const [showAddModal, setShowAddModal] = useState(false);
@@ -44,33 +50,56 @@ export default function InventoryDashboard() {
     const closeModal = () => setModalConfig(prev => ({ ...prev, isOpen: false }));
 
     useEffect(() => {
-        if (!restaurantLoading && restaurantId) {
-            loadData();
+        if (!restaurantLoading && activeResId) {
+            loadData(false);
         }
-    }, [restaurantId, restaurantLoading]);
+    }, [activeResId, restaurantLoading]);
 
-    const loadData = async () => {
-        if (!restaurantId) return;
+    const loadData = async (force = false) => {
+        const targetResId = restaurantId || urlRestaurantCode;
+        if (!targetResId) return;
+        const currentCacheKey = `inventory-${targetResId}`;
+
+        if (!force && hasFreshCache(currentCacheKey)) {
+            const cachedData = getCached<any>(currentCacheKey);
+            if (cachedData) {
+                if (cachedData.stats) setStats(cachedData.stats);
+                if (cachedData.items) setItems(cachedData.items);
+                if (cachedData.categories) setCategories(cachedData.categories);
+                if (cachedData.suppliers) setSuppliers(cachedData.suppliers);
+                setLoading(false);
+                return;
+            }
+        }
+
+        setIsRevalidating(true);
         try {
             const [s, i, c, sup] = await Promise.all([
-                InventoryService.fetchDashboardStats(restaurantId),
-                InventoryService.fetchItems(restaurantId),
-                InventoryService.fetchCategories(restaurantId),
-                SupplierService.fetchSuppliers(restaurantId)
+                InventoryService.fetchDashboardStats(targetResId),
+                InventoryService.fetchItems(targetResId),
+                InventoryService.fetchCategories(targetResId),
+                SupplierService.fetchSuppliers(targetResId)
             ]);
             setStats(s);
             setItems(i);
             setCategories(c);
             setSuppliers(sup);
-            setCache(cacheKey, { stats: s, items: i, categories: c, suppliers: sup });
-        } catch (error) {
-            console.error(error);
+            const payload = { stats: s, items: i, categories: c, suppliers: sup };
+            setCache(currentCacheKey, payload);
+            if (restaurantId && urlRestaurantCode && restaurantId !== urlRestaurantCode) {
+                setCache(`inventory-${restaurantId}`, payload);
+                setCache(`inventory-${urlRestaurantCode}`, payload);
+            }
+        } catch (error: any) {
+            console.error("Inventory error:", error);
+            toast.error(error.message || JSON.stringify(error) || "Failed to load inventory");
         } finally {
             setLoading(false);
+            setIsRevalidating(false);
         }
-    }
+    };
 
-    if (loading) return <LoadingState message="Scanning your inventory..." fullScreen />;
+    if (loading && !cached && items.length === 0) return <LoadingState message="Scanning your inventory..." fullScreen />;
 
     const handleAddItem = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -554,7 +583,7 @@ export default function InventoryDashboard() {
                                         <div key={sup.id} className="p-4 bg-neutral-50 border border-neutral-200 rounded-2xl flex justify-between items-center group hover:border-orange-500/20 transition-colors">
                                             <div>
                                                 <p className="font-bold">{sup.name}</p>
-                                                <p className="text-xs text-black">{sup.contact_person} • {sup.phone}</p>
+                                                <p className="text-xs text-black">{[sup.contact_person, sup.phone].filter(Boolean).join(' • ') || 'No contact specified'}</p>
                                             </div>
                                             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <button className="p-2 hover:bg-white rounded-lg transition-colors border border-transparent hover:border-neutral-200">
