@@ -12,7 +12,10 @@
     "build:website": "npm --prefix marketing-repo run build",
     "build": "NODE_OPTIONS='--max-http-header-size=131072' next build --webpack",
     "start": "NODE_OPTIONS='--max-http-header-size=131072' next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:migrate": "node scripts/dual_db_migrate.mjs",
+    "db:sql": "node scripts/dual_db_exec.mjs",
+    "db:sync": "node scripts/dual_db_sync.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1051.0",
