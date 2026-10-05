@@ -71,6 +71,7 @@ export const SpecialsService = {
         activePromises.clear();
         if (restaurantId) {
             dataCache.delete(`active-specials-${restaurantId}`);
+            MenuService.triggerPublicMenuRevalidation(restaurantId);
         } else {
             dataCache.clear();
         }

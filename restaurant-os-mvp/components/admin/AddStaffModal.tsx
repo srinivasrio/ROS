@@ -18,6 +18,7 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         name: staff?.name || '',
+        email: staff?.email || '',
         role: staff?.role || 'waiter',
         mobile: staff?.mobile || '',
         pin: staff?.pin || '',
@@ -33,9 +34,10 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
         if (staff) {
             setFormData({
                 name: staff.name,
+                email: staff.email || '',
                 role: staff.role,
                 mobile: staff.mobile,
-                pin: staff.pin || '',
+                pin: '', // Never load hashed PIN into input
                 status: staff.status,
                 address: staff.address || '',
                 aadhaar_id: staff.aadhaar_id || '',
@@ -63,6 +65,7 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
         } else {
             setFormData({
                 name: '',
+                email: '',
                 role: 'waiter',
                 mobile: '',
                 pin: '',
@@ -86,17 +89,33 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
 
         setLoading(true);
         try {
-            const submitData = {
+            const cleanPin = formData.pin.trim();
+            if (cleanPin && !/^\d{4,6}$/.test(cleanPin)) {
+                alert('Security PIN must be a 4 to 6 digit numeric code.');
+                setLoading(false);
+                return;
+            }
+
+            const submitData: any = {
                 ...formData,
+                email: formData.email?.trim() ? formData.email.toLowerCase().trim() : null,
                 vehicle_type: formData.role === 'delivery_boy' ? formData.vehicle_type : null,
                 vehicle_number: formData.role === 'delivery_boy' ? formData.vehicle_number : null,
             };
+
+            // If editing and no new PIN entered, do not overwrite existing PIN
+            if (staff && !cleanPin) {
+                delete submitData.pin;
+            } else if (cleanPin) {
+                submitData.pin = cleanPin;
+            }
 
             if (staff) {
                 await StaffService.updateStaff(staff.id, restaurantId, submitData);
             } else {
                 await StaffService.createStaff({
                     ...submitData,
+                    pin: cleanPin || '1234',
                     restaurant_id: restaurantId
                 });
             }
@@ -114,7 +133,21 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
                 <div className="flex justify-between items-center p-4 border-b border-neutral-100">
-                    <h3 className="text-lg font-bold text-black">{staff ? 'Edit Staff Profile' : 'Add New Staff'}</h3>
+                    <div>
+                        <h3 className="text-lg font-bold text-black">{staff ? 'Edit Staff Profile' : 'Add New Staff'}</h3>
+                        {staff && (
+                            <div className="flex items-center gap-2 mt-0.5">
+                                <span className="font-mono text-xs font-semibold text-neutral-700 bg-neutral-100 px-2 py-0.5 rounded">
+                                    {staff.employee_code || staff.employee_id || 'ID Pending'}
+                                </span>
+                                {staff.internal_id && (
+                                    <span className="font-mono text-[10px] text-neutral-400" title={`Internal ID: ${staff.internal_id}`}>
+                                        ({staff.internal_id.slice(0, 12)}...)
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </div>
                     <button onClick={onClose} className="text-black hover:text-black">
                         <LucideX size={20} />
                     </button>
@@ -146,13 +179,14 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                                 <option value="waiter">Waiter</option>
                                 <option value="chef">Chef</option>
                                 <option value="admin">Admin</option>
+                                <option value="restaurant_admin">Restaurant Admin</option>
                                 <option value="supervisor">Supervisor</option>
                                 <option value="delivery_boy">Delivery Boy</option>
                                 <option value="other">Other / Custom</option>
                             </select>
                         </div>
 
-                        {!['waiter', 'chef', 'admin', 'supervisor', 'delivery_boy'].includes(formData.role) && (
+                        {!['waiter', 'chef', 'admin', 'restaurant_admin', 'supervisor', 'delivery_boy'].includes(formData.role) && (
                             <div>
                                 <label className="block text-sm font-medium text-black mb-1">Custom Role Name</label>
                                 <input
@@ -214,6 +248,17 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                         </div>
 
                         <div>
+                            <label className="block text-sm font-medium text-black mb-1">Email Address</label>
+                            <input
+                                type="email"
+                                placeholder="employee@dineinone.com"
+                                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-black text-sm"
+                                value={formData.email}
+                                onChange={e => setFormData({ ...formData, email: e.target.value })}
+                            />
+                        </div>
+
+                        <div>
                             <label className="block text-sm font-medium text-black mb-1">Mobile Number</label>
                             <input
                                 type="tel"
@@ -227,18 +272,23 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-black mb-1">Security PIN</label>
+                            <label className="block text-sm font-medium text-black mb-1">
+                                Security PIN {staff ? '(Leave blank to keep current)' : '(4-6 digits)'}
+                            </label>
                             <input
-                                type="text"
+                                type="password"
+                                inputMode="numeric"
                                 pattern="[0-9]*"
-                                minLength={4}
                                 maxLength={6}
-                                placeholder="4-6 digit PIN"
-                                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder={staff ? '•••• (Unchanged)' : 'Enter 4-6 digit PIN'}
+                                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                                 value={formData.pin}
-                                onChange={e => setFormData({ ...formData, pin: e.target.value })}
+                                onChange={e => setFormData({ ...formData, pin: e.target.value.replace(/[^0-9]/g, '') })}
+                                required={!staff}
                             />
-                            <p className="text-[10px] text-black mt-1">Staff uses this PIN to log in locally.</p>
+                            <p className="text-[10px] text-neutral-500 mt-1">
+                                {staff ? 'Enter a new 4-6 digit numeric PIN only if resetting.' : 'Employee uses this PIN to log into their panel.'}
+                            </p>
                         </div>
 
                         <div className="col-span-2">

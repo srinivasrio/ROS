@@ -130,7 +130,7 @@ export default function CustomerLayout({
                 OrderService.releaseTableHold(tableNumber, restaurantId);
             }
         };
-    }, [pathname, restaurantId, tableNumber, isCleanTable, tableStatus, isVirtualMode]);
+    }, [restaurantId, tableNumber, isCleanTable, tableStatus, isVirtualMode]);
 
     // Route classifications
     const isCustomerEntryPage = pathname === `/${restaurantCode}/customer` || 
@@ -238,7 +238,10 @@ export default function CustomerLayout({
                     
                     <div className="flex flex-col gap-2.5 w-full">
                         <button 
-                            onClick={() => window.location.reload()}
+                            onClick={() => {
+                                tableValidityCache.clear();
+                                setTableStatus('checking');
+                            }}
                             className="w-full py-3.5 px-6 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-slate-900/20 text-sm cursor-pointer"
                         >
                             Try Again

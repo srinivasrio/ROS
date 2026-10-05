@@ -12,12 +12,12 @@ function AccessDeniedContent() {
     const reason = searchParams.get('reason') || '';
 
     useEffect(() => {
-        if (reason === 'unauthenticated') {
-            router.replace('/login');
+        if (reason === 'unauthenticated' || reason === 'session_expired') {
+            router.replace('/login?error=session_expired');
         }
     }, [reason, router]);
 
-    if (reason === 'unauthenticated') {
+    if (reason === 'unauthenticated' || reason === 'session_expired') {
         return null;
     }
 

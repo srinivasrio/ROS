@@ -56,7 +56,7 @@ final ordersRepositoryProvider = Provider<OrdersRepository>((ref) => OrdersRepos
 final ordersControllerProvider = StateNotifierProvider<OrdersController, OrdersState>((ref) {
   final repository = ref.watch(ordersRepositoryProvider);
   final authState = ref.watch(authControllerProvider);
-  final restaurantId = authState.session?.restaurantId ?? '202603180001';
+  final restaurantId = authState.session?.restaurantId;
 
   return OrdersController(repository, restaurantId);
 });
@@ -69,36 +69,25 @@ class OrdersController extends StateNotifier<OrdersState> {
   final OrdersRepository _repository;
   String? _restaurantId;
   RealtimeChannel? _realtimeChannel;
-  Timer? _pollingTimer;
 
   OrdersController(this._repository, this._restaurantId) : super(const OrdersState()) {
-    if (_restaurantId != null) {
+    if (_restaurantId != null && _restaurantId!.trim().isNotEmpty) {
       loadOrders();
       _subscribeToRealtime();
-      _startPolling();
     }
   }
 
   @override
   void dispose() {
-    _pollingTimer?.cancel();
     _realtimeChannel?.unsubscribe();
     super.dispose();
   }
 
-  void _startPolling() {
-    _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (_restaurantId != null) {
-        loadOrders(silent: true);
-      }
-    });
-  }
-
   void _subscribeToRealtime() {
-    if (_restaurantId == null) return;
+    if (_restaurantId == null || _restaurantId!.trim().isEmpty) return;
+    _realtimeChannel?.unsubscribe();
     _realtimeChannel = SupabaseService.subscribeToOrders(
-      restaurantId: _restaurantId!,
+      restaurantId: _restaurantId!.trim(),
       onOrderChange: (payload) {
         loadOrders(silent: true);
       },
@@ -106,12 +95,15 @@ class OrdersController extends StateNotifier<OrdersState> {
   }
 
   Future<void> loadOrders({bool silent = false, String? restaurantId}) async {
-    if (restaurantId != null) {
-      _restaurantId = restaurantId;
+    if (restaurantId != null && restaurantId.trim().isNotEmpty) {
+      _restaurantId = restaurantId.trim();
       _subscribeToRealtime();
-      _startPolling();
     }
-    final restId = _restaurantId ?? '202603180001';
+    final restId = _restaurantId;
+    if (restId == null || restId.trim().isEmpty) {
+      state = state.copyWith(isLoading: false, orders: []);
+      return;
+    }
     if (!silent) state = state.copyWith(isLoading: true, errorMessage: null);
 
     try {

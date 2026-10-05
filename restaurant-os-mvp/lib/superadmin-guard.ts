@@ -15,7 +15,7 @@ export async function verifySuperAdmin(): Promise<{ authorized: boolean; error?:
     }
 
     const role = (user.role || '').toUpperCase();
-    if (role !== 'SUPER_ADMIN' && role !== 'SUPERADMIN' && user.email !== 'superadmin@dineinone.com') {
+    if (role !== 'SUPER_ADMIN' && role !== 'SUPERADMIN') {
         return { authorized: false, error: 'Forbidden: Super Admin privileges required' };
     }
 

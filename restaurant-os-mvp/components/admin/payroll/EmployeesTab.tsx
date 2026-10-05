@@ -7,12 +7,15 @@ import {
     Trash2 as LucideTrash2, 
     Check as LucideCheck, 
     X as LucideX, 
-    Key as LucideKey 
+    Search as LucideSearch,
+    Filter as LucideFilter,
+    Mail as LucideMail,
+    Phone as LucidePhone
 } from 'lucide-react';
 import { PayrollService, Employee, Branch } from '@/services/payroll.service';
 import { StaffService } from '@/services/staff.service';
 import { createClient } from '@/lib/supabase';
-import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { getCached, setCache, hasFreshCache, clearCache } from '@/lib/data-cache';
 import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
 import EmployeeModal from './EmployeeModal';
@@ -20,6 +23,13 @@ import DeleteStaffModal from './DeleteStaffModal';
 
 interface EmployeesTabProps {
     restaurantId: string;
+}
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'none'];
+
+function formatWeekday(day: string) {
+    if (!day || day === 'none') return '—';
+    return day.charAt(0).toUpperCase() + day.slice(1, 3);
 }
 
 export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
@@ -34,7 +44,12 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
     const [selectedEmployee, setSelectedEmployee] = useState<Employee | undefined>();
     const [showDeleted, setShowDeleted] = useState(false);
 
-    // Custom Delete Confirmation Modal State
+    // Filters
+    const [searchQuery, setSearchQuery] = useState('');
+    const [roleFilter, setRoleFilter] = useState('all');
+    const [branchFilter, setBranchFilter] = useState('all');
+
+    // Delete Modal
     const [deleteModal, setDeleteModal] = useState<{
         isOpen: boolean;
         employee?: Employee;
@@ -48,6 +63,10 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
 
     const loadData = useCallback(async (force = false) => {
         if (!restaurantId) return;
+
+        if (force) {
+            clearCache(cacheKey);
+        }
 
         const currentCached = getCached<any>(cacheKey);
         if (currentCached && employees.length === 0 && !showDeleted) {
@@ -78,6 +97,7 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                     id: s.id,
                     restaurant_id: restaurantId,
                     name: s.name,
+                    email: s.email || null,
                     phone: s.mobile || '',
                     role: s.role,
                     branch_id: s.branch_id || null,
@@ -86,7 +106,9 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                     overtime_per_hour: s.overtime_per_hour || null,
                     joining_date: s.joining_date || '',
                     status: s.status === 'active' ? 'active' : 'inactive',
-                    employee_id: s.employee_id || null
+                    employee_id: s.employee_id || null,
+                    weekly_off: (s as any).weekly_off || 'sunday',
+                    salary_type: (s as any).salary_type || 'monthly'
                 }));
                 setEmployees(mappedList);
             } else {
@@ -129,7 +151,7 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                         filter: `restaurant_id=eq.${restaurantId}`
                     },
                     () => {
-                        loadData();
+                        loadData(true);
                     }
                 )
                 .subscribe();
@@ -186,7 +208,6 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
         }
     };
 
-
     const toggleStatus = async (employee: Employee) => {
         const nextStatus = employee.status === 'active' ? 'inactive' : 'active';
         try {
@@ -200,6 +221,23 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
         }
     };
 
+    // Filter employees
+    const uniqueRoles = [...new Set(employees.map(e => e.role))].sort();
+    const filtered = employees.filter(emp => {
+        if (searchQuery) {
+            const q = searchQuery.toLowerCase().trim();
+            const cleanQ = q.replace(/[^0-9]/g, '');
+            const matchName = emp.name.toLowerCase().includes(q);
+            const matchEmail = emp.email?.toLowerCase().includes(q);
+            const matchPhone = emp.phone?.includes(q) || (cleanQ.length > 0 && emp.phone?.replace(/[^0-9]/g, '').includes(cleanQ));
+            const matchCode = emp.employee_code?.toLowerCase().includes(q) || emp.employee_id?.toLowerCase().includes(q) || emp.legacy_reference?.toLowerCase().includes(q) || emp.internal_id?.toLowerCase().includes(q);
+            if (!matchName && !matchEmail && !matchPhone && !matchCode) return false;
+        }
+        if (roleFilter !== 'all' && emp.role !== roleFilter) return false;
+        if (branchFilter !== 'all' && emp.branch_id !== branchFilter) return false;
+        return true;
+    });
+
     if (loading) {
         return (
             <div className="flex items-center justify-center py-20 text-neutral-500 font-medium">
@@ -209,182 +247,196 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
     }
 
     return (
-        <div className="flex-1 flex flex-col min-h-0 space-y-4">
-            <div className="flex justify-between items-center px-6 pt-6 shrink-0">
+        <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center px-6 pt-5 pb-3 gap-3 shrink-0">
                 <div>
-                    <h3 className="text-lg font-bold text-black">
-                        {showDeleted ? 'Archived / Soft-Deleted Staff' : 'Employee Directory'}
+                    <h3 className="text-base font-bold text-black">
+                        {showDeleted ? 'Archived Staff' : 'Employee Directory'}
                     </h3>
                     <p className="text-xs text-neutral-500">
                         {showDeleted 
-                            ? 'List of soft-deleted employees. You can restore them to reactivate their access.' 
-                            : 'Manage employee base pay rates, overtime hourly rates, and assigned branches.'}
+                            ? 'Soft-deleted employees. Restore to reactivate.' 
+                            : `${employees.length} employees • Manage salary, role and branch assignments.`}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <SyncIndicator isSyncing={isSyncing} lastSync={lastSync} onRefresh={() => loadData(true)} />
                     <button
                         onClick={() => setShowDeleted(!showDeleted)}
-                        className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all ${
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
                             showDeleted 
                                 ? 'bg-neutral-800 text-white border-neutral-800 hover:bg-neutral-900' 
-                                : 'bg-white text-neutral-700 border-neutral-200 hover:bg-neutral-50'
+                                : 'bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50'
                         }`}
                     >
-                        {showDeleted ? 'Show Active Staff' : 'Show Deleted Staff'}
+                        {showDeleted ? 'Show Active' : 'Archived'}
                     </button>
                     {!showDeleted && (
                         <button
                             onClick={handleAdd}
-                            className="flex items-center px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-md shadow-blue-600/10 gap-2"
+                            className="flex items-center px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-sm gap-1.5"
                         >
-                            <LucideUserPlus size={16} />
+                            <LucideUserPlus size={14} />
                             Add Employee
                         </button>
                     )}
                 </div>
             </div>
 
-            <div className="bg-white rounded-[2rem] border border-neutral-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-0 mx-6 mb-6">
+            {/* Filters Row */}
+            {!showDeleted && (
+                <div className="flex flex-wrap items-center gap-2 px-6 pb-3 shrink-0">
+                    <div className="flex items-center bg-neutral-100 border border-neutral-200 rounded-lg px-2.5 py-1.5 gap-1.5 flex-1 min-w-[180px] max-w-[280px]">
+                        <LucideSearch size={14} className="text-neutral-400" />
+                        <input
+                            type="text"
+                            placeholder="Search name, email, or phone…"
+                            className="bg-transparent text-xs focus:outline-none w-full text-black placeholder:text-neutral-400"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                    <select
+                        value={roleFilter}
+                        onChange={e => setRoleFilter(e.target.value)}
+                        className="bg-neutral-100 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-black focus:outline-none cursor-pointer"
+                    >
+                        <option value="all">All Roles</option>
+                        {uniqueRoles.map(r => (
+                            <option key={r} value={r}>{r === 'delivery_boy' ? 'Delivery Boy' : r === 'restaurant_admin' ? 'Restaurant Admin' : r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                        ))}
+                    </select>
+                    {branches.length > 0 && (
+                        <select
+                            value={branchFilter}
+                            onChange={e => setBranchFilter(e.target.value)}
+                            className="bg-neutral-100 border border-neutral-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-black focus:outline-none cursor-pointer"
+                        >
+                            <option value="all">All Branches</option>
+                            {branches.map(b => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                        </select>
+                    )}
+                </div>
+            )}
+
+            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-0 mx-6 mb-5">
                 <div className="overflow-y-auto no-scrollbar flex-1">
-                    <table className="w-full text-left text-sm text-black">
-                        <thead className="bg-neutral-50 text-black font-medium border-b border-neutral-200 sticky top-0 z-10">
+                    <table className="w-full text-left text-xs text-black">
+                        <thead className="bg-neutral-50 text-neutral-600 font-semibold border-b border-neutral-200 sticky top-0 z-10 uppercase text-[10px] tracking-wider">
                             <tr>
-                                <th className="px-6 py-4">Emp ID</th>
-                                <th className="px-6 py-4">Name</th>
-                                <th className="px-6 py-4">Role</th>
-                                <th className="px-6 py-4">Availability</th>
-                                <th className="px-6 py-4">Current Workload</th>
-                                <th className="px-6 py-4">Phone</th>
-                                <th className="px-6 py-4">Branch</th>
-                                <th className="px-6 py-4">Monthly Salary</th>
-                                <th className="px-6 py-4">Per Day Salary</th>
-                                <th className="px-6 py-4">Overtime Rate</th>
-                                <th className="px-6 py-4">Account Status</th>
-                                <th className="px-6 py-4 text-right">Actions</th>
+                                <th className="px-4 py-3">ID</th>
+                                <th className="px-4 py-3">Employee</th>
+                                <th className="px-4 py-3">Role</th>
+                                <th className="px-4 py-3">Contact</th>
+                                <th className="px-4 py-3">Branch</th>
+                                <th className="px-4 py-3 text-right">Salary</th>
+                                <th className="px-4 py-3">Type</th>
+                                <th className="px-4 py-3">Weekly Off</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3 text-right">Actions</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-neutral-200">
-                            {employees.length === 0 ? (
+                        <tbody className="divide-y divide-neutral-100">
+                            {filtered.length === 0 ? (
                                 <tr>
-                                    <td colSpan={12} className="px-6 py-12 text-center text-neutral-500 font-medium">
-                                        {showDeleted ? 'No soft-deleted employees found.' : 'No employees found. Add one to get started!'}
+                                    <td colSpan={10} className="px-4 py-10 text-center text-neutral-400 font-medium text-sm">
+                                        {showDeleted ? 'No archived employees.' : searchQuery || roleFilter !== 'all' ? 'No employees match your filters.' : 'No employees found. Add one to get started!'}
                                     </td>
                                 </tr>
                             ) : (
-                                employees.map((emp) => (
-                                    <tr key={emp.id} className="hover:bg-neutral-50 transition-colors">
-                                        <td className="px-6 py-4 font-mono text-xs font-semibold text-neutral-600">
-                                            {emp.employee_id || '-'}
+                                filtered.map((emp) => (
+                                    <tr key={emp.id} className="hover:bg-neutral-50/60 transition-colors">
+                                        <td className="px-4 py-2.5 font-mono text-[10px] font-semibold text-neutral-400">
+                                            {emp.employee_code || emp.employee_id || '—'}
                                         </td>
-                                        <td className="px-6 py-4 font-medium text-black">
-                                            {emp.name}
+                                        <td className="px-4 py-2.5">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="w-7 h-7 rounded-full bg-neutral-100 border border-neutral-200 flex items-center justify-center text-[11px] font-bold text-neutral-700 shrink-0">
+                                                    {emp.name.charAt(0).toUpperCase()}
+                                                </div>
+                                                <div className="flex flex-col min-w-0">
+                                                    <span className="font-semibold text-black truncate max-w-[160px]">{emp.name}</span>
+                                                    {emp.email ? (
+                                                        <span className="text-[11px] text-neutral-500 truncate max-w-[160px] flex items-center gap-1" title={emp.email}>
+                                                            <LucideMail size={11} className="shrink-0 text-neutral-400" />
+                                                            {emp.email}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] text-neutral-400 italic">No email</span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </td>
-                                        <td className="px-6 py-4">
-                                            {emp.role === 'delivery_boy' ? (
-                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                                    Delivery Boy
-                                                </span>
-                                            ) : (
-                                                <span className="capitalize text-xs font-medium text-neutral-700">
-                                                    {emp.role}
-                                                </span>
-                                            )}
+                                        <td className="px-4 py-2.5">
+                                            <RoleBadge role={emp.role} />
                                         </td>
-                                        <td className="px-6 py-4">
-                                            {emp.is_online ? (
-                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs">
-                                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                                    Online
+                                        <td className="px-4 py-2.5 text-neutral-600 text-[11px]">
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="font-mono flex items-center gap-1 text-neutral-700">
+                                                    <LucidePhone size={11} className="shrink-0 text-neutral-400" />
+                                                    {emp.phone || '—'}
                                                 </span>
-                                            ) : (
-                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-500 border border-neutral-200">
-                                                    <span className="w-2 h-2 rounded-full bg-neutral-400" />
-                                                    Offline
-                                                </span>
-                                            )}
+                                            </div>
                                         </td>
-                                        <td className="px-6 py-4">
-                                            {emp.role === 'waiter' ? (
-                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-neutral-100 text-neutral-800 border border-neutral-200">
-                                                    <span>{emp.active_tables_count || 0} Tables</span>
-                                                    <span className="text-neutral-300">•</span>
-                                                    <span>{emp.active_orders_count || 0} Orders</span>
-                                                </span>
-                                            ) : emp.role === 'delivery_boy' ? (
-                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                                    <span>Delivery Driver</span>
-                                                </span>
-                                            ) : (
-                                                <span className="text-xs text-neutral-400">—</span>
-                                            )}
+                                        <td className="px-4 py-2.5 text-neutral-500">{emp.branch?.name || '—'}</td>
+                                        <td className="px-4 py-2.5 text-right font-semibold text-black tabular-nums">₹{emp.monthly_salary.toLocaleString('en-IN')}</td>
+                                        <td className="px-4 py-2.5">
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                                emp.salary_type === 'daily' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
+                                            }`}>
+                                                {emp.salary_type === 'daily' ? 'Daily' : 'Monthly'}
+                                            </span>
                                         </td>
-                                        <td className="px-6 py-4 text-neutral-600 font-mono text-xs">{emp.phone}</td>
-                                        <td className="px-6 py-4 text-neutral-600">{emp.branch?.name || '-'}</td>
-                                        <td className="px-6 py-4 font-semibold text-black">₹{emp.monthly_salary.toLocaleString('en-IN')}</td>
-                                        <td className="px-6 py-4 text-neutral-600">₹{emp.per_day_salary ? emp.per_day_salary.toLocaleString('en-IN') : '-'}</td>
-                                        <td className="px-6 py-4 text-neutral-600">
-                                            {emp.overtime_per_hour ? `₹${emp.overtime_per_hour}/hr` : '-'}
-                                        </td>
-                                        <td className="px-6 py-4">
+                                        <td className="px-4 py-2.5 text-neutral-600 font-medium">{formatWeekday(emp.weekly_off)}</td>
+                                        <td className="px-4 py-2.5">
                                             {showDeleted ? (
-                                                <span className="text-xs text-red-500 font-semibold uppercase">Deleted</span>
+                                                <span className="text-[10px] text-red-500 font-bold uppercase">Deleted</span>
                                             ) : (
                                                 <button
                                                     onClick={() => toggleStatus(emp)}
-                                                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider transition-colors ${
+                                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
                                                         emp.status === 'active'
                                                             ? 'bg-green-50 text-green-700 hover:bg-green-100'
                                                             : 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
                                                     }`}
                                                 >
-                                                    {emp.status === 'active' ? (
-                                                        <span className="flex items-center gap-1">
-                                                            <LucideCheck size={12} /> Active
-                                                        </span>
-                                                    ) : (
-                                                        <span className="flex items-center gap-1">
-                                                            <LucideX size={12} /> Inactive
-                                                        </span>
-                                                    )}
+                                                    {emp.status === 'active' ? <><LucideCheck size={10} /> Active</> : <><LucideX size={10} /> Inactive</>}
                                                 </button>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4 text-right">
+                                        <td className="px-4 py-2.5 text-right">
                                             {showDeleted ? (
-                                                <div className="flex justify-end gap-2">
+                                                <div className="flex justify-end gap-1">
                                                     <button
                                                         onClick={() => handleRestore(emp.id)}
-                                                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm cursor-pointer"
-                                                        title="Restore Employee"
+                                                        className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold rounded transition-colors cursor-pointer"
                                                     >
-                                                        <LucideCheck size={13} />
                                                         Restore
                                                     </button>
                                                     <button
                                                         onClick={() => openDeleteModal(emp, true)}
-                                                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm cursor-pointer"
-                                                        title="Permanently Delete Employee"
+                                                        className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded transition-colors cursor-pointer"
                                                     >
-                                                        <LucideTrash2 size={13} />
-                                                        Delete Forever
+                                                        Delete
                                                     </button>
                                                 </div>
                                             ) : (
-                                                <div className="flex justify-end gap-2">
+                                                <div className="flex justify-end gap-1">
                                                     <button
                                                         onClick={() => handleEdit(emp)}
-                                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
-                                                        title="Edit Employee"
+                                                        className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                                        title="Edit"
                                                     >
-                                                        <LucideEdit size={16} />
+                                                        <LucideEdit size={14} />
                                                     </button>
                                                     <button
                                                         onClick={() => openDeleteModal(emp, false)}
-                                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                                                        title="Delete Employee"
+                                                        className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                                        title="Delete"
                                                     >
-                                                        <LucideTrash2 size={16} />
+                                                        <LucideTrash2 size={14} />
                                                     </button>
                                                 </div>
                                             )}
@@ -400,7 +452,7 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
             <EmployeeModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                onSuccess={loadData}
+                onSuccess={() => loadData(true)}
                 employee={selectedEmployee}
                 branches={branches}
             />
@@ -417,5 +469,21 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                 isLoading={deleteModal.isLoading}
             />
         </div>
+    );
+}
+
+function RoleBadge({ role }: { role: string }) {
+    const styles: Record<string, string> = {
+        restaurant_admin: 'bg-orange-50 text-orange-700 border-orange-200',
+        waiter: 'bg-blue-50 text-blue-700 border-blue-200',
+        chef: 'bg-purple-50 text-purple-700 border-purple-200',
+        supervisor: 'bg-teal-50 text-teal-700 border-teal-200',
+        delivery_boy: 'bg-amber-50 text-amber-700 border-amber-200',
+    };
+    const label = role === 'delivery_boy' ? 'Delivery' : role === 'restaurant_admin' ? 'Admin' : role;
+    return (
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border capitalize ${styles[role] || 'bg-neutral-50 border-neutral-200 text-neutral-600'}`}>
+            {label}
+        </span>
     );
 }

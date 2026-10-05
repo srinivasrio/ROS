@@ -71,14 +71,31 @@ const CACHE_TTL = 300000; // 5 minutes
 
 export const MenuService = {
     /**
+     * Trigger on-demand public menu cache revalidation for the restaurant (P2-09)
+     */
+    triggerPublicMenuRevalidation(restaurantId: string) {
+        if (!restaurantId || typeof window === 'undefined') return;
+        try {
+            fetch(`/api/restaurant/${restaurantId}/menu/revalidate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }).catch(() => {});
+        } catch (_) {}
+    },
+
+    /**
      * Clear specific or all cache
      */
-    clearCache(keyPattern?: string, syncHomepage: boolean = true) {
+    clearCache(keyPattern?: string, syncHomepage: boolean = true, restaurantId?: string) {
         activePromises.clear();
         if (keyPattern) {
             dataCache.deletePattern(keyPattern);
         } else {
             dataCache.clear();
+        }
+
+        if (restaurantId) {
+            this.triggerPublicMenuRevalidation(restaurantId);
         }
 
         if (!syncHomepage) return;

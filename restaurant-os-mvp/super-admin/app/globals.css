@@ -2,14 +2,64 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
+    --background: #F5F7FC;
+    --surface: #FFFFFF;
+    --primary: #4F46E5;
+    --primary-light: #EEF2FF;
+    --secondary: #06B6D4;
+    --text-primary: #172033;
+    --text-secondary: #667085;
+    --border: #E4E7EC;
   }
 
   body {
-    background-color: #f8fafc;
-    color: #0f172a;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #F5F7FC;
+    color: #172033;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+}
+
+/* Custom premium light SaaS styling */
+.saas-card {
+  background: #FFFFFF;
+  border: 1px solid #E4E7EC;
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 3px 0 rgba(16, 24, 40, 0.04), 0 1px 2px -1px rgba(16, 24, 40, 0.04);
+}
+
+.saas-card-hover {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.saas-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -4px rgba(79, 70, 229, 0.08), 0 4px 8px -2px rgba(16, 24, 40, 0.04);
+  border-color: #CBD5E1;
+}
+
+.saas-header-blur {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Premium slim scrollbar */
+.saas-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.saas-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.saas-scrollbar::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+.saas-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
 }

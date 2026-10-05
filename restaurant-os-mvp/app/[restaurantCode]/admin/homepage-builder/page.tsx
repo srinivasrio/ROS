@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { HomepageBuilderService } from '@/services/homepage-builder.service';
 import { BannerService } from '@/services/banner.service';
 import { useRestaurantId } from '@/hooks/useRestaurantId';
+import { syncClientSession } from '@/lib/supabase';
 import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
 import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
@@ -43,6 +44,7 @@ export default function HomepageBuilderPage() {
 
   // Hydrate immediately from cache on first render
   useEffect(() => {
+    syncClientSession();
     if (cached) {
       if (cached.theme) dispatch({ type: 'SET_THEME', theme: cached.theme });
       if (cached.profile) dispatch({ type: 'UPDATE_PROFILE', profile: cached.profile });
@@ -141,6 +143,7 @@ export default function HomepageBuilderPage() {
     setSaveStatus('saving');
 
     try {
+      await syncClientSession();
       await HomepageBuilderService.saveFullState(restaurantId, state);
 
       const targetId = restaurantId || restaurantCode;

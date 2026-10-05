@@ -10,14 +10,16 @@ export async function GET(request: Request) {
 
         let targetRest: string | null = null;
         let targetStaff: string | null = null;
+        let targetPanel: string | null = null;
         try {
             const url = new URL(request.url);
             targetRest = url.searchParams.get('restaurantId') || url.searchParams.get('restaurantCode') || request.headers.get('x-restaurant-id') || null;
             targetStaff = url.searchParams.get('staffMobile') || url.searchParams.get('mobile') || url.searchParams.get('employee_id') || null;
+            targetPanel = url.searchParams.get('panel') || request.headers.get('x-panel') || null;
         } catch (_) {}
 
         const cookieStore = await cookies();
-        const token = extractTokenForRestaurant(cookieStore, targetRest, targetStaff);
+        const token = extractTokenForRestaurant(cookieStore, targetRest, targetStaff, targetPanel);
 
         if (!token) {
             return NextResponse.json({ authenticated: false }, { status: 200 });
@@ -59,14 +61,19 @@ export async function GET(request: Request) {
         }
 
         // Validate that employee account is explicitly active and not deleted
+        let dbBranchId: string | null = null;
+        let dbBranchName: string | null = null;
+        let emp: any = null;
         if (payload.userId) {
-            const { data: emp } = await supabaseAdmin
+            const { data: empData } = await supabaseAdmin
                 .from('employees')
-                .select('status, approval_status, is_deleted, session_version')
+                .select('status, approval_status, is_deleted, session_version, branch_id, internal_id, employee_code, mobile, phone_normalized')
                 .eq('id', payload.userId)
                 .maybeSingle();
 
+            emp = empData;
             if (emp) {
+                dbBranchId = emp.branch_id || null;
                 const isNotActive = emp.is_deleted || emp.status !== 'active' || emp.approval_status !== 'approved';
                 const versionMismatch = payload.sessionVersion && emp.session_version && payload.sessionVersion < emp.session_version;
                 if (isNotActive || versionMismatch) {
@@ -82,15 +89,70 @@ export async function GET(request: Request) {
             }
         }
 
+        const effectiveRestId = payload.restaurantId || payload.restaurant_id || null;
+        const normalizedRole = (payload.role || '').toLowerCase();
+
+        // Enforce that restaurant must be active and not deleted for restaurant-level roles
+        if (effectiveRestId && normalizedRole !== 'super_admin') {
+            const { data: restRec } = await supabaseAdmin
+                .from('restaurants')
+                .select('id, status, deleted_at')
+                .eq('id', effectiveRestId)
+                .maybeSingle();
+
+            if (!restRec || restRec.deleted_at || (restRec.status || '').toLowerCase() !== 'active') {
+                cookieStore.set('dine_auth_token', '', {
+                    httpOnly: true,
+                    secure: isSecure,
+                    sameSite: 'lax',
+                    path: '/',
+                    maxAge: 0
+                });
+                return NextResponse.json({ authenticated: false, error: 'Restaurant is not active or has been deactivated/deleted' }, { status: 200 });
+            }
+        }
+
+        const effectiveBranchId = dbBranchId || payload.branchId || payload.branch_id || null;
+        if (effectiveBranchId) {
+            const { data: bRec } = await supabaseAdmin
+                .from('branches')
+                .select('name, status, deleted_at')
+                .eq('id', effectiveBranchId)
+                .maybeSingle();
+
+            if (bRec) {
+                // If branch is deleted or inactive and role is branch-bound, invalidate session
+                if ((bRec.deleted_at || (bRec.status || '').toLowerCase() !== 'active') && !['super_admin', 'owner', 'restaurant_owner'].includes(normalizedRole)) {
+                    cookieStore.set('dine_auth_token', '', {
+                        httpOnly: true,
+                        secure: isSecure,
+                        sameSite: 'lax',
+                        path: '/',
+                        maxAge: 0
+                    });
+                    return NextResponse.json({ authenticated: false, error: 'Assigned branch is not active or has been deactivated/deleted' }, { status: 200 });
+                }
+                dbBranchName = bRec.name;
+            }
+        }
+
         return NextResponse.json({
             authenticated: true,
+            token,
             user: {
                 id: payload.userId,
+                internal_id: emp?.internal_id || payload.internalId || null,
+                employee_code: emp?.employee_code || null,
                 name: payload.name,
                 role: payload.role,
                 employee_id: payload.employeeId || null,
                 email: payload.email || null,
-                restaurant_id: payload.restaurantId || null
+                mobile: emp?.mobile || payload.mobile || null,
+                phone_normalized: emp?.phone_normalized || null,
+                restaurant_id: payload.restaurantId || null,
+                branch_id: effectiveBranchId,
+                branchId: effectiveBranchId,
+                branch_name: dbBranchName || payload.branchName || null
             }
         });
     } catch (error) {

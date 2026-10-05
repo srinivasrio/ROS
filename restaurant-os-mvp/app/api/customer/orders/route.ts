@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifyJwt, extractCustomerTokenForRestaurant } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { getCategoryMenuItemImage } from '@/lib/utils';
+
+type CustomerJwtPayload = {
+    customerId?: string;
+    restaurantId?: string;
+    restaurant_id?: string;
+    role?: string;
+};
 
 /**
  * GET /api/customer/orders
@@ -17,15 +25,28 @@ export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
         const restaurantCode = searchParams.get('restaurantId') || searchParams.get('restaurantCode') || '';
-        const tableNumber = searchParams.get('tableNumber') || '';
-        const clientCustomerId = searchParams.get('customerId') || '';
 
         const actualRestaurantId = await resolveRestaurantId(restaurantCode);
         if (!actualRestaurantId) {
             return NextResponse.json({ error: 'Invalid restaurant' }, { status: 400 });
         }
 
-        // 1. Resolve Authenticated Customer
+        const tableNumber = searchParams.get('tableNumber');
+
+        let physicalTableId: number | null = null;
+        if (tableNumber) {
+            const { data: pTable } = await supabaseAdmin
+                .from('tables')
+                .select('id')
+                .eq('restaurant_id', actualRestaurantId)
+                .eq('table_number', tableNumber)
+                .maybeSingle();
+            if (pTable?.id) {
+                physicalTableId = pTable.id;
+            }
+        }
+
+        // 1. Resolve Authenticated Customer strictly from verified JWT
         let authenticatedCustomerId: string | null = null;
         let token: string | null = null;
         const authHeader = req.headers.get('authorization');
@@ -37,65 +58,45 @@ export async function GET(req: NextRequest) {
         }
 
         if (token) {
-            const payload = await verifyJwt(token);
-            if (payload?.customerId) {
-                authenticatedCustomerId = payload.customerId;
-            }
-        }
-
-        // Fallback: If token not present, verify clientCustomerId against customers table
-        if (!authenticatedCustomerId && clientCustomerId) {
-            const { data: verifiedCust } = await supabaseAdmin
-                .from('customers')
-                .select('id')
-                .eq('restaurant_id', actualRestaurantId)
-                .eq('id', clientCustomerId)
-                .maybeSingle();
-            if (verifiedCust?.id) {
-                authenticatedCustomerId = verifiedCust.id;
-            }
-        }
-
-        // 2. Resolve Table ID if physical table provided
-        let physicalTableId: number | null = null;
-        const isVirtual = tableNumber === 'takeaway' || tableNumber === 'delivery';
-        if (tableNumber && !isVirtual) {
-            const cleanTable = tableNumber.replace(/^table\s*[-_]?\s*/i, '').trim();
-            const { data: tRow } = await supabaseAdmin
-                .from('tables')
-                .select('id, table_number')
-                .eq('restaurant_id', actualRestaurantId)
-                .or(`table_number.eq.${cleanTable},id.eq.${cleanTable}`)
-                .maybeSingle();
-            if (tRow?.id) {
-                physicalTableId = tRow.id;
-            }
-        }
-
-        // 3. Link any unlinked active orders on current physical table to this customer
-        if (authenticatedCustomerId && physicalTableId) {
+            let payload: CustomerJwtPayload | null = null;
             try {
-                await supabaseAdmin
-                    .from('orders')
-                    .update({ customer_id: authenticatedCustomerId })
+                payload = await verifyJwt(token);
+            } catch {
+                payload = null;
+            }
+
+            const tokenRestaurantId = payload?.restaurantId || payload?.restaurant_id;
+            const isCustomerToken = String(payload?.role || '').toLowerCase() === 'customer';
+            if (payload?.customerId && isCustomerToken && tokenRestaurantId && String(tokenRestaurantId) === String(actualRestaurantId)) {
+                const { data: customerRecord } = await supabaseAdmin
+                    .from('customers')
+                    .select('id')
+                    .eq('id', payload.customerId)
                     .eq('restaurant_id', actualRestaurantId)
-                    .eq('table_id', physicalTableId)
-                    .eq('is_completed', false)
-                    .is('customer_id', null);
-            } catch (err) {
-                console.warn('[CustomerOrders] Auto-link active table order warning:', err);
+                    .maybeSingle();
+                if (customerRecord?.id) {
+                    authenticatedCustomerId = customerRecord.id;
+                }
             }
         }
 
-        // 4. Query Orders
-        // If customer is authenticated: Query by customer_id
-        // If unauthenticated: Query active order for current table ONLY (prevent viewing other customers)
+        // P0-04 IDOR REMEDIATION: Unauthenticated requests or requests with only client-supplied
+        // customerId or lastOrderId without a verified JWT are rejected immediately with 401.
+        if (!authenticatedCustomerId) {
+            return NextResponse.json(
+                { error: 'Unauthorized: verified customer session required' },
+                { status: 401 }
+            );
+        }
+
+        // 2. Query Orders strictly scoped to authenticated customer and verified tenant
         let ordersQuery = supabaseAdmin
             .from('orders')
             .select(`
                 id,
                 order_number,
                 table_id,
+                customer_id,
                 status,
                 total_amount,
                 amount_paid,
@@ -107,30 +108,13 @@ export async function GET(req: NextRequest) {
                 gst_amount,
                 cgst_amount,
                 sgst_amount,
-                delivery_address,
-                delivery_phone,
-                delivery_notes,
-                delivery_fee,
                 customer_phone,
-                customer_id,
                 restaurant_id,
                 created_at,
                 completed_at
             `)
-            .eq('restaurant_id', actualRestaurantId);
-
-        if (authenticatedCustomerId) {
-            ordersQuery = ordersQuery.eq('customer_id', authenticatedCustomerId);
-        } else if (physicalTableId) {
-            ordersQuery = ordersQuery.eq('table_id', physicalTableId).eq('is_completed', false);
-        } else {
-            // Unauthenticated without a table has no orders
-            return NextResponse.json({
-                success: true,
-                activeOrders: [],
-                previousOrders: [],
-            });
-        }
+            .eq('restaurant_id', actualRestaurantId)
+            .eq('customer_id', authenticatedCustomerId);
 
         const { data: rawOrders, error: ordersErr } = await ordersQuery.order('created_at', { ascending: false });
 
@@ -150,8 +134,8 @@ export async function GET(req: NextRequest) {
 
         const orderIds = ordersList.map(o => o.id);
 
-        // 5. Fetch Order Items in Batch
-        const { data: allItems } = await supabaseAdmin
+        // 5. Fetch Order Items in Batch with correct relation
+        const { data: allItems, error: itemsErr } = await supabaseAdmin
             .from('order_items')
             .select(`
                 id,
@@ -169,48 +153,94 @@ export async function GET(req: NextRequest) {
                 tax_percent,
                 cgst_percent,
                 sgst_percent,
-                menu_items:menu_item_id (
+                menu_items (
                     name,
                     image_url
                 )
             `)
             .in('order_id', orderIds);
 
-        // 6. Fetch Delivery Assignments & Delivery Boy Details in Batch
-        const { data: allAssignments } = await supabaseAdmin
-            .from('delivery_assignments')
-            .select(`
-                id,
-                order_id,
-                delivery_boy_id,
-                status,
-                assigned_at,
-                accepted_at,
-                picked_up_at,
-                out_for_delivery_at,
-                delivered_at,
-                cancelled_at,
-                cancellation_reason,
-                delivery_boys:delivery_boy_id (
-                    id,
-                    vehicle_type,
-                    vehicle_number,
-                    employee:employee_id (
-                        name,
-                        mobile,
-                        avatar_url
-                    )
-                )
-            `)
-            .in('order_id', orderIds);
+        if (itemsErr) {
+            console.error('[CustomerOrders] DB items query error:', itemsErr);
+        }
 
-        // Map items and assignments by order_id
+        // 6. Fetch Delivery Assignments & Delivery Boy Details safely in Batch
+        const assignmentByOrderId = new Map<string, any>();
+        try {
+            const { data: assignments, error: assignErr } = await supabaseAdmin
+                .from('delivery_assignments')
+                .select(`
+                    id,
+                    order_id,
+                    delivery_boy_id,
+                    status,
+                    assigned_at,
+                    accepted_at,
+                    picked_up_at,
+                    out_for_delivery_at,
+                    delivered_at,
+                    cancelled_at,
+                    cancellation_reason
+                `)
+                .in('order_id', orderIds)
+                .not('status', 'in', '("CANCELLED","REASSIGNED")');
+
+            if (assignErr) {
+                console.warn('[CustomerOrders] Error fetching delivery assignments:', assignErr);
+            } else if (assignments && assignments.length > 0) {
+                const boyIds = [...new Set(assignments.map(a => a.delivery_boy_id).filter(Boolean))];
+                const { data: boys } = boyIds.length > 0 ? await supabaseAdmin
+                    .from('delivery_boys')
+                    .select('id, employee_id, vehicle_type, vehicle_number')
+                    .in('id', boyIds) : { data: [] };
+
+                const empIds = [...new Set((boys || []).map(b => b.employee_id).filter(Boolean))];
+                const { data: emps } = empIds.length > 0 ? await supabaseAdmin
+                    .from('employees')
+                    .select('id, name, mobile, avatar_url')
+                    .in('id', empIds) : { data: [] };
+
+                const empMap = new Map((emps || []).map(e => [e.id, e]));
+                const boyMap = new Map((boys || []).map(b => [b.id, {
+                    ...b,
+                    name: empMap.get(b.employee_id)?.name || 'Delivery Partner',
+                    mobile: empMap.get(b.employee_id)?.mobile || '',
+                    avatar_url: empMap.get(b.employee_id)?.avatar_url || null,
+                }]));
+
+                for (const a of assignments) {
+                    const db = boyMap.get(a.delivery_boy_id);
+                    assignmentByOrderId.set(a.order_id, {
+                        id: a.id,
+                        status: a.status,
+                        assigned_at: a.assigned_at,
+                        accepted_at: a.accepted_at,
+                        picked_up_at: a.picked_up_at,
+                        out_for_delivery_at: a.out_for_delivery_at,
+                        delivered_at: a.delivered_at,
+                        cancelled_at: a.cancelled_at,
+                        cancellation_reason: a.cancellation_reason,
+                        delivery_boy: db ? {
+                            name: db.name,
+                            mobile: db.mobile,
+                            avatar_url: db.avatar_url,
+                            vehicle_type: db.vehicle_type,
+                            vehicle_number: db.vehicle_number,
+                        } : null,
+                    });
+                }
+            }
+        } catch (e) {
+            console.error('[CustomerOrders] Delivery assignments processing error:', e);
+        }
+
+        // Map items by order_id
         const itemsByOrderId = new Map<string, any[]>();
         (allItems || []).forEach(item => {
             const list = itemsByOrderId.get(item.order_id) || [];
             const mi = Array.isArray(item.menu_items) ? item.menu_items[0] : item.menu_items;
             const resolvedName = item.combo_name || mi?.name || `Item #${item.menu_item_id || item.id}`;
-            const resolvedImage = item.combo_image || mi?.image_url || null;
+            const resolvedImage = item.combo_image || mi?.image_url || getCategoryMenuItemImage(resolvedName);
 
             let parsedComboItems = item.combo_items;
             if (typeof parsedComboItems === 'string') {
@@ -223,6 +253,7 @@ export async function GET(req: NextRequest) {
 
             list.push({
                 ...item,
+                id: String(item.id),
                 name: resolvedName,
                 price: Number(item.price_at_time) || 0,
                 image_url: resolvedImage,
@@ -231,43 +262,36 @@ export async function GET(req: NextRequest) {
             itemsByOrderId.set(item.order_id, list);
         });
 
-        const assignmentByOrderId = new Map<string, any>();
-        (allAssignments || []).forEach(a => {
-            const dboy = a.delivery_boys as any;
-            const emp = dboy?.employee as any;
-            assignmentByOrderId.set(a.order_id, {
-                id: a.id,
-                status: a.status,
-                assigned_at: a.assigned_at,
-                accepted_at: a.accepted_at,
-                picked_up_at: a.picked_up_at,
-                out_for_delivery_at: a.out_for_delivery_at,
-                delivered_at: a.delivered_at,
-                cancelled_at: a.cancelled_at,
-                cancellation_reason: a.cancellation_reason,
-                delivery_boy: emp ? {
-                    name: emp.name,
-                    mobile: emp.mobile,
-                    avatar_url: emp.avatar_url,
-                    vehicle_type: dboy.vehicle_type,
-                    vehicle_number: dboy.vehicle_number,
-                } : null,
+        // 7. Resolve table numbers for friendly display
+        const tableIds = [...new Set(ordersList.map(o => o.table_id).filter(Boolean))];
+        const tableNumberMap = new Map<number, string>();
+        if (tableIds.length > 0) {
+            const { data: tableRows } = await supabaseAdmin
+                .from('tables')
+                .select('id, table_number')
+                .in('id', tableIds);
+            (tableRows || []).forEach(t => {
+                tableNumberMap.set(t.id, t.table_number);
             });
-        });
+        }
 
-        // 7. Assemble Enriched Orders & Categorize
+        // 8. Assemble Enriched Orders & Categorize
         const activeOrders: any[] = [];
         const previousOrders: any[] = [];
 
         for (const order of ordersList) {
             const items = itemsByOrderId.get(order.id) || [];
             const deliveryAssignment = assignmentByOrderId.get(order.id) || null;
+            const resolvedTableNum = order.table_id ? tableNumberMap.get(order.table_id) : null;
+            const tableName = resolvedTableNum
+                ? `Table ${resolvedTableNum}`
+                : (order.table_id ? `Table ${order.table_id}` : (order.order_type === 'DELIVERY' ? 'Delivery' : 'Takeaway'));
 
             const enrichedOrder = {
                 ...order,
                 items,
                 delivery_assignment: deliveryAssignment,
-                table_name: order.table_id ? `Table ${order.table_id}` : (order.order_type === 'DELIVERY' ? 'Delivery' : 'Takeaway'),
+                table_name: tableName,
             };
 
             const statusLower = (order.status || '').toLowerCase();
@@ -280,9 +304,25 @@ export async function GET(req: NextRequest) {
                 ['completed', 'delivered', 'picked_up', 'cancelled', 'paid'].includes(statusLower);
 
             if (isFinalStatus) {
-                previousOrders.push(enrichedOrder);
+                // Past order history - only show if belonging to this authenticated customer
+                if (authenticatedCustomerId && order.customer_id === authenticatedCustomerId) {
+                    previousOrders.push(enrichedOrder);
+                }
             } else {
-                activeOrders.push(enrichedOrder);
+                // In-flight active order
+                // Strict table scoping: If customer is currently at a physical table,
+                // ONLY show as active order if this order belongs to this physical table!
+                // An active order on Table 1 must NEVER show as active on Table 2.
+                if (physicalTableId) {
+                    if (order.table_id === physicalTableId) {
+                        activeOrders.push(enrichedOrder);
+                    } else if (authenticatedCustomerId && order.customer_id === authenticatedCustomerId) {
+                        // In-flight order for a different table belongs to this user, but don't mix into active orders of this table
+                        previousOrders.push(enrichedOrder);
+                    }
+                } else {
+                    activeOrders.push(enrichedOrder);
+                }
             }
         }
 

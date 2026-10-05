@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { ExternalLink, ShieldCheck, ArrowRight, Server, RefreshCw } from 'lucide-react';
 
-const SUPER_ADMIN_URL = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://localhost:3005';
+const SUPER_ADMIN_URL = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://control.localhost:3005';
 
 export default function SuperAdminRedirectPage() {
     const [secondsLeft, setSecondsLeft] = useState(3);
@@ -12,26 +12,35 @@ export default function SuperAdminRedirectPage() {
     // Check if the standalone super admin server on port 3005 is online
     useEffect(() => {
         let isMounted = true;
+        const onlineRef = { current: false };
         const checkHealth = async () => {
             try {
                 const res = await fetch(`${SUPER_ADMIN_URL}/api/auth/login`, {
                     method: 'GET',
                     mode: 'no-cors'
                 });
-                if (isMounted) setIsOnline(true);
+                if (isMounted) {
+                    setIsOnline(true);
+                    onlineRef.current = true;
+                }
             } catch {
-                if (isMounted) setIsOnline(false);
+                if (isMounted) {
+                    setIsOnline(false);
+                    onlineRef.current = false;
+                }
             }
         };
 
         checkHealth();
 
-        // Countdown auto-redirect
+        // Countdown auto-redirect (only if confirmed online)
         const timer = setInterval(() => {
             setSecondsLeft((prev) => {
                 if (prev <= 1) {
                     clearInterval(timer);
-                    window.location.href = SUPER_ADMIN_URL;
+                    if (onlineRef.current) {
+                        window.location.href = SUPER_ADMIN_URL;
+                    }
                     return 0;
                 }
                 return prev - 1;

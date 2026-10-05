@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAdminUserFromRequest, getDeliveryOrAdminUserFromRequest } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { verifyFeatureEntitlement } from '@/lib/entitlement-guard';
 
 /**
  * GET /api/delivery/boys?restaurantId=xxx
@@ -22,6 +23,12 @@ export async function GET(request: NextRequest) {
         }
 
         const rid = (await resolveRestaurantId(targetRid)) || targetRid;
+
+        // Feature Entitlement Authorization
+        const entitlementCheck = await verifyFeatureEntitlement(rid, 'delivery');
+        if (!entitlementCheck.allowed) {
+            return entitlementCheck.response;
+        }
 
         // Fetch delivery boys
         const { data: boys, error: boysErr } = await supabaseAdmin
@@ -95,6 +102,12 @@ export async function POST(request: NextRequest) {
         }
 
         const rid = (await resolveRestaurantId(rawRid)) || rawRid;
+
+        // Feature Entitlement Authorization
+        const entitlementCheck = await verifyFeatureEntitlement(rid, 'delivery');
+        if (!entitlementCheck.allowed) {
+            return entitlementCheck.response;
+        }
 
         if (action === 'create') {
             if (!employeeId) {

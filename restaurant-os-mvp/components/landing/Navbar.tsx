@@ -49,9 +49,6 @@ const Navbar = () => {
                 {l}
               </button>
             ))}
-            <Link href="/login" className={`text-sm font-medium transition-colors ${scrolled ? "text-black dark:text-black hover:text-[#FF6B6B]" : "text-black hover:text-[#FF6B6B]"}`}>
-              Login
-            </Link>
             <Link href="/register">
               <button className="btn-primary text-sm !py-2.5 !px-6">
                 Get Started
@@ -96,16 +93,6 @@ const Navbar = () => {
               </motion.button>
             ))}
 
-            <Link href="/login">
-               <motion.button
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-2xl font-bold text-foreground hover:text-[#FF6B6B] transition-colors"
-                
-              >
-                Login
-              </motion.button>
-            </Link>
 
             <Link href="/register" onClick={() => setMobileOpen(false)}>
               <motion.button

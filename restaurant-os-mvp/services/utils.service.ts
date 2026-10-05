@@ -93,11 +93,11 @@ export async function resolveRestaurantId(codeRaw: string | number): Promise<str
         try {
             const supabase = createClient();
 
-            // 1. Direct check in restaurants table first
+            // 1. Direct check in restaurants table first (by id, internal_id, or restaurant_code)
             const { data: exists } = await supabase
                 .from('restaurants')
                 .select('id')
-                .eq('id', code)
+                .or(`id.eq.${code},internal_id.eq.${code},restaurant_code.eq.${code}`)
                 .maybeSingle();
 
             if (exists) {

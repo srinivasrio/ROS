@@ -59,7 +59,17 @@ export async function POST(request: Request) {
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/(^-|-$)/g, '') + '-' + randomDigits;
 
-        // 1. Insert into restaurants with status = 'PENDING' and GST settings
+        // Resolve selected subscription plan
+        const rawPlanSlug = String(body.planSlug || body.subscriptionPlan || 'standard').toLowerCase();
+        const planSlug = ['growth', 'pro'].includes(rawPlanSlug) ? rawPlanSlug : 'standard';
+        const planName = planSlug === 'pro' ? 'Pro' : planSlug === 'growth' ? 'Growth' : 'Standard';
+        const planLimit = planSlug === 'pro' ? 2 : 1;
+        const amountDue = planSlug === 'pro' ? 2999.00 : planSlug === 'growth' ? 1499.00 : 999.00;
+
+        // 1. Insert into restaurants with status = 'PENDING_APPROVAL' and GST settings
+        const regReqId = crypto.randomUUID();
+        const requestNumber = `REQ-${restaurantId.slice(-6)}`;
+
         const { error: restError } = await supabaseAdmin
             .from('restaurants')
             .insert({
@@ -69,9 +79,10 @@ export async function POST(request: Request) {
                 phone: user.mobile,
                 email: user.email,
                 address: formattedAddress,
-                status: 'PENDING',
-                subscription_plan: null,
+                status: 'pending_approval',
+                subscription_plan: planName,
                 owner_id: user.userId,
+                registration_request_id: regReqId,
                 gst_percentage: parsedGst,
                 cgst_percentage: parsedCgst,
                 sgst_percentage: parsedSgst
@@ -82,7 +93,47 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Failed to create restaurant request: ' + restError.message }, { status: 500 });
         }
 
-        // 2. Insert into restaurant_profile
+        // 2. Insert into restaurant_registration_requests
+        await supabaseAdmin.from('restaurant_registration_requests').insert({
+            id: regReqId,
+            request_number: requestNumber,
+            restaurant_id: restaurantId,
+            restaurant_name: cleanName,
+            owner_id: user.userId,
+            owner_name: user.name || 'Owner',
+            owner_email: user.email,
+            owner_phone: user.mobile,
+            plan_slug: planSlug,
+            plan_name: planName,
+            plan_limit: planLimit,
+            amount_due: amountDue,
+            payment_status: 'PENDING',
+            approval_status: 'PENDING_APPROVAL'
+        });
+
+        // 3. Create Subscription in pending status (activated upon Super Admin approval)
+        await supabaseAdmin.from('subscriptions').insert({
+            restaurant_id: restaurantId,
+            plan_name: planSlug,
+            plan_type: 'monthly',
+            status: 'pending',
+            amount: amountDue,
+            currency: 'INR',
+            max_branches: planLimit,
+            max_employees: planSlug === 'pro' ? 30 : 10,
+            current_period_start: new Date().toISOString(),
+            current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+        });
+
+        // 4. Connect owner in restaurant_users
+        await supabaseAdmin.from('restaurant_users').insert({
+            restaurant_id: restaurantId,
+            user_id: user.userId,
+            role: 'OWNER',
+            status: 'pending'
+        });
+
+        // 4. Insert into restaurant_profile
         const { error: profileError } = await supabaseAdmin
             .from('restaurant_profile')
             .insert({
@@ -109,32 +160,39 @@ export async function POST(request: Request) {
             console.error('Profile insert error:', profileError);
         }
 
-        // 3. Insert into restaurant_legal
+        // 5. Insert into restaurant_legal
         const { error: legalError } = await supabaseAdmin
             .from('restaurant_legal')
             .insert({
                 restaurant_ref: restaurantId,
                 business_name: cleanName,
                 business_type: businessType,
-                status: 'PENDING'
+                status: 'PENDING_APPROVAL'
             });
 
         if (legalError) {
             console.error('Legal insert error:', legalError);
         }
 
-        // 4. Update owner's employee record with restaurant_id
+        // 6. Update owner's employee record with restaurant_id
         await supabaseAdmin
             .from('employees')
-            .update({ restaurant_id: restaurantId })
+            .update({ 
+                restaurant_id: restaurantId,
+                status: 'pending',
+                approval_status: 'pending'
+            })
             .eq('id', user.userId);
 
         await supabaseAdmin
             .from('dine_users')
-            .update({ restaurant_id: restaurantId })
+            .update({ 
+                restaurant_id: restaurantId,
+                status: 'pending'
+            })
             .eq('id', user.userId);
 
-        // 5. Seed default configuration (theme, sections, services, branch)
+        // 7. Seed default configuration (theme, sections, services, branch)
         await seedRestaurantDefaults(restaurantId, {
             name: cleanName,
             phone: user.mobile,
@@ -145,6 +203,18 @@ export async function POST(request: Request) {
             gstPercentage: parsedGst,
             cgstPercentage: parsedCgst,
             sgstPercentage: parsedSgst
+        });
+
+        // 8. Audit Log
+        await supabaseAdmin.from('audit_logs').insert({
+            restaurant_id: restaurantId,
+            action: 'owner_submitted_restaurant_registration',
+            details: {
+                request_id: regReqId,
+                request_number: requestNumber,
+                restaurant_name: cleanName,
+                timestamp: new Date().toISOString()
+            }
         });
 
         // 6. Update JWT session cookie with restaurantId

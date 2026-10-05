@@ -180,7 +180,7 @@ export default function CustomerHome({ params: paramsPromise }: any) {
                     Table <span className="font-bold text-slate-800">{tableNumber}</span> does not exist or has not been created by the restaurant admin. Customers can only view the menu and place orders from valid, admin-created tables.
                 </p>
                 <button 
-                    onClick={() => window.location.reload()}
+                    onClick={() => loadData(true)}
                     className="py-3.5 px-8 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-slate-900/20 text-sm cursor-pointer"
                 >
                     Try Again

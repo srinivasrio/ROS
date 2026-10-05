@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { OtpManager } from '@/lib/otp-store';
+import { signJwt } from '@/lib/jwt-utils';
+import { getAuthCookieOptions } from '@/lib/panel-auth';
 import crypto from 'crypto';
-
-// Reusing global store
-const otpStore = (global as any).__waiterOtpStore || new Map<string, any>();
-(global as any).__waiterOtpStore = otpStore;
 
 export async function POST(req: Request) {
     try {
@@ -18,22 +17,17 @@ export async function POST(req: Request) {
         const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
         const cleanOtp = otp.toString().trim();
 
-        // 1. Verify OTP
-        const cachedOtpData = otpStore.get(cleanMobile);
-
-        // Allow dev fallback '123456' in non-production or if match
-        const isDevFallback = (process.env.NODE_ENV === 'development' || !process.env.SMS_GATEWAY_API_KEY) && cleanOtp === '123456';
-        const isMatch = cachedOtpData && cachedOtpData.otp === cleanOtp && cachedOtpData.expiresAt > Date.now();
-
-        if (!isMatch && !isDevFallback) {
+        // 1. Verify OTP using the same bounded store used by the send route.
+        if (!OtpManager.verifyOtp(cleanMobile, cleanOtp)) {
             return NextResponse.json({ error: 'Invalid or expired OTP code. Please try again.' }, { status: 401 });
         }
 
         // 2. Fetch latest employee and restaurant record from DB
         const { data: employees, error: empError } = await supabaseAdmin
             .from('employees')
-            .select('id, employee_id, name, mobile, role, status, approval_status, restaurant_id, restaurants(id, name, slug, status)')
-            .ilike('mobile', `%${cleanMobile}%`);
+            .select('id, employee_id, name, mobile, role, status, approval_status, session_version, restaurant_id')
+            .ilike('mobile', `%${cleanMobile}%`)
+            .eq('is_deleted', false);
 
         if (empError || !employees || employees.length === 0) {
             return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
@@ -49,27 +43,68 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Account is not authorized for waiter access' }, { status: 403 });
         }
 
-        const restaurant = Array.isArray(employee.restaurants) ? employee.restaurants[0] : employee.restaurants;
+        let restaurant: any = null;
+        if (employee.restaurant_id) {
+            const { data: rest } = await supabaseAdmin
+                .from('restaurants')
+                .select('id, name, slug, status')
+                .eq('id', employee.restaurant_id)
+                .maybeSingle();
+            restaurant = rest;
+        }
 
         // 3. Clear OTP after successful verification
-        otpStore.delete(cleanMobile);
+        OtpManager.clear(cleanMobile);
 
-        // 4. Generate persistent session payload & bearer token
+        // 4. Create authenticated session & sign cryptographically secure HS256 JWT
+        const sessionId = crypto.randomUUID();
+        const currentSessionVersion = employee.session_version ?? 1;
+
         const sessionPayload = {
+            sessionId,
             userId: employee.id,
             employeeId: employee.employee_id || employee.id,
             name: employee.name,
-            mobile: employee.mobile,
-            role: employee.role,
-            restaurantId: employee.restaurant_id,
+            mobile: employee.mobile || cleanMobile,
+            role: 'waiter',
+            sessionVersion: currentSessionVersion,
+            restaurantId: employee.restaurant_id || null,
+            restaurant_id: employee.restaurant_id || null,
+            employee_id: employee.employee_id || null,
             restaurantName: restaurant?.name || 'Dine in One',
             restaurantSlug: restaurant?.slug || employee.restaurant_id,
             issuedAt: Date.now()
         };
 
-        const token = Buffer.from(JSON.stringify(sessionPayload)).toString('base64');
+        const token = await signJwt({
+            sessionId,
+            userId: employee.id,
+            name: employee.name,
+            role: 'waiter',
+            sessionVersion: currentSessionVersion,
+            email: (employee as any).email || null,
+            mobile: employee.mobile || cleanMobile,
+            restaurantId: employee.restaurant_id || null,
+            restaurant_id: employee.restaurant_id || null,
+            employee_id: employee.employee_id || null,
+            employeeId: employee.employee_id || null,
+        });
 
-        return NextResponse.json({
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+        await supabaseAdmin.from('dine_sessions').insert({
+            id: sessionId,
+            user_id: employee.id,
+            token_hash: tokenHash,
+            device_info: req.headers.get('user-agent') || 'waiter_client',
+            ip_address: req.headers.get('x-forwarded-for') || '127.0.0.1',
+            is_active: true,
+        });
+
+        const isHttps = req.headers.get('x-forwarded-proto') === 'https';
+        const cookieOpts = getAuthCookieOptions(isHttps);
+
+        const response = NextResponse.json({
             success: true,
             message: 'OTP verified successfully',
             token,
@@ -84,6 +119,19 @@ export async function POST(req: Request) {
                 'merge_tables'
             ]
         });
+
+        // Set secure cookies for unified auth consistency
+        response.cookies.set('dine_auth_token', token, cookieOpts);
+        response.cookies.set('dine_auth_token_waiter', token, cookieOpts);
+        if (employee.restaurant_id) {
+            const cleanRid = String(employee.restaurant_id).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+            response.cookies.set(`dine_auth_token_${cleanRid}`, token, cookieOpts);
+            response.cookies.set(`dine_auth_token_${cleanRid}_waiter`, token, cookieOpts);
+            response.cookies.set(`dine_auth_token_${cleanRid}_${cleanMobile}`, token, cookieOpts);
+            response.cookies.set(`dine_auth_token_staff_${cleanMobile}`, token, cookieOpts);
+        }
+
+        return response;
 
     } catch (err: any) {
         console.error('[verify-otp] Unexpected error:', err);

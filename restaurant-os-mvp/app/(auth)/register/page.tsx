@@ -50,6 +50,7 @@ export default function RegisterPage() {
     const [gstPercentage, setGstPercentage] = useState('5');
     const [cgstPercentage, setCgstPercentage] = useState('2.5');
     const [sgstPercentage, setSgstPercentage] = useState('2.5');
+    const [planSlug, setPlanSlug] = useState<'standard' | 'growth' | 'pro'>('standard');
 
     const handleGstChange = (val: string) => {
         setGstPercentage(val);
@@ -266,6 +267,7 @@ export default function RegisterPage() {
                     restaurantName: restaurantName.trim(),
                     businessType: businessType,
                     address: fullAddress,
+                    planSlug: planSlug,
                     gstPercentage: gstNum,
                     cgstPercentage: cgstNum,
                     sgstPercentage: sgstNum
@@ -741,13 +743,55 @@ export default function RegisterPage() {
                                     </p>
                                 </div>
 
+                                {/* Choose Subscription Plan */}
+                                <div className="space-y-2 pt-1">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Choose Subscription Plan</label>
+                                        <span className="text-[10.5px] font-bold text-[#FF6B6B]">Monthly Billing</span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {[
+                                            { slug: 'standard' as const, name: 'Standard', price: '₹999', limit: '1 Branch', desc: 'Core POS & QR' },
+                                            { slug: 'growth' as const, name: 'Growth', price: '₹1,499', limit: '1 Branch', desc: 'Delivery & Inventory', popular: true },
+                                            { slug: 'pro' as const, name: 'Pro', price: '₹2,999', limit: '2 Branches', desc: 'Multi-Outlet' }
+                                        ].map((p) => {
+                                            const isSelected = planSlug === p.slug;
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    key={p.slug}
+                                                    onClick={() => setPlanSlug(p.slug)}
+                                                    className={`p-3 rounded-2xl border text-left transition-all relative ${
+                                                        isSelected
+                                                            ? 'border-[#FF6B6B] bg-[#FF6B6B]/10 ring-2 ring-[#FF6B6B]/20 shadow-xs'
+                                                            : 'border-border bg-background hover:border-neutral-400'
+                                                    }`}
+                                                >
+                                                    {p.popular && (
+                                                        <span className="absolute -top-2 right-2 px-1.5 py-0.5 rounded-full text-[8.5px] font-black bg-[#FF6B6B] text-white uppercase tracking-wider">
+                                                            Popular
+                                                        </span>
+                                                    )}
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-black text-foreground">{p.name}</span>
+                                                    </div>
+                                                    <div className="mt-0.5">
+                                                        <span className="text-xs font-black text-[#FF6B6B]">{p.price}<span className="text-[10px] font-normal text-muted-foreground">/mo</span></span>
+                                                    </div>
+                                                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{p.limit}</p>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
                                 {/* Compliance & Policy Notice */}
                                 <div className="p-3.5 bg-neutral-100 dark:bg-neutral-800/60 rounded-2xl border border-neutral-200 dark:border-neutral-700/40 text-xs text-muted-foreground flex gap-3 items-start">
                                     <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                                     <div>
-                                        <strong className="text-foreground">Controlled Verification Process:</strong>
+                                        <strong className="text-foreground">Super Admin Verification:</strong>
                                         <p className="mt-0.5">
-                                            Your request will be placed in <span className="font-bold text-amber-500">PENDING</span> status. Our Super Admin onboarding team will contact you to verify compliance documents and assign your subscription plan prior to activation.
+                                            Your request will be placed in <span className="font-bold text-amber-500">PENDING_APPROVAL</span> status. Once reviewed and approved by Super Admin, your restaurant branch will be activated and you can assign your Restaurant Admin.
                                         </p>
                                     </div>
                                 </div>

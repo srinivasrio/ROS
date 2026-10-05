@@ -144,6 +144,7 @@ const BillConfirmationModal = ({ isOpen, onClose, onConfirm }: { isOpen: boolean
             {isOpen && (
                 <>
                     <motion.div
+                        key="bill-confirm-backdrop"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -151,6 +152,7 @@ const BillConfirmationModal = ({ isOpen, onClose, onConfirm }: { isOpen: boolean
                         className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 animate-in fade-in"
                     />
                     <motion.div
+                        key="bill-confirm-card"
                         initial={{ opacity: 0, scale: 0.94, y: 15 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.94, y: 15 }}
@@ -213,8 +215,34 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
     // Active vs Previous Orders Tabs
     const [activeTab, setActiveTab] = useState<'active' | 'previous'>('active');
 
-    // Cached Order Lists
-    const cachedData = CustomerCache.get(restaurantId, 'customer_orders', tableNumber);
+    // Customer identifier for cache isolation: ensure different customers never see each other's cached orders
+    const getLocalCustomerId = () => {
+        try {
+            return typeof window !== 'undefined' ? (localStorage.getItem(`ros_customer_${restaurantId}`) || '') : '';
+        } catch {
+            return '';
+        }
+    };
+    const getLocalLastOrderId = () => {
+        try {
+            if (typeof window === 'undefined') return '';
+            return (tableNumber ? localStorage.getItem(`ros_last_order_${restaurantId}_${tableNumber}`) : null) 
+                || localStorage.getItem(`ros_last_order_${restaurantId}`) 
+                || '';
+        } catch {
+            return '';
+        }
+    };
+
+    const initialCustId = getLocalCustomerId();
+    const initialLastOrder = getLocalLastOrderId();
+    const userCacheScope = initialCustId ? `cust_${initialCustId}` : (initialLastOrder ? `ord_${initialLastOrder}` : 'anonymous');
+    const userCacheKey = `${tableNumber}:${userCacheScope}`;
+
+    // Cached Order Lists - only use cache if user has an identity or order on this device
+    const cachedData = userCacheScope !== 'anonymous' 
+        ? CustomerCache.get(restaurantId, 'customer_orders', userCacheKey)
+        : null;
     const [activeOrders, setActiveOrders] = useState<Order[]>(cachedData?.active || []);
     const [previousOrders, setPreviousOrders] = useState<Order[]>(cachedData?.previous || []);
     const [loading, setLoading] = useState(!cachedData);
@@ -249,18 +277,29 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
         };
     }, []);
 
-    // Primary Database Fetch - Authenticated Customer ID & Persistent Orders
+    // Primary Database Fetch - Authenticated Customer ID, Device Last Order ID & Persistent Orders
     const fetchOrders = useCallback(async (isManualRefresh = false) => {
         if (!restaurantId) return;
         if (isManualRefresh) setRefreshing(true);
         
         try {
             let localCustId = '';
+            let localLastOrderId = '';
             try {
                 localCustId = localStorage.getItem(`ros_customer_${restaurantId}`) || '';
+                localLastOrderId = (tableNumber ? localStorage.getItem(`ros_last_order_${restaurantId}_${tableNumber}`) : null) 
+                    || localStorage.getItem(`ros_last_order_${restaurantId}`) 
+                    || '';
             } catch {}
 
-            const res = await fetch(`/api/customer/orders?restaurantId=${encodeURIComponent(restaurantId)}&tableNumber=${encodeURIComponent(tableNumber || '')}&customerId=${encodeURIComponent(localCustId)}`, {
+            const queryParams = new URLSearchParams({
+                restaurantId,
+                tableNumber: tableNumber || '',
+                customerId: localCustId,
+                lastOrderId: localLastOrderId,
+            });
+
+            const res = await fetch(`/api/customer/orders?${queryParams.toString()}`, {
                 cache: 'no-store',
             });
 
@@ -272,7 +311,10 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                 if (isMountedRef.current) {
                     setActiveOrders(active);
                     setPreviousOrders(previous);
-                    CustomerCache.set(restaurantId, 'customer_orders', { active, previous }, tableNumber);
+                    const currentScope = localCustId ? `cust_${localCustId}` : (localLastOrderId ? `ord_${localLastOrderId}` : 'anonymous');
+                    if (currentScope !== 'anonymous') {
+                        CustomerCache.set(restaurantId, 'customer_orders', { active, previous }, `${tableNumber}:${currentScope}`);
+                    }
 
                     // Switch default tab if active is empty but previous has orders on initial load
                     if (isInitialFetch.current) {
@@ -567,7 +609,7 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                                                         {order.order_type === 'DELIVERY' ? 'Delivery' : (order.order_type === 'TAKEAWAY' ? 'Takeaway' : (order.table_name || `Table ${order.table_id || tableNumber}`))}
                                                     </span>
                                                 </div>
-                                                <p className="text-[10.5px] text-slate-400 font-bold mt-0.5">
+                                                <p className="text-[10.5px] text-slate-400 font-bold mt-0.5" suppressHydrationWarning>
                                                     {formatOrderDate(order.created_at)}
                                                 </p>
                                             </div>
@@ -656,48 +698,55 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                                             </div>
 
                                             <div className="divide-y divide-slate-200/60">
-                                                {order.items?.map((item) => (
-                                                    <div key={item.id} className="py-2.5 first:pt-0 last:pb-0">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="size-12 rounded-xl overflow-hidden shrink-0 bg-white border border-slate-200/80 p-0.5">
-                                                                <img
-                                                                    src={item.image_url || getCategoryMenuItemImage(item.name)}
-                                                                    alt={item.name}
-                                                                    className="w-full h-full object-cover rounded-lg"
-                                                                />
-                                                            </div>
+                                                {(!order.items || order.items.length === 0) ? (
+                                                    <p className="text-xs text-slate-400 font-semibold py-2">No item details recorded</p>
+                                                ) : (
+                                                    order.items.map((item) => (
+                                                        <div key={item.id} className="py-2.5 first:pt-0 last:pb-0">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="size-12 rounded-xl overflow-hidden shrink-0 bg-white border border-slate-200/80 p-0.5">
+                                                                    <img
+                                                                        src={item.image_url || getCategoryMenuItemImage(item.name)}
+                                                                        alt={item.name}
+                                                                        onError={(e) => {
+                                                                            (e.target as HTMLImageElement).src = getCategoryMenuItemImage(item.name);
+                                                                        }}
+                                                                        className="w-full h-full object-cover rounded-lg"
+                                                                    />
+                                                                </div>
 
-                                                            <div className="flex-1 min-w-0">
-                                                                <h4 className="text-xs font-black text-slate-800 leading-tight uppercase truncate">{item.name}</h4>
-                                                                <div className="flex items-center gap-2 mt-0.5">
-                                                                    <span className="text-[10px] font-black text-slate-600 bg-white/70 px-1.5 py-0.2 rounded border border-slate-200">
-                                                                        x{item.quantity}
-                                                                    </span>
-                                                                    <span className="text-[10px] text-slate-500 font-bold">₹{item.price}</span>
-                                                                    <span className={`text-[9px] font-black uppercase ${
-                                                                        item.status === 'preparing' ? 'text-orange-600' :
-                                                                        item.status === 'ready' ? 'text-emerald-600' : 'text-blue-600'
-                                                                    }`}>
-                                                                        ● {item.status || 'placed'}
+                                                                <div className="flex-1 min-w-0">
+                                                                    <h4 className="text-xs font-black text-slate-800 leading-tight uppercase truncate">{item.name}</h4>
+                                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                                        <span className="text-[10px] font-black text-slate-600 bg-white/70 px-1.5 py-0.2 rounded border border-slate-200">
+                                                                            x{item.quantity}
+                                                                        </span>
+                                                                        <span className="text-[10px] text-slate-500 font-bold">₹{item.price}</span>
+                                                                        <span className={`text-[9px] font-black uppercase ${
+                                                                            item.status === 'preparing' ? 'text-orange-600' :
+                                                                            item.status === 'ready' ? 'text-emerald-600' : 'text-blue-600'
+                                                                        }`}>
+                                                                            ● {item.status || 'placed'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="text-right shrink-0">
+                                                                    <span className="text-xs font-black text-slate-800">
+                                                                        {formatCurrency(item.price * item.quantity)}
                                                                     </span>
                                                                 </div>
                                                             </div>
 
-                                                            <div className="text-right shrink-0">
-                                                                <span className="text-xs font-black text-slate-800">
-                                                                    {formatCurrency(item.price * item.quantity)}
-                                                                </span>
-                                                            </div>
+                                                            {/* Combo details */}
+                                                            {item.item_type === 'combo' && Array.isArray(item.combo_items) && (
+                                                                <div className="ml-15 mt-1 text-[10px] text-slate-500 font-medium">
+                                                                    {item.combo_items.map((ci: any) => ci.name).join(' + ')}
+                                                                </div>
+                                                            )}
                                                         </div>
-
-                                                        {/* Combo details */}
-                                                        {item.item_type === 'combo' && Array.isArray(item.combo_items) && (
-                                                            <div className="ml-15 mt-1 text-[10px] text-slate-500 font-medium">
-                                                                {item.combo_items.map((ci: any) => ci.name).join(' + ')}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
+                                                    ))
+                                                )}
                                             </div>
                                         </div>
 
@@ -879,7 +928,7 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                                                             {pOrder.order_type === 'DELIVERY' ? 'Delivery' : (pOrder.order_type === 'TAKEAWAY' ? 'Takeaway' : (pOrder.table_name || `Table ${pOrder.table_id || ''}`))}
                                                         </span>
                                                     </div>
-                                                    <div className="flex items-center gap-1.5 text-[10.5px] text-slate-400 font-bold mt-1">
+                                                    <div className="flex items-center gap-1.5 text-[10.5px] text-slate-400 font-bold mt-1" suppressHydrationWarning>
                                                         <LucideCalendar size={12} />
                                                         <span>{formatOrderDate(pOrder.created_at)}</span>
                                                     </div>
@@ -903,17 +952,21 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                                                     border: '1px solid rgba(255, 255, 255, 0.75)',
                                                 }}
                                             >
-                                                {pOrder.items?.map((item) => (
-                                                    <div key={item.id} className="flex justify-between items-center text-xs">
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <span className="font-black text-slate-500 text-[10px]">x{item.quantity}</span>
-                                                            <span className="font-bold text-slate-800 truncate">{item.name}</span>
+                                                {(!pOrder.items || pOrder.items.length === 0) ? (
+                                                    <div className="text-xs text-slate-400 font-semibold italic py-0.5">Order record saved</div>
+                                                ) : (
+                                                    pOrder.items.map((item) => (
+                                                        <div key={item.id} className="flex justify-between items-center text-xs">
+                                                            <div className="flex items-center gap-2 min-w-0">
+                                                                <span className="font-black text-slate-500 text-[10px]">x{item.quantity}</span>
+                                                                <span className="font-bold text-slate-800 truncate">{item.name}</span>
+                                                            </div>
+                                                            <span className="font-extrabold text-slate-800 shrink-0 ml-2">
+                                                                {formatCurrency(item.price * item.quantity)}
+                                                            </span>
                                                         </div>
-                                                        <span className="font-extrabold text-slate-800 shrink-0 ml-2">
-                                                            {formatCurrency(item.price * item.quantity)}
-                                                        </span>
-                                                    </div>
-                                                ))}
+                                                    ))
+                                                )}
                                             </div>
 
                                             {/* Financial Footer & Print Receipt Button */}

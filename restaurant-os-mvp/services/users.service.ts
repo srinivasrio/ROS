@@ -10,6 +10,9 @@ export interface UserProfile {
     restaurant_name?: string;
     role: UserRole;
     restaurant_id?: string;
+    branch_id?: string;
+    branchId?: string;
+    branch_name?: string;
     is_approved: boolean;
     created_at: string;
 }
@@ -58,6 +61,9 @@ export const UserService = {
                         name: u.name,
                         role: mappedRole,
                         restaurant_id: u.restaurant_id,
+                        branch_id: u.branch_id || u.branchId,
+                        branchId: u.branch_id || u.branchId,
+                        branch_name: u.branch_name,
                         is_approved: true,
                         created_at: new Date().toISOString()
                     };

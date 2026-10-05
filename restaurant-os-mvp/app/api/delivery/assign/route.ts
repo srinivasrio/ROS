@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAdminUserFromRequest } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { verifyFeatureEntitlement } from '@/lib/entitlement-guard';
 
 /**
  * POST /api/delivery/assign
@@ -38,6 +39,12 @@ export async function POST(request: NextRequest) {
             if (userRid && userRid !== rid) {
                 return NextResponse.json({ error: 'Unauthorized restaurant access' }, { status: 403 });
             }
+        }
+
+        // Feature Entitlement Authorization
+        const entitlementCheck = await verifyFeatureEntitlement(rid, 'delivery');
+        if (!entitlementCheck.allowed) {
+            return entitlementCheck.response;
         }
 
         // Unassign flow if deliveryBoyId is empty/null
@@ -203,7 +210,7 @@ export async function POST(request: NextRequest) {
         if (order.status === 'placed') {
             await supabaseAdmin
                 .from('orders')
-                .update({ status: 'preparing', updated_at: new Date().toISOString() })
+                .update({ status: 'preparing' })
                 .eq('id', orderId)
                 .eq('restaurant_id', rid);
         }

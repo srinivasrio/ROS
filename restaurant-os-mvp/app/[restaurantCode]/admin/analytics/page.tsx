@@ -14,11 +14,15 @@ import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useEntitlements } from '@/hooks/useEntitlements';
+import FeatureLockedGate from '@/components/FeatureLockedGate';
 
 export default function AnalyticsPage() {
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
     const params = useParams();
     const restaurantCode = params.restaurantCode as string;
+    const { loading: entLoading, hasFeature, planName, isSuspended, isExpired } = useEntitlements(restaurantCode);
+    const hasAnalyticsAccess = hasFeature('advanced_reports') || hasFeature('advanced_analytics');
     
     // State
     const [range, setRange] = useState<TimeRange>('7d');
@@ -39,7 +43,7 @@ export default function AnalyticsPage() {
 
     const loadData = useCallback(async (force = false) => {
         const targetId = restaurantId || restaurantCode;
-        if (!targetId) return;
+        if (!targetId || !hasAnalyticsAccess) return;
 
         const currentCached = getCached<any>(cacheKey);
         if (currentCached && !metrics) {
@@ -117,13 +121,27 @@ export default function AnalyticsPage() {
             setLoading(false);
             setIsSyncing(false);
         }
-    }, [restaurantId, restaurantCode, range, cacheKey, metrics]);
+    }, [restaurantId, restaurantCode, range, cacheKey, metrics, hasAnalyticsAccess]);
 
     useEffect(() => {
-        if (!restaurantLoading && (restaurantId || restaurantCode)) {
+        if (!restaurantLoading && !entLoading && hasAnalyticsAccess && (restaurantId || restaurantCode)) {
             loadData();
         }
-    }, [restaurantId, restaurantCode, restaurantLoading, range, loadData]);
+    }, [restaurantId, restaurantCode, restaurantLoading, entLoading, hasAnalyticsAccess, range, loadData]);
+
+    if (!entLoading && !hasAnalyticsAccess) {
+        return (
+            <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+                <FeatureLockedGate
+                    feature="advanced_reports"
+                    restaurantCode={restaurantCode}
+                    currentPlanName={planName}
+                    isSuspended={isSuspended}
+                    isExpired={isExpired}
+                />
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-[#FDFCFD] dark:bg-zinc-950 p-8 pt-6 space-y-10 overflow-y-auto no-scrollbar">

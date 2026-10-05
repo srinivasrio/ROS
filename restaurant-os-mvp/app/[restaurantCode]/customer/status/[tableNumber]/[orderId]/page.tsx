@@ -48,8 +48,15 @@ export default function OrderStatusPage() {
         try {
             const data = await OrderService.getOrderDetails(orderId, urlRestaurantId);
             if (!isMountedRef.current) return;
-            setOrder(data);
-            if (data && (data as any).restaurant_id && isMountedRef.current) {
+            if (data && (data as any).restaurant_id) {
+                const orderTableNum = String((data as any).table_number || '').trim();
+                const routeTableNum = String(tableNumber || '').trim();
+                if (routeTableNum && routeTableNum !== 'direct' && orderTableNum && orderTableNum !== routeTableNum) {
+                    console.warn('[OrderStatus] Table mismatch detected for orderId:', orderId);
+                    toast.error('Order does not match table');
+                    return;
+                }
+                setOrder(data);
                 setOrderRestaurantId((data as any).restaurant_id);
             }
         } catch (error) {
@@ -75,16 +82,17 @@ export default function OrderStatusPage() {
     }, [orderId, urlRestaurantId]);
 
     // Set up subscriptions once we have the restaurantId
+    // P0 FIX (RT-01): Strictly scope subscriptions to this specific order to prevent cross-table order leakage and fan-out
     useEffect(() => {
         if (!orderId || !orderRestaurantId) return;
 
-        const orderSub = OrderService.subscribeToOrders(orderRestaurantId, (payload) => {
+        const orderSub = OrderService.subscribeToOrderSpecific(orderRestaurantId, orderId, (payload) => {
             if (payload.eventType === 'UPDATE' && payload.new.id === orderId) {
                 loadOrder();
             }
         });
 
-        const itemSub = OrderService.subscribeToOrderItems(orderRestaurantId, (payload) => {
+        const itemSub = OrderService.subscribeToOrderItemsSpecific(orderRestaurantId, orderId, (payload) => {
             if (payload.new && payload.new.order_id === orderId) {
                 loadOrder();
             }
@@ -114,27 +122,65 @@ export default function OrderStatusPage() {
         };
     }, [orderId, orderRestaurantId]);
 
-    // Timer Logic for Queued Items
+    // Timer & Status Logic for Queued Items / Orders
     const queuedItems = order?.items?.filter(item => item.status === 'queued') || [];
     const hasQueuedItems = queuedItems.length > 0;
+    const isOrderQueued = order?.status === 'queued' || hasQueuedItems;
+    const initialTimerCalculatedRef = useRef(false);
+    const [confirming, setConfirming] = useState(false);
+
+    const handleConfirmOrder = async () => {
+        if (confirming) return;
+        setConfirming(true);
+        try {
+            const targetResId = order?.restaurant_id || orderRestaurantId || urlRestaurantId;
+            await OrderService.updateOrderStatus(orderId, targetResId, 'placed');
+            toast.success('Order confirmed and sent to kitchen!');
+            await loadOrder();
+        } catch (e) {
+            console.error('Failed to confirm', e);
+            toast.error('Failed to confirm order. Please try again.');
+        } finally {
+            setConfirming(false);
+        }
+    };
 
     useEffect(() => {
-        if (hasQueuedItems) {
-            if (timeLeft > 0) {
-                const timerId = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
-                return () => clearTimeout(timerId);
-            } else {
-                // Timer finished, auto-confirm queued items to placed
-                OrderService.updateOrderStatus(orderId, urlRestaurantId, 'placed')
+        if (!isOrderQueued) {
+            if (timeLeft !== 30) setTimeLeft(30);
+            return;
+        }
+
+        // When order details load, sync remaining time with order creation time
+        if (order?.created_at && !initialTimerCalculatedRef.current) {
+            initialTimerCalculatedRef.current = true;
+            const elapsed = Math.floor((Date.now() - new Date(order.created_at).getTime()) / 1000);
+            const remaining = Math.max(0, 30 - elapsed);
+            setTimeLeft(remaining);
+            if (remaining === 0) {
+                const targetResId = order?.restaurant_id || orderRestaurantId || urlRestaurantId;
+                OrderService.updateOrderStatus(orderId, targetResId, 'placed')
                     .then(() => {
                         if (isMountedRef.current) loadOrder();
-                    });
+                    })
+                    .catch(console.error);
+                return;
             }
-        } else {
-            // Reset timer if no queued items exist (confirmed or cancelled)
-            if (timeLeft !== 30) setTimeLeft(30);
         }
-    }, [hasQueuedItems, timeLeft, orderId]);
+
+        if (timeLeft > 0) {
+            const timerId = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
+            return () => clearTimeout(timerId);
+        } else {
+            // Timer finished, auto-confirm queued items/order to placed
+            const targetResId = order?.restaurant_id || orderRestaurantId || urlRestaurantId;
+            OrderService.updateOrderStatus(orderId, targetResId, 'placed')
+                .then(() => {
+                    if (isMountedRef.current) loadOrder();
+                })
+                .catch(e => console.error('Failed auto-confirm', e));
+        }
+    }, [isOrderQueued, timeLeft, orderId, order?.created_at]);
 
     const [confirmationModal, setConfirmationModal] = useState<{
         isOpen: boolean;
@@ -154,19 +200,21 @@ export default function OrderStatusPage() {
 
     const handleCancelQueuedItems = async () => {
         try {
-            await Promise.all(queuedItems.map(item => OrderService.deleteOrderItem(item.id, urlRestaurantId)));
-            // Check if order is empty/deleted?
-            // If we deleted all items, the order might be gone or empty
-            // Ideally we should redirect to menu if order is empty
-            const updatedOrder = await OrderService.getOrderDetails(orderId, urlRestaurantId);
-            if (!updatedOrder || !updatedOrder.items || updatedOrder.items.length === 0) {
+            const targetResId = order?.restaurant_id || orderRestaurantId || urlRestaurantId;
+            if (queuedItems.length > 0) {
+                await Promise.all(queuedItems.map(item => OrderService.deleteOrderItem(item.id, targetResId)));
+            }
+            const updatedOrder = await OrderService.getOrderDetails(orderId, targetResId);
+            if (!updatedOrder || !updatedOrder.items || updatedOrder.items.length === 0 || updatedOrder.status === 'queued') {
+                if (order?.status === 'queued') {
+                    await OrderService.deleteOrder(orderId, targetResId).catch(() => {});
+                }
                 router.push(`/${urlRestaurantId}/customer/menu/${tableNumber}`);
             } else {
                 loadOrder();
             }
         } catch (e) {
             console.error('Failed to cancel items', e);
-            // Fallback reload
             loadOrder();
         }
     };
@@ -420,13 +468,13 @@ export default function OrderStatusPage() {
             <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-36">
 
                 {/* UNDO / QUEUED BANNER */}
-                {hasQueuedItems && (
+                {isOrderQueued && (
                     <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 mb-4 flex items-start gap-3">
                         <div className="p-2 bg-orange-100 rounded-full text-orange-600">
                             <LucideClock size={20} />
                         </div>
                         <div>
-                            <h3 className="font-bold text-black text-sm">Order Queued</h3>
+                            <h3 className="font-bold text-black text-sm">Order Queued ({timeLeft}s)</h3>
                             <p className="text-xs text-black mt-1">
                                 You can modify or cancel items before the timer ends.
                             </p>
@@ -849,11 +897,11 @@ export default function OrderStatusPage() {
 
             {/* Actions - Floating above Bottom Nav */}
             <div 
-                className="fixed left-0 w-full flex justify-center z-40 pointer-events-none"
+                className="fixed left-0 w-full flex justify-center z-50 pointer-events-none"
                 style={{ bottom: 'calc(4.85rem + env(safe-area-inset-bottom, 0px))' }}
             >
                 <div className="w-full max-w-xs px-4 flex gap-3">
-                    {hasQueuedItems ? (
+                    {isOrderQueued ? (
                         <div className="flex gap-3 w-full pointer-events-auto">
                             <button
                                 onClick={handleCancelQueuedItems}
@@ -862,14 +910,11 @@ export default function OrderStatusPage() {
                                 Undo
                             </button>
                             <button
-                                onClick={() => {
-                                    OrderService.updateOrderStatus(orderId, urlRestaurantId, 'placed')
-                                        .then(() => loadOrder())
-                                        .catch(e => console.error('Failed to confirm', e));
-                                }}
-                                className="flex-1 py-2.5 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 active:scale-95 transition-all text-xs shadow-md shadow-green-500/20 cursor-pointer"
+                                onClick={handleConfirmOrder}
+                                disabled={confirming}
+                                className="flex-1 py-2.5 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 active:scale-95 transition-all text-xs shadow-md shadow-green-500/20 cursor-pointer disabled:opacity-50"
                             >
-                                Confirm Now ({timeLeft}s)
+                                {confirming ? 'Confirming...' : `Confirm Now (${timeLeft}s)`}
                             </button>
                         </div>
                     ) : (

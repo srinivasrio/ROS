@@ -114,32 +114,32 @@ function MfaSetupContent() {
 
     if (loadingDetails) {
         return (
-            <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4">
+            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
                 <Loader2 className="w-10 h-10 text-orange-500 animate-spin mb-4" />
-                <p className="text-zinc-400 text-sm font-semibold uppercase tracking-wider">Generating security credentials...</p>
+                <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">Generating security credentials...</p>
             </div>
         );
     }
 
     if (fetchError) {
         return (
-            <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center p-4">
-                <div className="max-w-md w-full text-center space-y-6 bg-neutral-900 p-8 rounded-3xl border border-neutral-800 shadow-2xl">
-                    <div className="w-20 h-20 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto text-red-500">
-                        <ShieldCheck size={48} className="rotate-180 text-red-400" />
+            <main className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center p-4">
+                <div className="max-w-md w-full text-center space-y-6 bg-white p-8 rounded-3xl border border-slate-200/80 shadow-xl shadow-slate-200/50">
+                    <div className="w-20 h-20 bg-rose-50 rounded-2xl flex items-center justify-center mx-auto text-rose-500 border border-rose-100">
+                        <ShieldCheck size={48} className="rotate-180 text-rose-500" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold mb-2">Setup Error</h1>
-                        <p className="text-zinc-400 text-sm">
+                        <h1 className="text-2xl font-bold mb-2 text-slate-900">Setup Error</h1>
+                        <p className="text-slate-600 text-sm">
                             {fetchError}
                         </p>
-                        <p className="text-zinc-500 text-xs mt-3">
+                        <p className="text-slate-400 text-xs mt-3">
                             Please contact your Restaurant Administrator to request a new MFA reset.
                         </p>
                     </div>
                     <button 
                         onClick={() => router.push('/login')}
-                        className="mt-6 px-6 py-3 bg-neutral-800 hover:bg-neutral-750 text-white rounded-xl font-bold transition-all w-full text-sm"
+                        className="mt-6 px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold transition-all w-full text-sm border border-slate-200"
                     >
                         Go to Login Page
                     </button>
@@ -149,57 +149,57 @@ function MfaSetupContent() {
     }
 
     return (
-        <main className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        <main className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center p-6 relative overflow-hidden">
             {/* Ambient background glows */}
-            <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-orange-500/5 rounded-full blur-[120px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-            <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-red-500/5 rounded-full blur-[120px] translate-x-1/3 translate-y-1/3 pointer-events-none" />
+            <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-orange-100/50 rounded-full blur-[120px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+            <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-amber-100/50 rounded-full blur-[120px] translate-x-1/3 translate-y-1/3 pointer-events-none" />
 
             <div className="max-w-md w-full relative z-10">
                 {/* Header branding */}
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-black tracking-tight mb-2">
-                        Dine In <span className="bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent">One</span>
+                    <h1 className="text-3xl font-black tracking-tight mb-2 text-slate-900">
+                        Dine In <span className="bg-gradient-to-r from-orange-500 to-red-600 bg-clip-text text-transparent">One</span>
                     </h1>
-                    <p className="text-zinc-400 text-xs uppercase tracking-widest font-black">
+                    <p className="text-slate-500 text-xs uppercase tracking-widest font-black">
                         Two-Factor Authentication Setup
                     </p>
                 </div>
 
                 {/* Card Container */}
-                <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-3xl shadow-2xl relative">
+                <div className="bg-white border border-slate-200/80 p-8 rounded-3xl shadow-xl shadow-slate-200/50 relative">
                     {step === 1 && (
                         <form onSubmit={handleVerificationSubmit} className="space-y-6">
                             <div className="text-center mb-2">
-                                <div className="w-12 h-12 bg-orange-500/10 rounded-2xl flex items-center justify-center mx-auto text-orange-500 mb-3">
+                                <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center mx-auto text-orange-600 mb-3 border border-orange-100">
                                     <Smartphone size={24} />
                                 </div>
-                                <h2 className="text-xl font-bold">MFA Recovery / Reset</h2>
-                                <p className="text-zinc-400 text-xs mt-1">
+                                <h2 className="text-xl font-bold text-slate-900">MFA Recovery / Reset</h2>
+                                <p className="text-slate-500 text-xs mt-1">
                                     Hello, {userDetails?.name || 'User'}. Scan the QR code using Google Authenticator, Microsoft Authenticator, or 2FAS.
                                 </p>
                             </div>
 
                             {/* QR Code Container */}
-                            <div className="flex flex-col items-center bg-white p-5 rounded-2xl mx-auto w-fit shadow-md border border-neutral-800">
+                            <div className="flex flex-col items-center bg-white p-5 rounded-2xl mx-auto w-fit shadow-sm border border-slate-200">
                                 {userDetails?.totpUri && (
                                     <QRCode value={userDetails.totpUri} size={150} />
                                 )}
                             </div>
 
                             {/* Secret Key Display */}
-                            <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3.5 text-center">
-                                <span className="text-[9px] uppercase font-bold text-zinc-500 block mb-1">Secret Key (Manual Entry)</span>
-                                <code className="text-xs font-mono font-bold text-orange-400 selection:bg-orange-500/20">{userDetails?.totpSecret}</code>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-center">
+                                <span className="text-[9px] uppercase font-bold text-slate-500 block mb-1">Secret Key (Manual Entry)</span>
+                                <code className="text-xs font-mono font-bold text-orange-600 selection:bg-orange-100">{userDetails?.totpSecret}</code>
                             </div>
 
                             {/* Verification Code */}
                             <div className="space-y-1.5">
-                                <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 ml-2">Verification Code</label>
+                                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-2">Verification Code</label>
                                 <input 
                                     type="text"
                                     maxLength={6}
                                     required
-                                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-3 px-4 text-center focus:outline-none focus:border-orange-500/50 transition-all placeholder:text-zinc-700 text-lg font-mono tracking-[0.3em] text-white"
+                                    className="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-center focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all placeholder:text-slate-400 text-lg font-mono tracking-[0.3em] text-slate-900 font-bold"
                                     placeholder="000000"
                                     value={otpCode}
                                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
@@ -209,7 +209,7 @@ function MfaSetupContent() {
                             <button 
                                 type="submit"
                                 disabled={submitting}
-                                className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-750 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-orange-500/10 text-sm cursor-pointer disabled:opacity-50"
+                                className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-orange-500/20 text-sm cursor-pointer disabled:opacity-50"
                             >
                                 {submitting ? <Loader2 className="animate-spin" size={18} /> : (
                                     <>Verify & Enable MFA <ArrowRight size={18} /></>
@@ -220,28 +220,28 @@ function MfaSetupContent() {
 
                     {step === 2 && (
                         <div className="text-center py-4 space-y-6">
-                            <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto text-green-500">
+                            <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto text-emerald-600 border border-emerald-100">
                                 <CheckCircle2 size={36} />
                             </div>
                             
                             <div>
-                                <h2 className="text-xl font-black">Security Set Up!</h2>
-                                <p className="text-zinc-400 text-xs mt-1">
+                                <h2 className="text-xl font-black text-slate-900">Security Set Up!</h2>
+                                <p className="text-slate-500 text-xs mt-1">
                                     Your new multi-factor authentication credentials are verified and active.
                                 </p>
                             </div>
 
                             {recoveryCodes.length > 0 && (
-                                <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-5 text-left space-y-4">
+                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-left space-y-4">
                                     <div>
-                                        <h3 className="text-xs font-bold text-orange-400 uppercase tracking-wider">One-Time Backup Recovery Codes</h3>
-                                        <p className="text-[10px] text-zinc-500 mt-0.5">
+                                        <h3 className="text-xs font-bold text-orange-600 uppercase tracking-wider">One-Time Backup Recovery Codes</h3>
+                                        <p className="text-[10px] text-slate-500 mt-0.5">
                                             If you lose your MFA device, you can log in using one of these backup codes. Keep them secure, they will not be shown again.
                                         </p>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-2 text-xs font-mono font-bold text-zinc-350">
+                                    <div className="grid grid-cols-2 gap-2 text-xs font-mono font-bold text-slate-800">
                                         {recoveryCodes.map((code, idx) => (
-                                            <div key={idx} className="bg-neutral-900/60 border border-neutral-800/40 p-2 rounded-lg text-center select-all">
+                                            <div key={idx} className="bg-white border border-slate-200 p-2 rounded-lg text-center select-all">
                                                 {code}
                                             </div>
                                         ))}
@@ -250,14 +250,14 @@ function MfaSetupContent() {
                                         <button 
                                             type="button"
                                             onClick={copyToClipboard}
-                                            className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-750 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                            className="flex-1 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition-all cursor-pointer"
                                         >
                                             Copy
                                         </button>
                                         <button 
                                             type="button"
                                             onClick={downloadRecoveryCodes}
-                                            className="flex-1 py-2 bg-orange-500/10 hover:bg-orange-500 hover:text-white text-orange-400 rounded-lg text-xs font-bold transition-all border border-orange-500/20 cursor-pointer"
+                                            className="flex-1 py-2 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-lg text-xs font-bold transition-all border border-orange-200 cursor-pointer"
                                         >
                                             Download .txt
                                         </button>
@@ -267,7 +267,7 @@ function MfaSetupContent() {
 
                             <button 
                                 onClick={() => router.push('/login')}
-                                className="w-full py-3.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-750 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-500/10 text-sm cursor-pointer"
+                                className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-emerald-500/20 text-sm cursor-pointer"
                             >
                                 Go to Login Page
                             </button>
@@ -282,12 +282,12 @@ function MfaSetupContent() {
 export default function MfaSetupPage() {
     return (
         <Suspense fallback={
-            <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4">
+            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
                 <Loader2 className="w-10 h-10 text-orange-500 animate-spin mb-4" />
-                <p className="text-zinc-400 text-sm font-semibold uppercase tracking-wider">Loading setup page...</p>
+                <p className="text-slate-500 text-sm font-semibold uppercase tracking-wider">Loading setup page...</p>
             </div>
         }>
-            <Toaster richColors theme="dark" position="top-right" />
+            <Toaster richColors theme="light" position="top-right" />
             <MfaSetupContent />
         </Suspense>
     );

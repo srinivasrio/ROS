@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HomepageBuilderService } from '@/services/homepage-builder.service';
+import { CustomerCache } from '@/services/homepage-cache.service';
 import { formatAddress } from '@/lib/utils';
 
 interface CustomerMobileEntryProps {
@@ -149,6 +150,26 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                 return;
             }
 
+            // If the entered mobile is different from previously stored mobile on this device,
+            // wipe old customer session, last order, and cart so old session doesn't leak into new user
+            try {
+                const prevMobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`) || '';
+                const cleanPrev = prevMobile.replace(/\D/g, '').slice(-10);
+                if (cleanPrev && cleanPrev !== cleanMobile) {
+                    localStorage.removeItem(`ros_customer_${restaurantCode}`);
+                    localStorage.removeItem(`ros_customer_name_${restaurantCode}`);
+                    localStorage.removeItem(`ros_customer_email_${restaurantCode}`);
+                    localStorage.removeItem(`ros_customer_dob_${restaurantCode}`);
+                    localStorage.removeItem(`ros_last_order_${restaurantCode}`);
+                    if (tableFromUrl) {
+                        localStorage.removeItem(`ros_last_order_${restaurantCode}_${tableFromUrl}`);
+                    }
+                    localStorage.removeItem('customer_cart');
+                    localStorage.removeItem('customer_table_number');
+                    CustomerCache.clear(restaurantCode);
+                }
+            } catch {}
+
             // Persist verified customer mobile and customer info
             try {
                 localStorage.setItem(`ros_customer_mobile_${restaurantCode}`, cleanMobile);
@@ -165,8 +186,17 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
 
             // Case 1: Active Order(s) Found
             if (data.hasActiveOrder && activeOrders.length > 0) {
-                if (activeOrders.length === 1) {
-                    // Exactly one active order -> directly redirect to that order type tracking view!
+                // If a table QR code was scanned (tableFromUrl is set),
+                // verify that the active order is actually for THIS table!
+                const isDifferentTable = Boolean(
+                    tableFromUrl && 
+                    activeOrders.length === 1 && 
+                    activeOrders[0].tableNumber && 
+                    String(activeOrders[0].tableNumber).toLowerCase() !== String(tableFromUrl).toLowerCase()
+                );
+
+                if (!isDifferentTable && activeOrders.length === 1) {
+                    // Exactly one active order for this table/order type -> directly redirect
                     const singleOrder = activeOrders[0];
                     const orderTypeLabel = singleOrder.orderType === 'DELIVERY' ? 'Home Delivery' : singleOrder.orderType === 'TAKEAWAY' ? 'Takeaway' : (singleOrder.tableNumber ? `Dine In (Table ${singleOrder.tableNumber})` : 'Dine In');
                     
@@ -177,16 +207,21 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                         router.push(singleOrder.redirectUrl);
                     }, 600);
                     return;
-                } else {
+                } else if (!isDifferentTable) {
                     // Multiple active orders found -> present them to the customer so they can pick without arbitrary selection
                     setMultipleActiveOrders(activeOrders);
                     setShowMultipleOrdersModal(true);
                     setChecking(false);
                     return;
+                } else {
+                    // Active order exists for a DIFFERENT table (e.g. Table 1, but user scanned Table 2)
+                    // Do NOT hijack them back to the old table!
+                    // Let them proceed with dining at this new table.
+                    toast.info(`You have an active order on Table ${activeOrders[0].tableNumber}. Continuing to Table ${tableFromUrl}...`);
                 }
             }
 
-            // Case 2: No Active Order Found
+            // Case 2: No Active Order Found (or user is visiting a new table)
             // Redirect customer to the new Order Type Selection page
             setChecking(false);
             const queryParams = new URLSearchParams();
@@ -280,6 +315,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                     <AnimatePresence>
                         {redirectingMessage && (
                             <motion.div
+                                key="banner-redirecting"
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
                                 exit={{ opacity: 0, height: 0 }}
@@ -443,7 +479,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             {/* Multiple Active Orders Modal */}
             <AnimatePresence>
                 {showMultipleOrdersModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                    <div key="modal-multiple-orders" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95, y: 15 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -471,14 +507,14 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
 
                             {/* Active Orders List */}
                             <div className="flex-1 overflow-y-auto space-y-3 py-1 pr-1">
-                                {multipleActiveOrders.map(order => {
+                                {multipleActiveOrders.map((order, idx) => {
                                     const isDelivery = order.orderType === 'DELIVERY';
                                     const isTakeaway = order.orderType === 'TAKEAWAY';
                                     const isDineIn = !isDelivery && !isTakeaway;
 
                                     return (
                                         <button
-                                            key={order.id}
+                                            key={order.id || `order-${idx}`}
                                             onClick={() => handleSelectExistingOrder(order)}
                                             className="w-full text-left p-4 rounded-2xl transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-between gap-3 group cursor-pointer"
                                             style={{

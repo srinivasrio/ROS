@@ -4,11 +4,15 @@ import { coalesceRequest } from '@/lib/data-cache';
 
 export interface Staff {
     id: string;
+    internal_id?: string;
+    employee_code?: string;
+    legacy_reference?: string;
     employee_id?: string;
     name: string;
     email?: string;
     role: string;
     mobile: string;
+    phone_normalized?: string;
     pin?: string;
     status: 'pending_activation' | 'verified' | 'active' | 'inactive';
     approval_status?: 'pending_verification' | 'awaiting_admin_approval' | 'approved' | 'rejected' | 'suspended';
@@ -25,17 +29,20 @@ export interface Staff {
     availability_status?: string;
     vehicle_type?: string | null;
     vehicle_number?: string | null;
+    weekly_off?: string;
+    salary_type?: 'monthly' | 'daily';
 }
 
 export const StaffService = {
-    async fetchStaff(restaurantId: string): Promise<Staff[]> {
+    async fetchStaff(restaurantId: string, branchId?: string): Promise<Staff[]> {
         if (!restaurantId) return [];
-        return coalesceRequest(`staff-${restaurantId}`, async () => {
+        return coalesceRequest(`staff-${restaurantId}-${branchId || 'all'}`, async () => {
             const rid = await resolveRestaurantId(restaurantId);
+            const branchQuery = branchId && branchId !== 'all' ? `&branchId=${encodeURIComponent(branchId)}` : '';
 
             // 1. Try internal Next.js API route first for reliability (bypasses browser CORS / adblockers)
             try {
-                const res = await fetch(`/api/admin/employees?restaurantId=${encodeURIComponent(rid)}`);
+                const res = await fetch(`/api/admin/employees?restaurantId=${encodeURIComponent(rid)}${branchQuery}`);
                 if (res.ok) {
                     const json = await res.json();
                     if (json.employees && Array.isArray(json.employees)) {
@@ -48,12 +55,18 @@ export const StaffService = {
 
             // 2. Fallback to direct supabase client
             const supabase = createClient();
-            const { data, error } = await supabase
+            let query = supabase
                 .from('employees')
-                .select('*')
+                .select('id, name, email, mobile, role, restaurant_id, branch_id, status, approval_status, avatar_url, created_at, updated_at')
                 .eq('restaurant_id', rid)
                 .eq('is_deleted', false)
                 .order('name', { ascending: true });
+
+            if (branchId && branchId !== 'all') {
+                query = query.eq('branch_id', branchId);
+            }
+
+            const { data, error } = await query;
 
             if (error) {
                 console.error('Error fetching employees:', error?.message || error);
@@ -79,8 +92,78 @@ export const StaffService = {
     },
 
     async updateStaff(id: string, restaurantId: string, updates: Partial<Staff> & { vehicle_type?: string | null; vehicle_number?: string | null }): Promise<void> {
+        // 1. Try internal Next.js API route first for server-side validation and branch FK safety
+        try {
+            const res = await fetch('/api/admin/employees', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id,
+                    restaurantId,
+                    ...updates
+                })
+            });
+            if (res.ok) {
+                return;
+            }
+            const errJson = await res.json().catch(() => ({}));
+            if (errJson.error) {
+                throw new Error(errJson.error);
+            }
+        } catch (apiErr: any) {
+            if (apiErr.message && !apiErr.message.includes('fetch') && !apiErr.message.includes('Failed to fetch')) {
+                throw apiErr;
+            }
+            console.warn('[StaffService.updateStaff] API fallback to direct supabase:', apiErr);
+        }
+
+        // 2. Direct supabase fallback with strict branch validation & preservation
         const supabase = createClient();
-        const { vehicle_type, vehicle_number, ...employeeUpdates } = updates as any;
+        const { vehicle_type, vehicle_number, pin, ...employeeUpdates } = updates as any;
+
+        // If branch_id was provided, validate and ensure it's a valid branches.id
+        if (employeeUpdates.branch_id !== undefined) {
+            if (employeeUpdates.branch_id && String(employeeUpdates.branch_id).trim()) {
+                const bId = String(employeeUpdates.branch_id).trim();
+                // Check if it exists in branches
+                const { data: bRec } = await supabase
+                    .from('branches')
+                    .select('id')
+                    .or(`id.eq.${bId},internal_id.eq.${bId}`)
+                    .eq('restaurant_id', restaurantId)
+                    .maybeSingle();
+
+                if (bRec?.id) {
+                    employeeUpdates.branch_id = bRec.id;
+                } else {
+                    // Do not overwrite with invalid branch ID - preserve existing
+                    delete employeeUpdates.branch_id;
+                }
+            } else {
+                delete employeeUpdates.branch_id;
+            }
+        }
+
+        // If a PIN update was provided, securely hash and update via backend API
+        if (pin && String(pin).trim()) {
+            try {
+                const pinRes = await fetch('/api/auth/employee/update-pin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        employeeId: id,
+                        restaurantId,
+                        newPin: String(pin).trim()
+                    })
+                });
+                if (!pinRes.ok) {
+                    const errJson = await pinRes.json();
+                    console.warn('[StaffService] PIN update warning:', errJson.error);
+                }
+            } catch (pinErr) {
+                console.error('[StaffService] Failed to update PIN via backend API:', pinErr);
+            }
+        }
 
         const { error } = await supabase
             .from('employees')
@@ -226,7 +309,7 @@ export const StaffService = {
         const supabase = createClient();
         const { data, error } = await supabase
             .from('employees')
-            .select('*')
+            .select('id, name, email, mobile, role, restaurant_id, branch_id, status, approval_status, avatar_url, created_at, updated_at')
             .eq('restaurant_id', rid)
             .eq('is_deleted', true)
             .order('name', { ascending: true });
@@ -236,5 +319,25 @@ export const StaffService = {
             return [];
         }
         return data as Staff[];
+    },
+
+    async searchStaffByPhone(phone: string, restaurantId?: string, branchId?: string): Promise<Staff[]> {
+        if (!phone) return [];
+        const params = new URLSearchParams({ phone: phone.trim() });
+        if (restaurantId) params.append('restaurantId', restaurantId);
+        if (branchId && branchId !== 'all') params.append('branchId', branchId);
+
+        try {
+            const res = await fetch(`/api/admin/employees/search?${params.toString()}`);
+            if (res.ok) {
+                const json = await res.json();
+                if (json.employees && Array.isArray(json.employees)) {
+                    return json.employees as Staff[];
+                }
+            }
+        } catch (err) {
+            console.error('[StaffService.searchStaffByPhone] Search error:', err);
+        }
+        return [];
     }
 };

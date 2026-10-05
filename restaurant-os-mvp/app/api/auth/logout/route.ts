@@ -85,9 +85,15 @@ export async function POST(request: Request) {
                 cookieStore.set(`dine_auth_token_${cleanRid}`, '', expireCookieOptions);
                 cookieStore.set(`dine_auth_token_${cleanRid}_admin`, '', expireCookieOptions);
                 cookieStore.set(`dine_auth_token_${cleanRid}_waiter`, '', expireCookieOptions);
+                cookieStore.set(`dine_auth_token_${cleanRid}_kds`, '', expireCookieOptions);
+                cookieStore.set(`dine_auth_token_${cleanRid}_delivery`, '', expireCookieOptions);
+                cookieStore.set(`dine_auth_token_${cleanRid}_employee`, '', expireCookieOptions);
             }
             cookieStore.set('dine_auth_token_admin', '', expireCookieOptions);
             cookieStore.set('dine_auth_token_waiter', '', expireCookieOptions);
+            cookieStore.set('dine_auth_token_kds', '', expireCookieOptions);
+            cookieStore.set('dine_auth_token_delivery', '', expireCookieOptions);
+            cookieStore.set('dine_auth_token_employee', '', expireCookieOptions);
         }
 
         return NextResponse.json({ success: true });

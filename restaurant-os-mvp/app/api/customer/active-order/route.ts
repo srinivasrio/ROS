@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { resolveRestaurantId } from '@/services/utils.service';
-import { CustomerService } from '@/services/customers.service';
-import { signJwt, getCustomerTokenName } from '@/lib/jwt-utils';
+import { CustomerService } from '@/services/customers.server.service';
+import { signJwt, verifyJwt, extractCustomerTokenForRestaurant, getCustomerTokenName } from '@/lib/jwt-utils';
+import { RateLimiter } from '@/lib/rate-limiter';
+import { CustomerOtpService } from '@/lib/customer-otp';
 
 /**
  * POST /api/customer/active-order
@@ -10,15 +12,15 @@ import { signJwt, getCustomerTokenName } from '@/lib/jwt-utils';
  * Securely checks for active orders associated with a customer's mobile number
  * strictly scoped to the specified restaurant (multi-tenant boundary).
  * 
- * Order types:
- *   - DINE_IN: table-based order
- *   - TAKEAWAY: counter pickup order
- *   - DELIVERY: home delivery order
+ * P1-05 SECURITY REMEDIATION:
+ * Phone-only lookups return active order status but NEVER issue a Customer JWT.
+ * A Customer JWT is only issued if the user provides a valid OTP or already holds
+ * an authenticated customer session.
  */
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json().catch(() => ({}));
-        const { restaurantCode, mobile } = body;
+        const { restaurantCode, mobile, otp } = body;
 
         if (!restaurantCode || typeof restaurantCode !== 'string') {
             return NextResponse.json({ error: 'Restaurant code is required' }, { status: 400 });
@@ -54,6 +56,12 @@ export async function POST(req: NextRequest) {
         }
 
         const clean10 = digitsOnly.slice(-10);
+
+        const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
+        const lookupLimit = await RateLimiter.check(`customer_active_order:${clientIp}:${clean10}`, 5, 300);
+        if (!lookupLimit.success) {
+            return NextResponse.json({ error: 'Too many active-order lookups. Please try again later.' }, { status: 429 });
+        }
 
         // Build list of potential phone format candidates
         const candidatePhones = [
@@ -148,7 +156,7 @@ export async function POST(req: NextRequest) {
             .filter(o => o.order_type === 'DELIVERY')
             .map(o => o.id);
 
-        let deliveryAssignmentsMap: Record<string, any> = {};
+        const deliveryAssignmentsMap: Record<string, any> = {};
         if (deliveryOrderIds.length > 0) {
             const { data: assignments } = await supabaseAdmin
                 .from('delivery_assignments')
@@ -214,9 +222,43 @@ export async function POST(req: NextRequest) {
             };
         });
 
-        // 7. Sign persistent Customer JWT (30 days) and set cookies
+        // 7. Check authentication state (P1-05: Zero unverified Customer JWT issuance)
+        let isSessionVerified = false;
+        let existingToken: string | null = null;
+        const authHeader = req.headers.get('authorization');
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            existingToken = authHeader.substring(7).trim();
+        }
+        if (!existingToken) {
+            existingToken = extractCustomerTokenForRestaurant(req.cookies, actualRestaurantId || restaurantCode);
+        }
+
+        if (existingToken) {
+            try {
+                const payload = await verifyJwt(existingToken);
+                const tokenRestId = payload?.restaurantId || payload?.restaurant_id;
+                if (payload?.customerId && payload?.role === 'customer' && tokenRestId && String(tokenRestId) === String(actualRestaurantId)) {
+                    isSessionVerified = true;
+                }
+            } catch {}
+        }
+
+        // If OTP is provided, verify it
+        if (!isSessionVerified && otp) {
+            const otpVerification = await CustomerOtpService.verifyOtp(actualRestaurantId, clean10, otp, clientIp);
+            if (!otpVerification.success) {
+                const status = otpVerification.remainingAttempts === 0 ? 429 : 400;
+                return NextResponse.json(
+                    { error: otpVerification.error || 'Invalid verification code' },
+                    { status }
+                );
+            }
+            isSessionVerified = true;
+        }
+
+        // Only issue JWT and set cookies if session is strictly verified
         let token = '';
-        if (customerRecord?.id) {
+        if (isSessionVerified && customerRecord?.id) {
             try {
                 token = await signJwt({
                     customerId: customerRecord.id,
@@ -235,7 +277,7 @@ export async function POST(req: NextRequest) {
             success: true,
             hasActiveOrder: activeOrders.length > 0,
             activeOrders,
-            customer: customerRecord ? {
+            customer: isSessionVerified && customerRecord ? {
                 id: customerRecord.id,
                 name: customerRecord.name,
                 email: customerRecord.email,

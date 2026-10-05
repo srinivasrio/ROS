@@ -159,7 +159,8 @@ export async function seedRestaurantDefaults(restaurantId: string, details?: Res
                 address: details?.address || '',
                 phone: details?.phone || '',
                 email: details?.email || '',
-                is_main_branch: true
+                is_main_branch: true,
+                status: 'pending_approval'
             });
         }
     } catch (err) {

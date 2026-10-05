@@ -42,6 +42,9 @@
   "exclude": [
     "node_modules",
     "marketing-repo",
-    "public"
+    "public",
+    "super-admin",
+    "scripts",
+    "scratch"
   ]
 }

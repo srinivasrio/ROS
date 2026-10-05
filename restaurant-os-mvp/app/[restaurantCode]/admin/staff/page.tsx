@@ -30,7 +30,7 @@ import ApprovalsTab from '@/components/admin/payroll/ApprovalsTab';
 import { StaffService, Staff } from '@/services/staff.service';
 import StaffModal from '@/components/admin/AddStaffModal';
 import DeleteStaffModal from '@/components/admin/payroll/DeleteStaffModal';
-import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
+import { getCached, setCache, hasFreshCache, clearCache } from '@/lib/data-cache';
 import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
 import { createClient } from '@/lib/supabase';
@@ -74,7 +74,10 @@ export default function StaffManagement() {
         const key = `staff-${targetId}`;
 
         const currentCached = getCached<Staff[]>(key);
-        if (currentCached && staffListRef.current.length === 0) {
+        if (force) {
+            clearCache(key);
+            if (restaurantId) clearCache(`staff-${restaurantId}`);
+        } else if (currentCached && staffListRef.current.length === 0) {
             setStaffList(currentCached);
             setLoadingLogins(false);
         }
@@ -278,7 +281,7 @@ export default function StaffManagement() {
                                                 <th className="px-6 py-4">Name</th>
                                                 <th className="px-6 py-4">Role</th>
                                                 <th className="px-6 py-4">Availability</th>
-                                                <th className="px-6 py-4">Mobile Number</th>
+                                                <th className="px-6 py-4">Contact</th>
                                                 <th className="px-6 py-4">Account Status</th>
                                                 <th className="px-6 py-4 text-center">PIN</th>
                                                 <th className="px-6 py-4 text-right">Actions</th>
@@ -294,11 +297,25 @@ export default function StaffManagement() {
                                             ) : (
                                                 staffList.map((member) => (
                                                     <tr key={member.id} className="hover:bg-neutral-50 transition-colors">
-                                                        <td className="px-6 py-4 font-medium text-black flex items-center">
-                                                            <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center text-xs font-bold mr-3 text-black">
-                                                                {member.name.charAt(0)}
+                                                        <td className="px-6 py-4 font-medium text-black">
+                                                            <div className="flex items-center">
+                                                                <div className="w-8 h-8 rounded-full bg-neutral-200 flex items-center justify-center text-xs font-bold mr-3 text-black shrink-0">
+                                                                    {member.name.charAt(0).toUpperCase()}
+                                                                </div>
+                                                                <div>
+                                                                    <div>{member.name}</div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-[11px] text-neutral-400 font-mono font-normal">
+                                                                            {member.employee_code || member.employee_id || ''}
+                                                                        </span>
+                                                                        {member.email && (
+                                                                            <span className="text-[11px] text-neutral-500 font-normal">
+                                                                                • {member.email}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
                                                             </div>
-                                                            {member.name}
                                                         </td>
                                                         <td className="px-6 py-4">
                                                             <RoleBadge role={member.role} />
@@ -316,7 +333,16 @@ export default function StaffManagement() {
                                                                 </span>
                                                             )}
                                                         </td>
-                                                        <td className="px-6 py-4 font-mono text-xs text-neutral-600">{member.mobile}</td>
+                                                        <td className="px-6 py-4 text-xs text-neutral-600">
+                                                            <div className="flex flex-col gap-0.5">
+                                                                <span className="font-mono text-neutral-800">{member.mobile || '—'}</span>
+                                                                {member.email && (
+                                                                    <span className="text-[11px] text-neutral-500 truncate max-w-[180px]" title={member.email}>
+                                                                        {member.email}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
                                                         <td className="px-6 py-4">
                                                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold capitalize ${
                                                                 member.status === 'active' ? 'text-green-700 bg-green-50' : 'text-neutral-500 bg-neutral-100'
@@ -324,8 +350,8 @@ export default function StaffManagement() {
                                                                 {member.status === 'active' ? 'Active' : 'Inactive'}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 text-center font-mono text-black font-bold">
-                                                            {member.pin ? member.pin : '-'}
+                                                        <td className="px-6 py-4 text-center font-mono text-neutral-700 font-bold">
+                                                            {member.pin ? '••••' : '-'}
                                                         </td>
                                                         <td className="px-6 py-4 text-right">
                                                             <div className="flex justify-end gap-2">
@@ -360,7 +386,7 @@ export default function StaffManagement() {
             <StaffModal
                 isOpen={isLoginModalOpen}
                 onClose={() => setIsLoginModalOpen(false)}
-                onSuccess={loadStaffLogins}
+                onSuccess={() => loadStaffLogins(true)}
                 staff={selectedStaff}
             />
 

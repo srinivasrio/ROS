@@ -27,11 +27,17 @@ export async function verifyStaffAuth(
     try {
         let token: string | undefined;
 
-        // 1. Try to extract token from Authorization header if request is provided
+        // 1. Try to extract token from Authorization header or x-dine-token if request is provided
         if (req) {
             const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
             if (authHeader && authHeader.startsWith('Bearer ')) {
                 token = authHeader.slice(7).trim();
+            }
+            if (!token) {
+                const xDine = req.headers.get('x-dine-token');
+                if (xDine && xDine.trim()) {
+                    token = xDine.trim();
+                }
             }
         }
 
@@ -83,8 +89,7 @@ export async function verifyStaffAuth(
 
         // Check for Super Admin bypass if allowed
         const isSuperAdmin = (user.role || '').toUpperCase() === 'SUPER_ADMIN' ||
-            (user.role || '').toUpperCase() === 'SUPERADMIN' ||
-            user.email === 'superadmin@dineinone.com';
+            (user.role || '').toUpperCase() === 'SUPERADMIN';
 
         if (isSuperAdmin && options.allowSuperAdmin !== false) {
             return { authorized: true, user, employee: null };

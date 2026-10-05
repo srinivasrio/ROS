@@ -538,6 +538,9 @@ export default function CustomerCart() {
             if (order) {
                 try {
                     localStorage.setItem(`ros_last_order_${urlRestaurantId}`, order.id);
+                    if (tableNumber) {
+                        localStorage.setItem(`ros_last_order_${urlRestaurantId}_${tableNumber}`, order.id);
+                    }
                 } catch {}
                 toast.success('Order placed successfully!');
                 clearCart();
@@ -564,7 +567,11 @@ export default function CustomerCart() {
                     Table <span className="font-bold text-slate-800">{tableNumber}</span> does not exist or has not been created by the restaurant admin. Customers can only view the menu and place orders from valid, admin-created tables.
                 </p>
                 <button 
-                    onClick={() => window.location.reload()}
+                    onClick={() => {
+                        OrderService.verifyTableExists(urlRestaurantId, tableNumber)
+                            .then(data => setIsValidTable(Boolean(data)))
+                            .catch(() => setIsValidTable(false));
+                    }}
                     className="py-3.5 px-8 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold transition-all active:scale-[0.98] shadow-lg shadow-slate-900/20 text-sm cursor-pointer"
                 >
                     Try Again

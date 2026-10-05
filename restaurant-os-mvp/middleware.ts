@@ -1,12 +1,21 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { verifyJwt, extractTokenForRestaurant } from './lib/jwt-utils';
 import { supabaseAdmin } from './lib/supabase-admin';
+import { extractSubdomain, isRoleAuthorizedForPanel, PanelType, resolvePanelLoginUrl, clearAllAuthCookies } from './lib/panel-auth';
 
 // Fast in-memory cache to prevent blocking DB roundtrips on every subrequest / refresh
 const restStatusCache = new Map<string, { status: string | null; ownerId: string | null; expiresAt: number }>();
 const userValidationCache = new Map<string, { data: any; expiresAt: number }>();
 const slugResolutionCache = new Map<string, { id: string; expiresAt: number }>();
-const CACHE_TTL_MS = 30000; // 30 seconds
+const CACHE_TTL_MS = 60000; // 60 seconds
+
+// P1 FIX (DB-02): Asynchronous, non-blocking security audit logger
+function logSecurityEventAsync(payload: Record<string, unknown>) {
+    Promise.resolve(supabaseAdmin.from('audit_logs').insert(payload as never))
+        .catch((err: unknown) => {
+            console.error('[middleware:audit_log] Async security event insert failed:', err);
+        });
+}
 
 async function resolveRestaurantCodeToId(code: string | null | undefined): Promise<string> {
     if (!code) return '';
@@ -63,15 +72,57 @@ async function resolveRestaurantCodeToId(code: string | null | undefined): Promi
 
 export async function middleware(request: NextRequest) {
     const path = request.nextUrl.pathname;
-    
     const host = request.headers.get('host') || '';
+    const hostWithoutPort = host.split(':')[0].toLowerCase().trim();
+    const isProductionMarketingApex = (
+        hostWithoutPort === 'dineinone.com' || 
+        hostWithoutPort === 'www.dineinone.com'
+    );
+    const subdomain = extractSubdomain(host, request.nextUrl.searchParams, request.headers);
+
     // Super Admin is now a standalone website on Port 3005
-    if (path.startsWith('/super-admin')) {
-        const superAdminUrl = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://localhost:3005';
+    if (path.startsWith('/super-admin') || (subdomain === 'superadmin' && (path === '/' || path.startsWith('/dashboard')))) {
+        const superAdminUrl = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://control.localhost:3005';
         return NextResponse.redirect(new URL(superAdminUrl));
     }
 
-    // 0. Extract target restaurant scope from path or search params (enables multi-tab multi-tenant sessions)
+    // 0a. Rewrite subdomain /login to dedicated panel login page
+    // e.g. admin.dineinone.com/login -> /login/admin
+    // waiter.dineinone.com/login -> /login/waiter
+    if (subdomain && path === '/login') {
+        const url = request.nextUrl.clone();
+        url.pathname = `/login/${subdomain}`;
+        return NextResponse.rewrite(url);
+    }
+
+    // Cross-panel login access defense on subdomains:
+    // If a user visits e.g. waiter.dineinone.com/login/admin, block with 404 (wrong subdomain for that panel).
+    if (subdomain && !path.startsWith('/api/') && path.startsWith('/login/') && path !== `/login/${subdomain}`) {
+        return new NextResponse(null, { status: 404 });
+    }
+
+    // Public Marketing Website Isolation:
+    // Only applies to production marketing apex domain (dineinone.com).
+    // On localhost, IP addresses, and dedicated subdomains, internal panels and logins remain accessible.
+    if (isProductionMarketingApex && !subdomain && !path.startsWith('/api/')) {
+        if (path === '/login/owner') {
+            return NextResponse.redirect(new URL(`https://owner.dineinone.com/login${request.nextUrl.search}`));
+        }
+
+        if (path.startsWith('/owner')) {
+            return NextResponse.redirect(new URL(`https://owner.dineinone.com${path}${request.nextUrl.search}`));
+        }
+
+        if (
+            path === '/login' ||
+            path.startsWith('/login/') ||
+            /\/(admin|waiter|kds|delivery|employee|superadmin)\/login\/?$/.test(path)
+        ) {
+            return new NextResponse(null, { status: 404 });
+        }
+    }
+
+    // 0b. Extract target restaurant scope from path or search params (enables multi-tab multi-tenant sessions)
     const segments = path.split('/').filter(Boolean);
     let targetRestaurantCode: string | null = null;
 
@@ -140,26 +191,34 @@ export async function middleware(request: NextRequest) {
         }
     }
 
-    let targetPanel: string | null = null;
-    if (path.startsWith('/api/admin/') || path.includes('/admin')) {
+    let targetPanel: PanelType | null = null;
+    if (path.startsWith('/owner') || path.startsWith('/api/owner/')) {
+        targetPanel = 'owner';
+    } else if (path.startsWith('/api/admin/') || path.includes('/admin')) {
         targetPanel = 'admin';
     } else if (path.startsWith('/api/waiter/') || path.includes('/waiter')) {
         targetPanel = 'waiter';
-    } else if (path.includes('/kds')) {
+    } else if (path.startsWith('/api/kds/') || path.includes('/kds')) {
         targetPanel = 'kds';
-    } else if (path.includes('/supervisor')) {
-        targetPanel = 'supervisor';
-    } else if (path.includes('/delivery')) {
+    } else if (path.startsWith('/api/delivery/') || path.includes('/delivery')) {
         targetPanel = 'delivery';
-    } else if (path.includes('/staff')) {
-        targetPanel = 'staff';
+    } else if (path.startsWith('/api/staff/') || path.includes('/staff') || path.includes('/employee')) {
+        targetPanel = 'employee';
+    } else if (subdomain) {
+        targetPanel = subdomain;
     }
 
-    // Check Authorization header first (for API calls), then fall back to cookies
+    // Check Authorization header first (for API calls), then x-dine-token, then fall back to cookies
     const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
     let token: string | null = null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         token = authHeader.slice(7).trim();
+    }
+    if (!token) {
+        const xDine = request.headers.get('x-dine-token');
+        if (xDine && xDine.trim()) {
+            token = xDine.trim();
+        }
     }
     if (!token) {
         token = extractTokenForRestaurant(request.cookies, targetRestaurantCode, targetStaffIdentifier, targetPanel);
@@ -178,13 +237,18 @@ export async function middleware(request: NextRequest) {
 
     const isSuperAdmin = user ? (
         (user.role || '').toUpperCase() === 'SUPER_ADMIN' || 
-        (user.role || '').toUpperCase() === 'SUPERADMIN' || 
-        user.email === 'superadmin@dineinone.com'
+        (user.role || '').toUpperCase() === 'SUPERADMIN'
     ) : false;
 
-    // Exclude public routes and access denied page
-    const isWaiterLoginPage = /\/waiter\/login\/?$/.test(path);
-    const isDeliveryLoginPage = /\/delivery\/login\/?$/.test(path);
+    // Login pages across all direct URLs and rewrite targets
+    const isLoginPage = (
+        path === '/login' ||
+        path.startsWith('/login/') ||
+        path.startsWith('/register') ||
+        /\/(admin|waiter|kds|delivery|employee|superadmin)\/login\/?$/.test(path) ||
+        path.endsWith('/login')
+    );
+
     const isAccessDeniedPage = path.startsWith('/access-denied');
     
     if (isAccessDeniedPage) {
@@ -194,7 +258,68 @@ export async function middleware(request: NextRequest) {
         return NextResponse.next();
     }
 
-    const isProtectedRoute = !path.startsWith('/api/') && !isWaiterLoginPage && !isDeliveryLoginPage && (
+    // 0c. Root path on subdomains: route unauthenticated to login, or authenticated to panel dashboard
+    if (subdomain && path === '/') {
+        if (!token || !user) {
+            return NextResponse.redirect(new URL('/login', request.url));
+        }
+        if (!isRoleAuthorizedForPanel(user.role, subdomain)) {
+            return NextResponse.redirect(new URL('/access-denied?reason=unauthorized_panel', request.url));
+        }
+        const cleanMobile = (user.mobile || 'default').replace(/[^0-9]/g, '').slice(-10);
+        const dbId = user.deliveryBoyId || user.userId || 'default';
+        if (subdomain === 'owner') {
+            return NextResponse.redirect(new URL('/owner/dashboard', request.url));
+        } else if (subdomain === 'admin') {
+            return NextResponse.redirect(new URL(`/${user.restaurantId}/admin/dashboard`, request.url));
+        } else if (subdomain === 'waiter') {
+            return NextResponse.redirect(new URL(`/${user.restaurantId}/waiter/${cleanMobile}/dashboard`, request.url));
+        } else if (subdomain === 'kds') {
+            return NextResponse.redirect(new URL(`/${user.restaurantId}/kds`, request.url));
+        } else if (subdomain === 'delivery') {
+            return NextResponse.redirect(new URL(`/${user.restaurantId}/delivery/${dbId}/dashboard`, request.url));
+        } else if (subdomain === 'employee') {
+            const rawRole = String(user.role || '').toLowerCase();
+            if (['waiter', 'captain'].includes(rawRole)) {
+                return NextResponse.redirect(new URL(`/${user.restaurantId}/waiter/${cleanMobile}/dashboard`, request.url));
+            } else if (['chef', 'kitchen'].includes(rawRole)) {
+                return NextResponse.redirect(new URL(`/${user.restaurantId}/kds`, request.url));
+            } else if (['delivery_boy', 'delivery'].includes(rawRole)) {
+                return NextResponse.redirect(new URL(`/${user.restaurantId}/delivery/${dbId}/dashboard`, request.url));
+            } else {
+                return NextResponse.redirect(new URL(`/${user.restaurantId}/admin/dashboard`, request.url));
+            }
+        }
+    }
+
+    // 0c. Dedicated Owner Panel & API Route Protection
+    if (path.startsWith('/api/owner/')) {
+        if (!token) {
+            return NextResponse.json({ error: 'Unauthorized: Owner authentication required' }, { status: 401 });
+        }
+        if (!user) {
+            return NextResponse.json({ error: 'Unauthorized: Invalid credentials' }, { status: 401 });
+        }
+        const userRole = String(user.role || '').toLowerCase();
+        const isSuper = (user.role || '').toUpperCase() === 'SUPER_ADMIN' || (user.role || '').toUpperCase() === 'SUPERADMIN';
+        if (!['owner', 'restaurant_owner'].includes(userRole) && !isSuper) {
+            return NextResponse.json({ error: 'Forbidden: Owner permissions required' }, { status: 403 });
+        }
+    }
+
+    if (path.startsWith('/owner')) {
+        if (!token || !user) {
+            const redirectUrl = subdomain ? '/login' : '/login/owner';
+            return NextResponse.redirect(new URL(redirectUrl, request.url));
+        }
+        const userRole = String(user.role || '').toLowerCase();
+        const isSuper = (user.role || '').toUpperCase() === 'SUPER_ADMIN' || (user.role || '').toUpperCase() === 'SUPERADMIN';
+        if (!['owner', 'restaurant_owner'].includes(userRole) && !isSuper) {
+            return new NextResponse('Access Denied: Owner permissions required', { status: 403 });
+        }
+    }
+
+    const isProtectedRoute = !path.startsWith('/api/') && !path.startsWith('/owner') && !isLoginPage && !isAccessDeniedPage && (
         path.includes('/admin') || 
         path.includes('/waiter') || 
         path.includes('/kds') || 
@@ -204,42 +329,49 @@ export async function middleware(request: NextRequest) {
         path.startsWith('/waiting-approval')
     );
 
-    // Old /portal/* routes are no longer valid — redirect to login
+    // Old /portal/* routes are no longer valid — redirect to login on subdomain, 404 on apex
     if (path.startsWith('/portal') || path.match(/^\/[^/]+\/portal(\/?|\/.*)$/)) {
-        return NextResponse.redirect(new URL('/login', request.url));
+        if (subdomain) {
+            return NextResponse.redirect(new URL('/login', request.url));
+        }
+        return new NextResponse(null, { status: 404 });
     }
 
-    const isLoginPage = path === '/login' || path === '/register';
+    // 1. Marketing website isolation:
+    // Protected staff/admin panel routes do not exist on the production apex domain.
+    // Return 404 to ensure zero exposure of internal panels on the public website.
+    if (isProductionMarketingApex && !subdomain && isProtectedRoute) {
+        return new NextResponse(null, { status: 404 });
+    }
 
-    // 1. Unauthenticated access to protected staff routes
+    // Unauthenticated access to protected staff routes:
     if (!token && isProtectedRoute) {
-        if (path.includes('/waiter')) {
-            const segments = path.split('/').filter(Boolean);
-            const restCode = segments[0];
-            if (restCode && restCode !== 'login') {
-                return NextResponse.redirect(new URL(`/${restCode}/waiter/login`, request.url));
-            }
-            return NextResponse.redirect(new URL('/login', request.url));
-        }
-        if (path.includes('/delivery')) {
-            const segments = path.split('/').filter(Boolean);
-            const restCode = segments[0];
-            if (restCode && restCode !== 'login') {
-                return NextResponse.redirect(new URL(`/${restCode}/delivery/login`, request.url));
-            }
-            return NextResponse.redirect(new URL('/login', request.url));
-        }
-        // Admin, KDS, supervisor, and all other staff panels redirect to unified staff/admin login
-        return NextResponse.redirect(new URL('/login', request.url));
+        const restCode = targetRestaurantCode || segments[0];
+        const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, '');
+        const response = NextResponse.redirect(new URL(loginUrl, request.url));
+        clearAllAuthCookies(response, request.cookies, restCode);
+        return response;
     }
 
     // 1b. Protected API routes check
-    if ((path.startsWith('/api/waiter/') && !path.startsWith('/api/waiter/status')) || (path.startsWith('/api/admin/') && !path.includes('migrate-homepage'))) {
+    const isProtectedApiRoute = (
+        (path.startsWith('/api/waiter/') && !path.startsWith('/api/waiter/status')) ||
+        (path.startsWith('/api/admin/') && !path.includes('migrate-homepage')) ||
+        (path.startsWith('/api/kds/')) ||
+        (path.startsWith('/api/delivery/') && !(path.startsWith('/api/delivery/settings') && request.method === 'GET')) ||
+        (path.startsWith('/api/staff/') && !path.startsWith('/api/staff/login'))
+    );
+
+    if (isProtectedApiRoute && !path.startsWith('/api/auth/')) {
         if (!token) {
-            return NextResponse.json({ error: 'Access Denied: Staff authentication required' }, { status: 401 });
+            return NextResponse.json({ error: 'Access Denied: Staff authentication required', code: 'UNAUTHENTICATED' }, { status: 401 });
         }
         if (!user) {
-            return NextResponse.json({ error: 'Access Denied: Invalid staff credentials' }, { status: 401 });
+            const restCode = targetRestaurantCode || segments[0];
+            const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
+            const response = NextResponse.json({ error: 'Access Denied: Invalid staff credentials', code: 'SESSION_EXPIRED', loginUrl }, { status: 401 });
+            clearAllAuthCookies(response, request.cookies, restCode);
+            return response;
         }
     }
 
@@ -247,43 +379,36 @@ export async function middleware(request: NextRequest) {
         const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
 
         if (!user) {
-            // Token is invalid/expired (session ended). Clear it and redirect to appropriate login page
-            const segments = path.split('/').filter(Boolean);
-            const restCode = segments[0];
-
-            let redirectUrl = '/login?error=session_expired';
-            if (path.includes('/waiter')) {
-                if (restCode && restCode !== 'login') {
-                    redirectUrl = `/${restCode}/waiter/login?error=session_expired`;
-                } else {
-                    redirectUrl = '/login?error=session_expired';
-                }
-            } else if (path.includes('/delivery')) {
-                if (restCode && restCode !== 'login') {
-                    redirectUrl = `/${restCode}/delivery/login?error=session_expired`;
-                } else {
-                    redirectUrl = '/login?error=session_expired';
-                }
-            } else if (path.includes('/admin')) {
-                redirectUrl = '/login?error=session_expired';
+            // A stale auth cookie must never turn an API request into an HTML
+            // redirect. In particular, login requests may arrive with a token
+            // signed by a previous secret and need to be allowed to establish
+            // a fresh session.
+            if (path.startsWith('/api/auth/')) {
+                return NextResponse.next();
             }
 
-            const response = NextResponse.redirect(new URL(redirectUrl, request.url));
-            response.cookies.set('dine_auth_token', '', { path: '/', maxAge: 0 });
-            if (targetRestaurantCode) {
-                const cleanRid = String(targetRestaurantCode).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-                response.cookies.set(`dine_auth_token_${cleanRid}`, '', { path: '/', maxAge: 0 });
+            const restCode = targetRestaurantCode || segments[0];
+
+            if (path.startsWith('/api/')) {
+                const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
+                const response = NextResponse.json(
+                    { error: 'Invalid or expired session', code: 'SESSION_EXPIRED', loginUrl },
+                    { status: 401 }
+                );
+                clearAllAuthCookies(response, request.cookies, restCode);
+                return response;
             }
-            if (restCode && restCode !== 'login') {
-                const cleanRid = String(restCode).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-                response.cookies.set(`dine_auth_token_${cleanRid}`, '', { path: '/', maxAge: 0 });
-            }
+
+            // Token is invalid/expired (session ended). Clear it and redirect to the SAME panel's login page
+            const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
+            const response = NextResponse.redirect(new URL(loginUrl, request.url));
+            clearAllAuthCookies(response, request.cookies, restCode);
             return response;
         }
 
         // Super Admin user accessing restaurant website: route them to their dedicated portal
         if (isSuperAdmin && (path === '/' || path === '/login' || path === '/register')) {
-            const superAdminUrl = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://localhost:3005';
+            const superAdminUrl = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://control.localhost:3005';
             return NextResponse.redirect(new URL(superAdminUrl));
         }
 
@@ -300,6 +425,26 @@ export async function middleware(request: NextRequest) {
             mappedRole = 'supervisor';
         } else if (['delivery_boy', 'delivery'].includes(rawRole)) {
             mappedRole = 'delivery_boy';
+        }
+
+        // Subdomain Role Check: Ensure user role is authorized for the requested subdomain
+        if (subdomain && !isLoginPage && !path.startsWith('/access-denied') && !path.startsWith('/api/auth/')) {
+            if (!isRoleAuthorizedForPanel(user.role, subdomain)) {
+                if (path.startsWith('/api/')) {
+                    return NextResponse.json({ error: 'Access Denied: Unauthorized panel' }, { status: 403 });
+                }
+                return NextResponse.redirect(new URL('/access-denied?reason=unauthorized_panel', request.url));
+            }
+        }
+
+        // Target Panel Role Check: Ensure user role is authorized for the target panel (prevents tampering)
+        if (targetPanel && !isLoginPage && !path.startsWith('/access-denied') && !path.startsWith('/api/auth/')) {
+            if (!isRoleAuthorizedForPanel(user.role, targetPanel as PanelType)) {
+                if (path.startsWith('/api/')) {
+                    return NextResponse.json({ error: 'Access Denied: Unauthorized panel' }, { status: 403 });
+                }
+                return NextResponse.redirect(new URL('/access-denied?reason=unauthorized_panel', request.url));
+            }
         }
 
         // Protected API Security & Parameter Tampering Guards
@@ -374,11 +519,14 @@ export async function middleware(request: NextRequest) {
                     if (cachedRest && cachedRest.expiresAt > nowMs) {
                         restaurantStatus = cachedRest.status;
                     } else {
-                        const { data: dbRest } = await supabaseAdmin
+                        const { data: dbRest, error: dbRestError } = await supabaseAdmin
                             .from('restaurants')
                             .select('status, owner_id')
                             .eq('id', targetRestId)
                             .maybeSingle();
+                        if (dbRestError) {
+                            throw new Error(`Restaurant status validation failed: ${dbRestError.message}`);
+                        }
                         if (dbRest) {
                             restaurantStatus = dbRest.status;
                             restStatusCache.set(targetRestId, {
@@ -393,7 +541,7 @@ export async function middleware(request: NextRequest) {
                 // If restaurant is suspended, block immediately
                 if (restaurantStatus?.toLowerCase() === 'suspended') {
                     console.warn(`[Security Block] Tenant ${user.restaurantId} is suspended. Denying access to user ${user.userId}.`);
-                    await supabaseAdmin.from('audit_logs').insert({
+                    logSecurityEventAsync({
                         restaurant_id: user.restaurantId || null,
                         user_id: user.userId,
                         target_user_id: user.userId,
@@ -472,13 +620,27 @@ export async function middleware(request: NextRequest) {
                     }
                 }
 
-                if (!dbUser && !isSuperAdmin && !queryFailed) {
-                    console.error(`[Security Block] User ${user.userId} not found in database. Revoking session.`);
-                    userValidationCache.delete(user.userId);
-                    const response = NextResponse.redirect(new URL('/access-denied?reason=invalid_staff_identity', request.url));
-                    response.cookies.set('dine_auth_token', '', { path: '/', maxAge: 0 });
-                    return response;
-                }
+                    if (queryFailed) {
+                        const restCode = targetRestaurantCode || segments[0];
+                        const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
+                        const response = path.startsWith('/api/')
+                            ? NextResponse.json({ error: 'Authentication validation is temporarily unavailable', code: 'SESSION_EXPIRED', loginUrl }, { status: 503 })
+                            : NextResponse.redirect(new URL(loginUrl, request.url));
+                        clearAllAuthCookies(response, request.cookies, restCode);
+                        return response;
+                    }
+
+                    if (!dbUser && !isSuperAdmin) {
+                        console.error(`[Security Block] User ${user.userId} not found in database. Revoking session.`);
+                        userValidationCache.delete(user.userId);
+                        const restCode = targetRestaurantCode || segments[0];
+                        const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
+                        const response = path.startsWith('/api/')
+                            ? NextResponse.json({ error: 'Staff account not found or session revoked', code: 'SESSION_EXPIRED', loginUrl }, { status: 401 })
+                            : NextResponse.redirect(new URL(loginUrl, request.url));
+                        clearAllAuthCookies(response, request.cookies, restCode);
+                        return response;
+                    }
 
                 if (dbUser) {
                     const authData = Array.isArray(dbUser?.auth) ? dbUser.auth[0] : dbUser?.auth;
@@ -512,23 +674,25 @@ export async function middleware(request: NextRequest) {
                         });
 
                         userValidationCache.delete(user.userId);
+                        const restCode = targetRestaurantCode || segments[0];
 
                         // If session version was bumped (session terminated/ended on server):
                         if (!isSessionVersionValid) {
-                            const restSegments = path.split('/').filter(Boolean);
-                            const restCode = restSegments[0];
-                            let redirectUrl = '/login?error=session_expired';
-                            if (path.includes('/waiter') && restCode && restCode !== 'login') {
-                                redirectUrl = `/${restCode}/waiter/login?error=session_expired`;
-                            } else if (path.includes('/delivery') && restCode && restCode !== 'login') {
-                                redirectUrl = `/${restCode}/delivery/login?error=session_expired`;
-                            }
-                            const response = NextResponse.redirect(new URL(redirectUrl, request.url));
-                            response.cookies.set('dine_auth_token', '', { path: '/', maxAge: 0 });
-                            if (targetRestaurantCode) {
-                                const cleanRid = String(targetRestaurantCode).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-                                response.cookies.set(`dine_auth_token_${cleanRid}`, '', { path: '/', maxAge: 0 });
-                            }
+                            const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
+                            const response = path.startsWith('/api/')
+                                ? NextResponse.json({ error: 'Session expired due to login on another device', code: 'SESSION_EXPIRED', loginUrl }, { status: 401 })
+                                : NextResponse.redirect(new URL(loginUrl, request.url));
+                            clearAllAuthCookies(response, request.cookies, restCode);
+                            return response;
+                        }
+
+                        // If account was soft-deleted:
+                        if (dbUser.is_deleted === true) {
+                            const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
+                            const response = path.startsWith('/api/')
+                                ? NextResponse.json({ error: 'Staff account has been deleted', code: 'SESSION_EXPIRED', loginUrl }, { status: 401 })
+                                : NextResponse.redirect(new URL(loginUrl, request.url));
+                            clearAllAuthCookies(response, request.cookies, restCode);
                             return response;
                         }
 
@@ -537,13 +701,19 @@ export async function middleware(request: NextRequest) {
                             : 'invalid_staff_identity';
 
                         const response = NextResponse.redirect(new URL(`/access-denied?reason=${reason}`, request.url));
-                        response.cookies.set('dine_auth_token', '', { path: '/', maxAge: 0 });
+                        clearAllAuthCookies(response, request.cookies, restCode);
                         return response;
                     }
                 }
             } catch (err) {
-                console.warn('Database validation in middleware skipped due to network/db latency:', err);
-                // Do not aggressively kill session on transient error
+                console.warn('Database validation in middleware failed closed:', err);
+                const restCode = targetRestaurantCode || segments[0];
+                const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
+                const response = path.startsWith('/api/')
+                    ? NextResponse.json({ error: 'Authentication validation is temporarily unavailable', code: 'SESSION_EXPIRED', loginUrl }, { status: 503 })
+                    : NextResponse.redirect(new URL(loginUrl, request.url));
+                clearAllAuthCookies(response, request.cookies, restCode);
+                return response;
             }
         }
 
@@ -552,12 +722,12 @@ export async function middleware(request: NextRequest) {
 
 
         // 3. Panel Access & Restaurant Code Validation for Protected Routes
-        if (isProtectedRoute) {
+        if (isProtectedRoute && !path.startsWith('/owner')) {
             const segments = path.split('/').filter(Boolean);
             const restaurantCode = segments[0];
             const nextSegment = segments[1];
 
-            const isTenantScopedPath = segments.length > 0 && (
+            const isTenantScopedPath = segments.length > 0 && restaurantCode !== 'owner' && (
                 /^\d+$/.test(restaurantCode) || 
                 /^(REST|PEND)-/i.test(restaurantCode) ||
                 /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(restaurantCode) ||
@@ -572,6 +742,23 @@ export async function middleware(request: NextRequest) {
                     panel = nextSegment;
                 } else if (segments.length > 2 && panels.includes(segments[2])) {
                     panel = segments[2];
+                }
+
+                // Subdomain to panel binding enforcement:
+                // Ensures panels can ONLY be accessed through their assigned subdomain.
+                if (subdomain && panel && subdomain !== 'owner') {
+                    const isSubdomainAllowed = (
+                        subdomain === 'superadmin' ||
+                        (subdomain === 'admin' && (panel === 'admin' || panel === 'supervisor')) ||
+                        (subdomain === 'waiter' && panel === 'waiter') ||
+                        (subdomain === 'kds' && panel === 'kds') ||
+                        (subdomain === 'delivery' && panel === 'delivery') ||
+                        (subdomain === 'employee' && ['waiter', 'kds', 'delivery', 'staff', 'supervisor'].includes(panel))
+                    );
+                    if (!isSubdomainAllowed) {
+                        console.warn(`[Security Block] Panel ${panel} is not accessible on subdomain ${subdomain}`);
+                        return NextResponse.redirect(new URL('/access-denied?reason=unauthorized_panel', request.url));
+                    }
                 }
 
                 // Super Admin has global inspection access to all restaurant panels
@@ -611,7 +798,7 @@ export async function middleware(request: NextRequest) {
                             const isOwner = cachedRest?.ownerId === user.userId;
                             if (!isOwner) {
                                 console.error(`[Security Block] Tenant mismatch: User from restaurant ${user.restaurantId} (${resolvedUserRestId}) tried accessing ${restaurantCode} (${resolvedTargetId})`);
-                                await supabaseAdmin.from('audit_logs').insert({
+                                logSecurityEventAsync({
                                     restaurant_id: user.restaurantId || null,
                                     user_id: user.userId,
                                     actor_id: user.userId,
@@ -672,7 +859,7 @@ export async function middleware(request: NextRequest) {
 
                         if (targetParam !== 'default' && !matchesMobile && !matchesEmpId) {
                             console.warn(`[Security Tamper Block] Waiter ${user.userId} attempted URL tampering with identity: ${targetParam}`);
-                            await supabaseAdmin.from('audit_logs').insert({
+                            logSecurityEventAsync({
                                 restaurant_id: user.restaurantId || null,
                                 user_id: user.userId,
                                 actor_id: user.userId,
@@ -742,6 +929,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
     matcher: [
-        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+        '/((?!_next/static|_next/image|favicon.ico|api/public|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|mp4|webm|mov|mp3|woff|woff2|ttf|eot)$).*)',
     ],
 };

@@ -2,7 +2,7 @@
 
 import { QrCode as LucideQrCode, Download as LucideDownload, Plus as LucidePlus, Edit as LucideEdit, Edit2 as LucideEdit2, Printer as LucidePrinter, Trash2 as LucideTrash2, CreditCard as LucideCreditCard, X as LucideX, CheckCircle as LucideCheckCircle, AlertCircle as LucideAlertCircle, ChefHat as LucideChefHat, Utensils as LucideUtensils, Users as LucideUsers, Table as LucideTable, Link2 as LucideLink2, Unlink as LucideUnlink, ChevronDown as LucideChevronDown, Sparkles as LucideSparkles, Layers as LucideLayers, Box as LucideBox } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { OrderService, Order, TableMergeGroup, RestaurantArea } from '@/services/orders.service';
 import QRCode from 'react-qr-code';
 import { formatCurrency, getCategoryMenuItemImage } from '@/lib/utils';
@@ -18,9 +18,9 @@ import { SyncIndicator } from '@/components/admin/SyncIndicator';
 export default function TableManagement() {
     const params = useParams();
     const urlRestaurantCode = (params?.restaurantCode as string) || '';
-    const { restaurantId, loading: restaurantLoading } = useRestaurantId();
+    const { restaurantId, loading: restaurantLoading, branchId } = useRestaurantId();
     const activeResId = restaurantId || urlRestaurantCode;
-    const cacheKey = `tables-${activeResId}`;
+    const cacheKey = `tables-${activeResId}${branchId ? `-${branchId}` : ''}`;
     const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`tables-${urlRestaurantCode}`) : null);
     const [tables, setTables] = useState<any[]>(cached?.tables || []);
     const [mergeGroups, setMergeGroups] = useState<TableMergeGroup[]>(cached?.mergeGroups || []);
@@ -87,7 +87,7 @@ export default function TableManagement() {
     const loadData = useCallback(async (force = false) => {
         const targetResId = restaurantId || urlRestaurantCode;
         if (!targetResId) return;
-        const tablesKey = `tables-${targetResId}`;
+        const tablesKey = `tables-${targetResId}${branchId ? `-${branchId}` : ''}`;
 
         // If fresh cache exists and this is a standard navigation (not forced by Realtime), use cache immediately
         if (!force && hasFreshCache(tablesKey)) {
@@ -105,11 +105,11 @@ export default function TableManagement() {
         setIsRevalidating(true);
         try {
             const [allTables, activeOrders, allMergeGroups, allAreas, allStaff] = await Promise.all([
-                OrderService.fetchTables(targetResId),
-                OrderService.fetchActiveOrders(targetResId),
-                OrderService.fetchMergeGroups(targetResId),
+                OrderService.fetchTables(targetResId, undefined, branchId || undefined),
+                OrderService.fetchActiveOrders(targetResId, undefined, branchId || undefined),
+                OrderService.fetchMergeGroups(targetResId, undefined, branchId || undefined),
                 OrderService.fetchAreas(targetResId),
-                OrderService.fetchStaff(targetResId).catch(() => [])
+                OrderService.fetchStaff(targetResId, branchId || undefined).catch(() => [])
             ]);
             setTables(allTables || []);
             setOrders(activeOrders || []);
@@ -124,17 +124,18 @@ export default function TableManagement() {
                 areas: allAreas || []
             };
             setCache(tablesKey, payload, { isRealtime: true });
-            if (restaurantId && urlRestaurantCode && restaurantId !== urlRestaurantCode) {
-                setCache(`tables-${restaurantId}`, payload, { isRealtime: true });
-                setCache(`tables-${urlRestaurantCode}`, payload, { isRealtime: true });
-            }
         } catch (err) {
             console.error('Error loading tables data:', err);
         } finally {
             setLoading(false);
             setIsRevalidating(false);
         }
-    }, [restaurantId, urlRestaurantCode]);
+    }, [restaurantId, urlRestaurantCode, branchId]);
+
+    const loadDataRef = useRef(loadData);
+    useEffect(() => {
+        loadDataRef.current = loadData;
+    }, [loadData]);
 
     useEffect(() => {
         if (!restaurantLoading && restaurantId) {
@@ -144,7 +145,7 @@ export default function TableManagement() {
             const debouncedLoadData = () => {
                 if (reloadTimer) clearTimeout(reloadTimer);
                 reloadTimer = setTimeout(() => {
-                    loadData(true);
+                    loadDataRef.current(true);
                 }, 400);
             };
 
@@ -163,7 +164,7 @@ export default function TableManagement() {
                 sub5.unsubscribe();
             };
         }
-    }, [restaurantId, restaurantLoading, loadData]);
+    }, [restaurantId, restaurantLoading]);
 
     const displayEntities = useMemo(() => {
         const entities: any[] = [];
@@ -471,26 +472,11 @@ export default function TableManagement() {
             });
             const nextTableNum = (maxTableNum + 1).toString();
             
-            await OrderService.addTable(nextTableNum, 4, restaurantId, targetAreaId);
+            await OrderService.addTable(nextTableNum, 4, restaurantId, targetAreaId, branchId || undefined);
             toast.success(`Table ${nextTableNum} added!`);
             
             // Reload
-            const [allTables, activeOrders, allMergeGroups, allAreas] = await Promise.all([
-                OrderService.fetchTables(restaurantId),
-                OrderService.fetchActiveOrders(restaurantId),
-                OrderService.fetchMergeGroups(restaurantId),
-                OrderService.fetchAreas(restaurantId)
-            ]);
-            setTables(allTables || []);
-            setOrders(activeOrders || []);
-            setMergeGroups(allMergeGroups || []);
-            setAreas(allAreas || []);
-            setCache(`tables-${restaurantId}`, {
-                tables: allTables || [],
-                orders: activeOrders || [],
-                mergeGroups: allMergeGroups || [],
-                areas: allAreas || []
-            });
+            await loadData(true);
         } catch (error: any) {
             if (error.message && error.message.includes('already exists')) {
                 toast.warning(`Table already exists in this area.`);
@@ -512,10 +498,10 @@ export default function TableManagement() {
         setIsEditingTable(true);
         try {
             if (editTableId) {
-                await OrderService.updateTable(editTableId, editTableNumber, editTableCapacity, restaurantId, editTableAreaId || undefined);
+                await OrderService.updateTable(editTableId, editTableNumber, editTableCapacity, restaurantId, editTableAreaId || undefined, branchId || undefined);
                 toast.success(`Table updated to ${editTableNumber}!`);
             } else {
-                await OrderService.addTable(editTableNumber, editTableCapacity, restaurantId, editTableAreaId || undefined);
+                await OrderService.addTable(editTableNumber, editTableCapacity, restaurantId, editTableAreaId || undefined, branchId || undefined);
                 toast.success(`Table ${editTableNumber} added!`);
             }
             setIsEditTableOpen(false);
@@ -523,22 +509,7 @@ export default function TableManagement() {
             setEditTableNumber('');
             setEditTableCapacity(4);
             
-            const [allTables, activeOrders, allMergeGroups, allAreas] = await Promise.all([
-                OrderService.fetchTables(restaurantId),
-                OrderService.fetchActiveOrders(restaurantId),
-                OrderService.fetchMergeGroups(restaurantId),
-                OrderService.fetchAreas(restaurantId)
-            ]);
-            setTables(allTables || []);
-            setOrders(activeOrders || []);
-            setMergeGroups(allMergeGroups || []);
-            setAreas(allAreas || []);
-            setCache(`tables-${restaurantId}`, {
-                tables: allTables || [],
-                orders: activeOrders || [],
-                mergeGroups: allMergeGroups || [],
-                areas: allAreas || []
-            });
+            await loadData(true);
         } catch (error: any) {
             if (error.message && error.message.includes('already exists')) {
                 toast.warning(`Table ${editTableNumber} already exists in this area.`);

@@ -52,14 +52,41 @@ export default function CustomerMenu() {
     const loadData = useCallback(async (showLoading = true) => {
         if (showLoading) setLoading(true);
         try {
-            const [cats, items, specialsData, tableInfo, profileData, stylesData] = await Promise.all([
-                MenuService.fetchCategories(urlRestaurantId),
-                MenuService.fetchMenuItems(urlRestaurantId),
-                SpecialsService.fetchActiveSpecials(urlRestaurantId),
-                urlTableNumber ? OrderService.verifyTableExists(urlRestaurantId, urlTableNumber) : Promise.resolve(null),
-                HomepageBuilderService.getProfile(urlRestaurantId),
-                HomepageBuilderService.getSectionStyles(urlRestaurantId)
+            const [publicMenuRes, tableInfo] = await Promise.all([
+                fetch(`/api/public/${encodeURIComponent(urlRestaurantId)}/menu`).then(r => r.json()).catch(err => {
+                    console.warn('Public menu endpoint fallback:', err);
+                    return null;
+                }),
+                urlTableNumber ? OrderService.verifyTableExists(urlRestaurantId, urlTableNumber) : Promise.resolve(null)
             ]);
+
+            let cats: any[] = [];
+            let items: any[] = [];
+            let specialsData: any[] = [];
+            let profileData: any = null;
+            let stylesData: any = null;
+
+            if (publicMenuRes && publicMenuRes.success) {
+                cats = publicMenuRes.categories || [];
+                items = publicMenuRes.menu_items || [];
+                specialsData = publicMenuRes.specials || [];
+                profileData = publicMenuRes.profile || null;
+                stylesData = publicMenuRes.section_styles || null;
+            } else {
+                // Resilient fallback to individual services if API is temporarily unavailable
+                const [c, i, s, p, st] = await Promise.all([
+                    MenuService.fetchCategories(urlRestaurantId),
+                    MenuService.fetchMenuItems(urlRestaurantId),
+                    SpecialsService.fetchActiveSpecials(urlRestaurantId),
+                    HomepageBuilderService.getProfile(urlRestaurantId),
+                    HomepageBuilderService.getSectionStyles(urlRestaurantId)
+                ]);
+                cats = c;
+                items = i;
+                specialsData = s;
+                profileData = p;
+                stylesData = st;
+            }
             
             if (tableInfo) {
                 // Check if the table belongs to this restaurant
@@ -69,7 +96,7 @@ export default function CustomerMenu() {
                     const newName = tableInfo.display_name || tableInfo.table_number || urlTableNumber;
                     setTableDisplayName(newName);
                 }
-            } else {
+            } else if (urlTableNumber) {
                 setTableNotFound(true);
             }
 
@@ -222,7 +249,7 @@ export default function CustomerMenu() {
                 <h2 className="text-2xl font-black text-black mb-2">No table named &ldquo;{urlTableNumber}&rdquo; in this restaurant</h2>
                 <p className="text-black mb-8 max-w-xs">Table &ldquo;{urlTableNumber}&rdquo; does not exist or has not been created by the restaurant admin. Customers can only view the menu and place orders from valid, admin-created tables.</p>
                 <button 
-                    onClick={() => window.location.reload()}
+                    onClick={() => loadData(true)}
                     className="px-8 py-3 bg-neutral-900 text-white rounded-2xl font-bold hover:bg-neutral-800 transition-all active:scale-95"
                 >
                     Try Again

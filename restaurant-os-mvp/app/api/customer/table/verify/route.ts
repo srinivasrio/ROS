@@ -1,89 +1,250 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { parseTableQrCode, TableVerifyResponse } from '@/lib/table-qr-utils';
 
 /**
- * GET /api/customer/table/verify?restaurantId=xxx&table=yyy
- * Secure server-side validation of restaurant table.
- * Ensures table exists and belongs to the given restaurant.
+ * Shared verification logic for validating table QR and enforcing visited restaurant isolation.
  */
-export async function GET(request: NextRequest) {
-    try {
-        const { searchParams } = request.nextUrl;
-        const rawRestaurantId = searchParams.get('restaurantId');
-        const rawTable = searchParams.get('table');
+async function verifyTableForRestaurant(
+    rawRestaurantId: string | null,
+    rawTableOrQr: string | null,
+    explicitScannedRestaurant?: string | null
+): Promise<{ status: number; body: TableVerifyResponse }> {
+    if (!rawRestaurantId || !rawTableOrQr) {
+        return {
+            status: 400,
+            body: {
+                valid: false,
+                reason: 'invalid_format',
+                message: 'Restaurant ID and Table / QR code are required.',
+            },
+        };
+    }
 
-        if (!rawRestaurantId || !rawTable) {
-            return NextResponse.json({ valid: false, message: 'Restaurant and table are required' }, { status: 400 });
+    const parsed = parseTableQrCode(rawTableOrQr);
+    const scannedRestaurantCode = explicitScannedRestaurant || parsed.restaurantCode;
+    const tableStr = decodeURIComponent(parsed.table || rawTableOrQr).trim();
+
+    // 1. Resolve Visited Restaurant
+    const visitedId = (await resolveRestaurantId(rawRestaurantId)) || rawRestaurantId;
+    const { data: visitedRest } = await supabaseAdmin
+        .from('restaurants')
+        .select('id, name')
+        .eq('id', visitedId)
+        .maybeSingle();
+
+    const visitedName = visitedRest?.name || 'This Restaurant';
+
+    // 2. Cross-Restaurant Check if QR code carries a restaurant identifier
+    if (scannedRestaurantCode) {
+        const resolvedScannedId = (await resolveRestaurantId(scannedRestaurantCode)) || scannedRestaurantCode;
+
+        if (resolvedScannedId && visitedId && resolvedScannedId.toLowerCase() !== visitedId.toLowerCase()) {
+            const { data: scannedRest } = await supabaseAdmin
+                .from('restaurants')
+                .select('id, name')
+                .eq('id', resolvedScannedId)
+                .maybeSingle();
+
+            const scannedName = scannedRest?.name || scannedRestaurantCode;
+
+            return {
+                status: 200,
+                body: {
+                    valid: false,
+                    reason: 'different_restaurant',
+                    message: `This table QR belongs to ${scannedName}, not ${visitedName}.`,
+                    visitedRestaurant: {
+                        id: visitedId,
+                        code: rawRestaurantId,
+                        name: visitedName,
+                    },
+                    scannedRestaurant: {
+                        id: resolvedScannedId,
+                        code: scannedRestaurantCode,
+                        name: scannedName,
+                    },
+                    scannedTable: tableStr,
+                },
+            };
         }
+    }
 
-        const restaurantId = (await resolveRestaurantId(rawRestaurantId)) || rawRestaurantId;
-        const tableStr = decodeURIComponent(rawTable).trim();
+    // 3. Table Lookup within the Visited Restaurant
+    let { data: tableData, error } = await supabaseAdmin
+        .from('tables')
+        .select('id, table_number, status, restaurant_id')
+        .eq('restaurant_id', visitedId)
+        .eq('table_number', tableStr)
+        .maybeSingle();
 
-        // 1. Try matching tables by table_number first
-        let { data: tableData, error } = await supabaseAdmin
+    // Try numeric id match if table_number not matched directly
+    const num = parseInt(tableStr, 10);
+    if (!tableData && !isNaN(num)) {
+        const { data: byId } = await supabaseAdmin
             .from('tables')
             .select('id, table_number, status, restaurant_id')
-            .eq('restaurant_id', restaurantId)
-            .eq('table_number', tableStr)
+            .eq('restaurant_id', visitedId)
+            .eq('id', num)
             .maybeSingle();
+        if (byId) tableData = byId;
+    }
 
-        // If not found and input is numeric, try matching by id
-        const num = parseInt(tableStr, 10);
-        if (!tableData && !isNaN(num)) {
-            const { data: byId } = await supabaseAdmin
+    // Strip prefix (e.g., "Table 2" -> "2" or "T-2" -> "2")
+    if (!tableData) {
+        const cleanStr = tableStr.replace(/[^0-9]/g, '');
+        if (cleanStr) {
+            const { data: byClean } = await supabaseAdmin
                 .from('tables')
                 .select('id, table_number, status, restaurant_id')
-                .eq('restaurant_id', restaurantId)
-                .eq('id', num)
+                .eq('restaurant_id', visitedId)
+                .eq('table_number', cleanStr)
                 .maybeSingle();
-            if (byId) tableData = byId;
+            if (byClean) tableData = byClean;
         }
+    }
 
-        // Strip prefix (e.g., "Table 2" -> "2")
-        if (!tableData) {
-            const cleanStr = tableStr.replace(/[^0-9]/g, '');
-            if (cleanStr) {
-                const { data: byClean } = await supabaseAdmin
-                    .from('tables')
-                    .select('id, table_number, status, restaurant_id')
-                    .eq('restaurant_id', restaurantId)
-                    .eq('table_number', cleanStr)
-                    .maybeSingle();
-                if (byClean) tableData = byClean;
+    // Check merged groups
+    if (error || !tableData) {
+        const { data: groupData } = await supabaseAdmin
+            .from('table_merge_groups')
+            .select('id, display_name, status, restaurant_id')
+            .eq('restaurant_id', visitedId)
+            .ilike('display_name', `%${tableStr}%`)
+            .maybeSingle();
+
+        if (groupData) {
+            const groupStatus = (groupData.status || '').toLowerCase();
+            if (['cleaning', 'dirty', 'to_clean'].includes(groupStatus)) {
+                return {
+                    status: 200,
+                    body: {
+                        valid: false,
+                        reason: 'table_cleaning',
+                        message: `Table ${groupData.display_name} is currently being cleaned. Please wait for staff to clear the table.`,
+                        visitedRestaurant: {
+                            id: visitedId,
+                            code: rawRestaurantId,
+                            name: visitedName,
+                        },
+                        scannedTable: tableStr,
+                    },
+                };
             }
-        }
 
-        if (error || !tableData) {
-            // Check merged groups
-            const { data: groupData } = await supabaseAdmin
-                .from('table_merge_groups')
-                .select('id, display_name, restaurant_id')
-                .eq('restaurant_id', restaurantId)
-                .ilike('display_name', `%${tableStr}%`)
-                .maybeSingle();
-
-            if (groupData) {
-                return NextResponse.json({
+            return {
+                status: 200,
+                body: {
                     valid: true,
                     tableId: groupData.id,
                     tableNumber: groupData.display_name,
                     isMerged: true,
-                });
-            }
-
-            return NextResponse.json({
-                valid: false,
-                message: `Table "${tableStr}" does not exist in this restaurant.`,
-            });
+                    visitedRestaurant: {
+                        id: visitedId,
+                        code: rawRestaurantId,
+                        name: visitedName,
+                    },
+                },
+            };
         }
 
-        return NextResponse.json({
+        return {
+            status: 200,
+            body: {
+                valid: false,
+                reason: 'table_not_found',
+                message: `Table "${tableStr}" does not exist in ${visitedName}.`,
+                visitedRestaurant: {
+                    id: visitedId,
+                    code: rawRestaurantId,
+                    name: visitedName,
+                },
+                scannedTable: tableStr,
+            },
+        };
+    }
+
+    const tableStatus = (tableData.status || '').toLowerCase();
+    if (['cleaning', 'dirty', 'to_clean'].includes(tableStatus)) {
+        return {
+            status: 200,
+            body: {
+                valid: false,
+                reason: 'table_cleaning',
+                message: `Table ${tableData.table_number || tableStr} is currently being cleaned. Please wait for staff to clear the table.`,
+                visitedRestaurant: {
+                    id: visitedId,
+                    code: rawRestaurantId,
+                    name: visitedName,
+                },
+                scannedTable: tableStr,
+            },
+        };
+    }
+
+    return {
+        status: 200,
+        body: {
             valid: true,
             tableId: tableData.id,
             tableNumber: String(tableData.table_number || tableData.id),
-        });
+            visitedRestaurant: {
+                id: visitedId,
+                code: rawRestaurantId,
+                name: visitedName,
+            },
+        },
+    };
+}
+
+/**
+ * GET /api/customer/table/verify?restaurantId=xxx&table=yyy&scannedRestaurantId=zzz
+ */
+export async function GET(request: NextRequest) {
+    try {
+        const { searchParams } = request.nextUrl;
+        const rawRestaurantId = searchParams.get('restaurantId') || searchParams.get('restaurantCode');
+        const rawTable = searchParams.get('table') || searchParams.get('qr') || searchParams.get('qrData');
+        const explicitScannedRestaurant = searchParams.get('scannedRestaurantId') || searchParams.get('scannedRestaurantCode');
+
+        const { status, body } = await verifyTableForRestaurant(
+            rawRestaurantId,
+            rawTable,
+            explicitScannedRestaurant
+        );
+
+        return NextResponse.json(body, { status });
     } catch (err: any) {
-        return NextResponse.json({ valid: false, message: err.message }, { status: 500 });
+        return NextResponse.json(
+            { valid: false, reason: 'server_error', message: err?.message || 'Verification failed.' },
+            { status: 500 }
+        );
+    }
+}
+
+/**
+ * POST /api/customer/table/verify
+ * Body: { restaurantId, table, qrData, scannedRestaurantId }
+ */
+export async function POST(request: NextRequest) {
+    try {
+        const bodyData = await request.json().catch(() => ({}));
+        const rawRestaurantId = bodyData.restaurantId || bodyData.restaurantCode;
+        const rawTable = bodyData.table || bodyData.qrData || bodyData.qr;
+        const explicitScannedRestaurant = bodyData.scannedRestaurantId || bodyData.scannedRestaurantCode;
+
+        const { status, body } = await verifyTableForRestaurant(
+            rawRestaurantId,
+            rawTable,
+            explicitScannedRestaurant
+        );
+
+        return NextResponse.json(body, { status });
+    } catch (err: any) {
+        return NextResponse.json(
+            { valid: false, reason: 'server_error', message: err?.message || 'Verification failed.' },
+            { status: 500 }
+        );
     }
 }

@@ -102,7 +102,7 @@ final selectedTableProvider = StateProvider<TableModel?>((ref) => null);
 final tablesControllerProvider = StateNotifierProvider<TablesController, TablesState>((ref) {
   final repository = ref.watch(tablesRepositoryProvider);
   final authState = ref.watch(authControllerProvider);
-  final restaurantId = authState.session?.restaurantId ?? '202603180001';
+  final restaurantId = authState.session?.restaurantId;
 
   return TablesController(repository, restaurantId);
 });
@@ -197,36 +197,25 @@ class TablesController extends StateNotifier<TablesState> {
   final TablesRepository _repository;
   String? _restaurantId;
   RealtimeChannel? _realtimeChannel;
-  Timer? _pollingTimer;
 
   TablesController(this._repository, this._restaurantId) : super(const TablesState()) {
-    if (_restaurantId != null) {
+    if (_restaurantId != null && _restaurantId!.trim().isNotEmpty) {
       loadData();
       _subscribeToRealtime();
-      _startPolling();
     }
   }
 
   @override
   void dispose() {
-    _pollingTimer?.cancel();
     _realtimeChannel?.unsubscribe();
     super.dispose();
   }
 
-  void _startPolling() {
-    _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (_restaurantId != null) {
-        loadData(silent: true);
-      }
-    });
-  }
-
   void _subscribeToRealtime() {
-    if (_restaurantId == null) return;
+    if (_restaurantId == null || _restaurantId!.trim().isEmpty) return;
+    _realtimeChannel?.unsubscribe();
     _realtimeChannel = SupabaseService.subscribeToTables(
-      restaurantId: _restaurantId!,
+      restaurantId: _restaurantId!.trim(),
       onTableChange: (payload) {
         debugPrint('[TablesController] Realtime table change received');
         loadData(silent: true);
@@ -235,16 +224,19 @@ class TablesController extends StateNotifier<TablesState> {
   }
 
   Future<void> loadTables([String? restaurantId]) async {
-    if (restaurantId != null) {
-      _restaurantId = restaurantId;
+    if (restaurantId != null && restaurantId.trim().isNotEmpty) {
+      _restaurantId = restaurantId.trim();
       _subscribeToRealtime();
-      _startPolling();
     }
     await loadData();
   }
 
   Future<void> loadData({bool silent = false}) async {
-    final restId = _restaurantId ?? '202603180001';
+    final restId = _restaurantId;
+    if (restId == null || restId.trim().isEmpty) {
+      state = state.copyWith(isLoading: false, allTables: [], areas: []);
+      return;
+    }
     if (!silent) state = state.copyWith(isLoading: true, errorMessage: null);
 
     try {

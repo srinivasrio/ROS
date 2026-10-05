@@ -1,25 +1,13 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import crypto from 'crypto';
-
-// In-memory OTP storage with TTL for development/production fallback
-// Map<mobile, { otp: string, expiresAt: number, employeeId: string, restaurantId: string }>
-const otpStore = new Map<string, { otp: string; expiresAt: number; employeeId: string; restaurantId: string; role: string; name: string }>();
-
-// Clean up expired OTPs periodically
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, value] of otpStore.entries()) {
-        if (value.expiresAt < now) {
-            otpStore.delete(key);
-        }
-    }
-}, 60000);
+import { OtpManager } from '@/lib/otp-store';
+import { RateLimiter } from '@/lib/rate-limiter';
 
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { mobile, restaurantCode } = body;
+        const { mobile } = body;
 
         if (!mobile || typeof mobile !== 'string') {
             return NextResponse.json({ error: 'Valid mobile number is required' }, { status: 400 });
@@ -30,8 +18,13 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Please enter a valid 10-digit mobile number' }, { status: 400 });
         }
 
+        const rateCheck = await RateLimiter.check(`waiter_otp_send:${cleanMobile}`, 3, 600);
+        if (!rateCheck.success) {
+            return NextResponse.json({ error: 'Too many OTP requests. Please try again later.' }, { status: 429 });
+        }
+
         // 1. Search employee by mobile
-        let query = supabaseAdmin
+        const query = supabaseAdmin
             .from('employees')
             .select('id, name, mobile, role, status, approval_status, restaurant_id, restaurants(id, name, slug, status)')
             .ilike('mobile', `%${cleanMobile}%`);
@@ -68,23 +61,17 @@ export async function POST(req: Request) {
         }
 
         // 2. Generate 6-digit cryptographically secure OTP
-        const otp = process.env.NODE_ENV === 'development' || !process.env.SMS_GATEWAY_API_KEY 
+        if (process.env.NODE_ENV !== 'development' && !process.env.SMS_GATEWAY_API_KEY) {
+            return NextResponse.json({ error: 'SMS verification is not configured. Please contact your administrator.' }, { status: 503 });
+        }
+
+        const otp = process.env.NODE_ENV === 'development'
             ? '123456' 
             : crypto.randomInt(100000, 999999).toString();
 
-        const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes validity
+        OtpManager.setOtp(cleanMobile, otp, 5 * 60);
 
-        // Store OTP
-        otpStore.set(cleanMobile, {
-            otp,
-            expiresAt,
-            employeeId: validEmployee.id,
-            restaurantId: validEmployee.restaurant_id,
-            role: validEmployee.role,
-            name: validEmployee.name
-        });
-
-        console.log(`[send-otp] OTP generated for waiter ${validEmployee.name} (${cleanMobile}): ${otp}`);
+        console.log(`[send-otp] OTP generated for waiter ${validEmployee.name} (${cleanMobile.slice(-4)})`);
 
         return NextResponse.json({
             success: true,

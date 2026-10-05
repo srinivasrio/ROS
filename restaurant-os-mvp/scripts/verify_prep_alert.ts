@@ -2,7 +2,8 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = 'https://jmcsygpphwdubnanwjwz.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY3N5Z3BwaHdkdWJuYW53and6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMjUyMTIsImV4cCI6MjA4NTgwMTIxMn0.uQyoWluprn9Gr-ypserxqF9WM_85MWUMAO7Uch1jN14';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+if (!supabaseKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is required');
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 

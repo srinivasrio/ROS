@@ -6,6 +6,7 @@ import '../../core/utils/feedback_utils.dart';
 import '../auth/auth_controller.dart';
 import '../menu/menu_screen.dart';
 import '../profile/profile_screen.dart';
+import '../orders/orders_controller.dart';
 import '../requests/requests_controller.dart';
 import '../requests/requests_screen.dart';
 import '../requests/widgets/incoming_request_alert_sheet.dart';
@@ -68,6 +69,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen>
 
     if (isForeground) {
       _checkInitialNotification();
+      // Controlled state recovery on resume
+      ref.read(tablesControllerProvider.notifier).loadData(silent: true);
+      ref.read(ordersControllerProvider.notifier).loadOrders(silent: true);
+      ref.read(requestsControllerProvider.notifier).loadRequests(silent: true);
     }
   }
 
@@ -101,10 +106,15 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen>
 
   void _setupKitchenReadySubscription() {
     final session = ref.read(authControllerProvider).session;
-    final restaurantId = session?.restaurantId ?? '202603180001';
+    final restaurantId = session?.restaurantId;
+    if (restaurantId == null || restaurantId.trim().isEmpty) {
+      debugPrint('[MainNavigationScreen] Deferring kitchen ready subscription: no authenticated restaurant session.');
+      return;
+    }
 
     _readyChannel = SupabaseService.subscribeToKitchenReadyAlerts(
-      restaurantId: restaurantId,
+      restaurantId: restaurantId.trim(),
+      branchId: session?.branchId,
       onDishReady: (record) async {
         try {
           final session = ref.read(authControllerProvider).session;

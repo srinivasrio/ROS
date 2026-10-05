@@ -249,7 +249,7 @@ export default function SharedSpecialDetailModal({
                   className="flex items-center gap-1.5 text-orange-600 text-xs font-bold mt-1.5 bg-[#EEF2F6] p-2 rounded-xl border border-orange-500/20 inline-flex"
                 >
                   <LucideClock size={13} />
-                  <span>Available until: {new Date(expiryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span suppressHydrationWarning>Available until: {new Date(expiryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               )}
             </div>

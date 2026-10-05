@@ -2,8 +2,9 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://jmcsygpphwdubnanwjwz.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY3N5Z3BwaHdkdWJuYW53and6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDIyNTIxMiwiZXhwIjoyMDg1ODAxMjEyfQ.Cdu3C3B_ZY_skuZvpfrvS0Rbm1YNLgB6TAegY7Hk71Q';
-const JWT_SECRET = process.env.JWT_SECRET || 'dine-in-one-jwt-secret-key-at-least-32-chars-2026';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!SUPABASE_SERVICE_ROLE_KEY || !JWT_SECRET) throw new Error('SUPABASE_SERVICE_ROLE_KEY and JWT_SECRET are required');
 const BASE_URL = 'http://localhost:3000';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);

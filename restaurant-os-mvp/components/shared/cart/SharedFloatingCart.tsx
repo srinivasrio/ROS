@@ -40,11 +40,12 @@ export function SharedFloatingCart({ restaurantCode: propRestaurantCode, tableNu
     // Hide if context is missing, no items, or if we're on a page where the cart shouldn't show
     if (!cartContext || cartContext.totalItems === 0) return null;
     
-    // Check if we are on cart or checkout page to avoid double cart
+    // Check if we are on cart, checkout, or order status page to avoid double cart or button overlap
     const isCartPage = pathname.includes('/customer/cart/');
     const isCheckoutPage = pathname.includes('/customer/checkout/');
+    const isStatusPage = pathname.includes('/customer/status/');
     
-    if (isCartPage || isCheckoutPage) return null;
+    if (isCartPage || isCheckoutPage || isStatusPage) return null;
 
     const formattedPrice = Number(cartContext.subtotal || 0).toLocaleString('en-IN');
     const itemCountText = cartContext.totalItems === 1 ? '1 item' : `${cartContext.totalItems} items`;

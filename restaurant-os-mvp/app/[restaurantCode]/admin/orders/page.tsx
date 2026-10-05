@@ -13,11 +13,14 @@ import {
     ShoppingBag as LucideShoppingBag,
     Check as LucideCheck,
     X as LucideX,
-    Loader2 as LucideLoader2
+    Loader2 as LucideLoader2,
+    Lock as LucideLock
 } from 'lucide-react';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useEntitlements } from '@/hooks/useEntitlements';
+import { useAdminUpgradeModal } from '@/context/AdminUpgradeModalContext';
 import { OrderService, Order, OrderStatus } from '@/services/orders.service';
 import OrderDetailsModal from '@/components/admin/OrderDetailsModal';
 import TakeawayHandoverModal from '@/components/admin/TakeawayHandoverModal';
@@ -37,10 +40,12 @@ export default function LiveOrders() {
     const params = useParams();
     const searchParams = useSearchParams();
     const restaurantCode = params.restaurantCode as string;
-    const { restaurantId, loading: restaurantLoading } = useRestaurantId();
+    const { restaurantId, loading: restaurantLoading, branchId } = useRestaurantId();
     const activeResId = restaurantId || restaurantCode;
+    const { hasFeature } = useEntitlements(restaurantCode);
+    const { openUpgradeModal } = useAdminUpgradeModal();
 
-    const cacheKey = `orders-${activeResId}`;
+    const cacheKey = `orders-${activeResId}${branchId ? `-${branchId}` : ''}`;
     const cached = getCached<Order[]>(cacheKey) || (restaurantId ? getCached<Order[]>(`orders-${restaurantId}`) : null);
     const [orders, setOrders] = useState<Order[]>(cached || []);
     const ordersRef = useRef<Order[]>(orders);
@@ -129,7 +134,11 @@ export default function LiveOrders() {
         if (urlChannel?.toUpperCase() === 'TAKEAWAY') {
             setTypeFilter('TAKEAWAY');
         } else if (urlChannel?.toUpperCase() === 'DELIVERY') {
-            setTypeFilter('DELIVERY');
+            if (hasFeature('delivery')) {
+                setTypeFilter('DELIVERY');
+            } else {
+                setTypeFilter('DINE_IN');
+            }
         } else if (urlChannel?.toUpperCase() === 'DINE_IN') {
             setTypeFilter('DINE_IN');
         }
@@ -184,7 +193,7 @@ export default function LiveOrders() {
     const loadData = useCallback(async () => {
         const targetId = restaurantId || restaurantCode;
         if (!targetId) return;
-        const key = `orders-${targetId}`;
+        const key = `orders-${targetId}${branchId ? `-${branchId}` : ''}`;
 
         const currentCached = getCached<Order[]>(key);
         if (currentCached && ordersRef.current.length === 0) {
@@ -193,14 +202,11 @@ export default function LiveOrders() {
 
         setIsSyncing(true);
         try {
-            const activeOrders = await requestManager.coalesce(key, () => OrderService.fetchActiveOrders(restaurantId || targetId), 1);
+            const activeOrders = await requestManager.coalesce(key, () => OrderService.fetchActiveOrders(restaurantId || targetId, undefined, branchId || undefined), 1);
             if (activeOrders) {
                 const filtered = activeOrders.filter(o => o.status !== 'served' && o.status !== 'cancelled');
                 setOrders(filtered);
                 setCache(key, filtered, { ttlMs: 60 * 1000 });
-                if (restaurantId && restaurantId !== targetId) {
-                    setCache(`orders-${restaurantId}`, filtered, { ttlMs: 60 * 1000 });
-                }
                 setLastSync(new Date());
             }
         } catch (err) {
@@ -208,24 +214,27 @@ export default function LiveOrders() {
         } finally {
             setIsSyncing(false);
         }
-    }, [restaurantId, restaurantCode]);
+    }, [restaurantId, restaurantCode, branchId]);
 
     const loadWaiters = useCallback(async () => {
         const targetId = restaurantId || restaurantCode;
         if (!targetId) return;
         try {
-            const staff = await OrderService.fetchStaff(restaurantId || targetId);
+            const staff = await OrderService.fetchStaff(restaurantId || targetId, branchId || undefined);
             setWaiters(staff.filter((s: any) => s.role === 'waiter'));
         } catch (err) {
             console.error('Failed to load waiters:', err);
         }
-    }, [restaurantId, restaurantCode]);
+    }, [restaurantId, restaurantCode, branchId]);
 
     const loadDeliveryBoys = useCallback(async () => {
         const targetId = restaurantId || restaurantCode;
-        if (!targetId) return;
+        if (!targetId || !hasFeature('delivery')) {
+            setDeliveryBoys([]);
+            return;
+        }
         try {
-            const res = await fetch(`/api/delivery/boys?restaurantId=${targetId}`);
+            const res = await fetch(`/api/delivery/boys?restaurantId=${targetId}${branchId ? `&branchId=${branchId}` : ''}`);
             if (res.ok) {
                 const d = await res.json();
                 setDeliveryBoys(d.deliveryBoys || []);
@@ -233,7 +242,7 @@ export default function LiveOrders() {
         } catch (err) {
             console.error('Failed to load delivery boys:', err);
         }
-    }, [restaurantId, restaurantCode]);
+    }, [restaurantId, restaurantCode, branchId]);
 
     const handleAssignDeliveryBoy = async (orderId: string, deliveryBoyId: string) => {
         const targetId = restaurantId || restaurantCode;
@@ -277,20 +286,30 @@ export default function LiveOrders() {
         }
     };
 
+    const loadDataRef = useRef(loadData);
+    const loadWaitersRef = useRef(loadWaiters);
+    const loadDeliveryBoysRef = useRef(loadDeliveryBoys);
+
+    useEffect(() => {
+        loadDataRef.current = loadData;
+        loadWaitersRef.current = loadWaiters;
+        loadDeliveryBoysRef.current = loadDeliveryBoys;
+    }, [loadData, loadWaiters, loadDeliveryBoys]);
+
     useEffect(() => {
         let active = true;
         let reloadTimer: NodeJS.Timeout | null = null;
         const targetId = restaurantId || restaurantCode;
 
         if (!restaurantLoading && targetId) {
-            loadData();
-            loadWaiters();
-            loadDeliveryBoys();
+            loadDataRef.current();
+            loadWaitersRef.current();
+            loadDeliveryBoysRef.current();
 
             const debouncedLoadData = () => {
                 if (reloadTimer) clearTimeout(reloadTimer);
                 reloadTimer = setTimeout(() => {
-                    if (active) loadData();
+                    if (active) loadDataRef.current();
                 }, 400);
             };
 
@@ -305,7 +324,7 @@ export default function LiveOrders() {
             };
         }
         return () => { active = false; };
-    }, [restaurantId, restaurantCode, restaurantLoading, loadData, loadWaiters, loadDeliveryBoys]);
+    }, [restaurantId, restaurantCode, restaurantLoading]);
 
     const handleReassign = async (orderId: string, waiterId: string) => {
         if (!restaurantId) return;
@@ -386,7 +405,7 @@ export default function LiveOrders() {
     });
 
     // Counts for status buttons in current channel
-    const countNew = currentChannelOrders.filter(o => o.status === 'placed').length;
+    const countNew = currentChannelOrders.filter(o => o.status === 'placed' || o.status === 'queued').length;
     const countCooking = currentChannelOrders.filter(o => o.status === 'preparing').length;
     const countReady = currentChannelOrders.filter(o => o.status === 'ready' || (o.order_type === 'TAKEAWAY' && o.status === 'paid' && !o.is_completed)).length;
 
@@ -394,7 +413,7 @@ export default function LiveOrders() {
     const getFilteredData = () => {
         let result = currentChannelOrders;
         if (statusFilter === 'new') {
-            result = result.filter(o => o.status === 'placed');
+            result = result.filter(o => o.status === 'placed' || o.status === 'queued');
         } else if (statusFilter === 'cooking') {
             result = result.filter(o => o.status === 'preparing');
         } else if (statusFilter === 'ready') {
@@ -453,7 +472,13 @@ export default function LiveOrders() {
                         </button>
 
                         <button
-                            onClick={() => setTypeFilter('DELIVERY')}
+                            onClick={() => {
+                                if (!hasFeature('delivery')) {
+                                    openUpgradeModal('delivery');
+                                    return;
+                                }
+                                setTypeFilter('DELIVERY');
+                            }}
                             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                                 typeFilter === 'DELIVERY'
                                     ? 'bg-white text-neutral-900 shadow-sm'
@@ -461,10 +486,15 @@ export default function LiveOrders() {
                             }`}
                         >
                             <span>🛵 Delivery</span>
+                            {!hasFeature('delivery') && (
+                                <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/25 text-[9px] font-black uppercase">
+                                    <LucideLock size={9} />
+                                </span>
+                            )}
                             <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
                                 typeFilter === 'DELIVERY' ? 'bg-blue-100 text-blue-700' : 'bg-neutral-200 text-neutral-600'
                             }`}>
-                                {countDelivery}
+                                {hasFeature('delivery') ? countDelivery : 0}
                             </span>
                         </button>
                     </div>
@@ -524,13 +554,20 @@ export default function LiveOrders() {
 
                     {/* 6. Manage Delivery Button inside Delivery section */}
                     {typeFilter === 'DELIVERY' && (
-                        <Link
-                            href={`/${restaurantCode}/admin/delivery`}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!hasFeature('delivery')) {
+                                    openUpgradeModal('delivery');
+                                } else {
+                                    router.push(`/${restaurantCode}/admin/delivery`);
+                                }
+                            }}
                             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-neutral-900 hover:bg-neutral-800 text-white shadow-sm transition-all duration-200 cursor-pointer ml-auto"
                         >
                             <LucideTruck size={14} className="text-orange-400" />
                             <span>Manage Delivery</span>
-                        </Link>
+                        </button>
                     )}
                 </div>
 
@@ -727,7 +764,7 @@ export default function LiveOrders() {
                                             {/* 11. Actions */}
                                             <td className="px-4 py-3 whitespace-nowrap text-center">
                                                 <div className="flex items-center justify-center gap-1.5">
-                                                    {item.status === 'placed' && (
+                                                    {(item.status === 'placed' || item.status === 'queued') && (
                                                         <button
                                                             onClick={() => handleUpdateStatus(item.id, 'preparing')}
                                                             className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-xs transition-all cursor-pointer flex items-center gap-1"
@@ -1016,7 +1053,7 @@ export default function LiveOrders() {
 
                                             {/* Actions */}
                                             <td className="px-5 py-3 whitespace-nowrap text-center">
-                                                {typeFilter === 'DELIVERY' && item.status === 'placed' ? (
+                                                {typeFilter === 'DELIVERY' && (item.status === 'placed' || item.status === 'queued') ? (
                                                     <div className="flex items-center justify-center gap-2">
                                                         <button
                                                             disabled={processingOrderId === item.id}
@@ -1086,6 +1123,7 @@ export default function LiveOrders() {
 
 function StatusBadge({ status }: { status: string }) {
     const styles: Record<string, string> = {
+        queued: 'bg-orange-100 text-orange-700 border-orange-200',
         placed: 'bg-blue-100 text-blue-700 border-blue-200',
         preparing: 'bg-amber-100 text-amber-700 border-amber-200',
         ready: 'bg-purple-100 text-purple-700 border-purple-200',
@@ -1095,6 +1133,7 @@ function StatusBadge({ status }: { status: string }) {
     };
 
     const labels: Record<string, string> = {
+        queued: 'Queued',
         placed: 'New',
         preparing: 'Cooking',
         ready: 'Ready',

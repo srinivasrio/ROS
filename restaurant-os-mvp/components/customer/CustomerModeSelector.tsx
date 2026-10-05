@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatAddress } from '@/lib/utils';
+import { TableNotFoundWarningCard } from '@/components/customer/TableNotFoundWarningCard';
+import { parseTableQrCode, TableVerifyResponse } from '@/lib/table-qr-utils';
 
 interface CustomerModeSelectorProps {
     restaurantCode: string;
@@ -41,7 +43,7 @@ interface DeliverySettings {
     address?: string;
 }
 
-type ModalType = 'none' | 'location_error' | 'location_permission' | 'qr_scanner' | 'manual_table' | 'takeaway_info' | 'delivery_address';
+type ModalType = 'none' | 'location_error' | 'location_permission' | 'qr_scanner' | 'manual_table' | 'takeaway_info' | 'delivery_address' | 'table_warning';
 
 export default function CustomerModeSelector({ restaurantCode }: CustomerModeSelectorProps) {
     const router = useRouter();
@@ -56,6 +58,19 @@ export default function CustomerModeSelector({ restaurantCode }: CustomerModeSel
     const [locationError, setLocationError] = useState<string>('');
     const [isInsecureOrigin, setIsInsecureOrigin] = useState(false);
     const [matchedDeliveryZone, setMatchedDeliveryZone] = useState<{ id?: string; name?: string; deliveryFee?: number; minOrderAmount?: number } | null>(null);
+    const [warningDetails, setWarningDetails] = useState<{
+        scannedTable: string | null;
+        scannedRestaurantName: string | null;
+        scannedRestaurantCode: string | null;
+        isDifferentRestaurant: boolean;
+        message: string | null;
+    }>({
+        scannedTable: null,
+        scannedRestaurantName: null,
+        scannedRestaurantCode: null,
+        isDifferentRestaurant: false,
+        message: null,
+    });
 
     // Customer Info State
     const [customerName, setCustomerName] = useState('');
@@ -433,56 +448,47 @@ export default function CustomerModeSelector({ restaurantCode }: CustomerModeSel
         }
 
         try {
-            // QR can be:
-            // 1. Direct table number: "3" or "T-3"
-            // 2. URL: "https://domain.com/restCode/customer/welcome/3" or "?table=3"
-            // 3. JSON payload: {"restaurantId":"...","tableId":"..."}
-            let scannedTable = qrString.trim();
-
-            if (scannedTable.startsWith('http://') || scannedTable.startsWith('https://')) {
-                const url = new URL(scannedTable);
-                const tableQuery = url.searchParams.get('table');
-                if (tableQuery) {
-                    scannedTable = tableQuery;
-                } else {
-                    const match = url.pathname.match(/\/customer\/(?:welcome|table|home)\/([^/?#]+)/i);
-                    if (match && match[1]) {
-                        scannedTable = match[1];
-                    }
-                }
-            } else if (scannedTable.startsWith('{')) {
-                const parsed = JSON.parse(scannedTable);
-                if (parsed.restaurantId && parsed.restaurantId !== restaurantCode) {
-                    toast.error('This QR code is for a different restaurant.');
-                    setActiveModal('none');
-                    return;
-                }
-                scannedTable = parsed.tableNumber || parsed.tableId || parsed.table || '';
-            }
+            const parsed = parseTableQrCode(qrString);
+            const scannedTable = parsed.table;
+            const scannedRestCode = parsed.restaurantCode;
 
             if (!scannedTable) {
-                toast.error('Invalid QR code format.');
+                toast.error('Invalid QR code format. Please scan a table QR code.');
                 return;
             }
 
-            // Server-side validation: verify table belongs to this restaurant
-            const res = await fetch(`/api/customer/table/verify?restaurantId=${restaurantCode}&table=${encodeURIComponent(scannedTable)}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.valid) {
-                    toast.success(`Connected to Table ${data.tableNumber || scannedTable}`);
-                    setActiveModal('none');
-                    router.push(`/${restaurantCode}/customer/home/${data.tableNumber || scannedTable}`);
-                    return;
-                }
+            const res = await fetch('/api/customer/table/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    restaurantId: restaurantCode,
+                    table: scannedTable,
+                    qrData: qrString,
+                    scannedRestaurantId: scannedRestCode,
+                }),
+            });
+
+            const data: TableVerifyResponse = await res.json();
+
+            if (data.valid) {
+                toast.success(`Connected to Table ${data.tableNumber || scannedTable}`);
+                setActiveModal('none');
+                router.push(`/${restaurantCode}/customer/home/${data.tableNumber || scannedTable}`);
+                return;
             }
 
-            // Fallback check directly
-            toast.success(`Table scanned: ${scannedTable}`);
-            setActiveModal('none');
-            router.push(`/${restaurantCode}/customer/home/${scannedTable}`);
+            // Cross-restaurant or not found:
+            setWarningDetails({
+                scannedTable: data.scannedTable || scannedTable,
+                scannedRestaurantName: data.scannedRestaurant?.name || null,
+                scannedRestaurantCode: data.scannedRestaurant?.code || scannedRestCode || null,
+                isDifferentRestaurant: data.reason === 'different_restaurant',
+                message: data.message || null,
+            });
+            setActiveModal('table_warning');
         } catch (err: any) {
             toast.error('Failed to process QR code. Please try manual entry.');
+            setActiveModal('manual_table');
         }
     };
 
@@ -497,13 +503,24 @@ export default function CustomerModeSelector({ restaurantCode }: CustomerModeSel
 
         try {
             // Verify table
-            const res = await fetch(`/api/customer/table/verify?restaurantId=${restaurantCode}&table=${encodeURIComponent(trimmed)}`);
+            const res = await fetch(`/api/customer/table/verify?restaurantId=${encodeURIComponent(restaurantCode)}&table=${encodeURIComponent(trimmed)}`);
             if (res.ok) {
-                const data = await res.json();
+                const data: TableVerifyResponse = await res.json();
                 if (!data.valid) {
-                    toast.error(`Table "${trimmed}" does not exist in this restaurant.`);
+                    setWarningDetails({
+                        scannedTable: trimmed,
+                        scannedRestaurantName: null,
+                        scannedRestaurantCode: null,
+                        isDifferentRestaurant: false,
+                        message: data.message || `Table "${trimmed}" does not exist in this restaurant.`,
+                    });
+                    setActiveModal('table_warning');
                     return;
                 }
+                toast.success(`Connected to Table ${data.tableNumber || trimmed}`);
+                setActiveModal('none');
+                router.push(`/${restaurantCode}/customer/home/${data.tableNumber || trimmed}`);
+                return;
             }
         } catch {}
 
@@ -1129,6 +1146,23 @@ export default function CustomerModeSelector({ restaurantCode }: CustomerModeSel
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* ════════════════════════════════════════════════════════════ */}
+            {/* DINE IN: TABLE NOT FOUND WARNING MODAL */}
+            {/* ════════════════════════════════════════════════════════════ */}
+            <TableNotFoundWarningCard
+                isOpen={activeModal === 'table_warning'}
+                visitedRestaurantName={profile?.name || restaurantCode}
+                visitedRestaurantCode={restaurantCode}
+                scannedTable={warningDetails.scannedTable}
+                scannedRestaurantName={warningDetails.scannedRestaurantName}
+                scannedRestaurantCode={warningDetails.scannedRestaurantCode}
+                isDifferentRestaurant={warningDetails.isDifferentRestaurant}
+                customMessage={warningDetails.message}
+                onScanAgain={() => setActiveModal('qr_scanner')}
+                onManualEntry={() => setActiveModal('manual_table')}
+                onClose={() => setActiveModal('none')}
+            />
 
             {/* ════════════════════════════════════════════════════════════ */}
             {/* DINE IN: QR SCANNER MODAL */}

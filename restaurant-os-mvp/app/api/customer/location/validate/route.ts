@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { canRestaurantAccessFeature } from '@/lib/entitlements';
 
 /**
  * Server-side Haversine distance calculation in kilometers.
@@ -79,12 +80,22 @@ export async function POST(request: NextRequest) {
                 message: 'Takeaway ordering is currently disabled for this restaurant.',
             });
         }
-        if (normalizedMode === 'DELIVERY' && !deliveryEnabled) {
-            return NextResponse.json({
-                allowed: false,
-                reason: 'MODE_DISABLED',
-                message: 'Delivery is currently disabled for this restaurant.',
-            });
+        if (normalizedMode === 'DELIVERY') {
+            const hasDeliveryEntitlement = await canRestaurantAccessFeature(restaurantId, 'delivery');
+            if (!hasDeliveryEntitlement) {
+                return NextResponse.json({
+                    allowed: false,
+                    reason: 'FEATURE_NOT_ENTITLED',
+                    message: 'Online delivery is not supported on this restaurant\'s current subscription plan.',
+                });
+            }
+            if (!deliveryEnabled) {
+                return NextResponse.json({
+                    allowed: false,
+                    reason: 'MODE_DISABLED',
+                    message: 'Delivery is currently disabled for this restaurant.',
+                });
+            }
         }
 
         const restaurantLat = settings?.latitude != null

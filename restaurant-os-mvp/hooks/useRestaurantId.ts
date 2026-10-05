@@ -7,8 +7,8 @@ import { useRestaurant } from '@/context/RestaurantContext';
  * Now acts as a wrapper around RestaurantContext for backward compatibility.
  */
 export function useRestaurantId() {
-    const { restaurantId, loading } = useRestaurant();
-    return { restaurantId, loading };
+    const { restaurantId, loading, branchId, branchName } = useRestaurant();
+    return { restaurantId, loading, branchId, branchName };
 }
 
 /**

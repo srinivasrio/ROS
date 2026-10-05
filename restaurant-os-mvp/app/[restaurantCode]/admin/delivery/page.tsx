@@ -13,6 +13,8 @@ import {
 
 import RestaurantLocationPicker from '@/components/admin/RestaurantLocationPicker';
 import DeliveryZonesManager from '@/components/admin/DeliveryZonesManager';
+import FeatureLockedGate from '@/components/FeatureLockedGate';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 type Tab = 'boys' | 'zones' | 'settings';
 
@@ -66,6 +68,7 @@ const BOY_STATUS_CONFIG: Record<string, { label: string; dot: string }> = {
 export default function AdminDeliveryPage() {
     const params = useParams();
     const restaurantCode = params.restaurantCode as string;
+    const { loading: entLoading, hasFeature, planName, isSuspended, isExpired } = useEntitlements(restaurantCode);
 
     const [tab, setTab] = useState<Tab>('boys');
     const [loading, setLoading] = useState(true);
@@ -100,7 +103,7 @@ export default function AdminDeliveryPage() {
 
     // ── Data Fetching ──
     const fetchAll = useCallback(async () => {
-        if (!restaurantCode) return;
+        if (!restaurantCode || !hasFeature('delivery')) return;
         if (isMountedRef.current) setLoading(true);
         try {
             const [settingsRes, boysRes, employeesRes, zonesRes] = await Promise.all([
@@ -133,11 +136,13 @@ export default function AdminDeliveryPage() {
                 setLoading(false);
             }
         }
-    }, [restaurantCode]);
+    }, [restaurantCode, hasFeature]);
 
     useEffect(() => {
-        fetchAll();
-    }, [fetchAll]);
+        if (!entLoading && hasFeature('delivery')) {
+            fetchAll();
+        }
+    }, [entLoading, hasFeature, fetchAll]);
 
     // ── Add Delivery Boy ──
     const handleAddDeliveryBoy = async (employeeId: string) => {
@@ -228,6 +233,18 @@ export default function AdminDeliveryPage() {
         { key: 'zones', label: 'Delivery Zones', icon: MapPin, count: deliveryZones.length },
         { key: 'settings', label: 'Settings', icon: Settings },
     ];
+
+    if (!entLoading && !hasFeature('delivery')) {
+        return (
+            <FeatureLockedGate
+                feature="delivery"
+                restaurantCode={restaurantCode}
+                currentPlanName={planName}
+                isSuspended={isSuspended}
+                isExpired={isExpired}
+            />
+        );
+    }
 
     return (
         <div className="p-6 lg:p-8 max-w-7xl mx-auto">

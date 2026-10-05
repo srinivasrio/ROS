@@ -5,6 +5,7 @@ export interface Employee {
     id: string;
     restaurant_id: string;
     name: string;
+    email?: string | null;
     phone: string;
     role: string;
     branch_id: string | null;
@@ -14,6 +15,12 @@ export interface Employee {
     joining_date: string;
     status: 'active' | 'inactive';
     employee_id: string | null;
+    employee_code?: string | null;
+    internal_id?: string | null;
+    legacy_reference?: string | null;
+    phone_normalized?: string | null;
+    weekly_off: string;
+    salary_type: 'monthly' | 'daily';
     is_online?: boolean;
     availability_status?: string;
     active_workload?: number;
@@ -32,7 +39,7 @@ export interface Attendance {
     restaurant_id: string;
     employee_id: string;
     date: string;
-    status: 'present' | 'absent' | 'half_day' | 'leave';
+    status: 'present' | 'absent' | 'half_day' | 'leave' | 'weekly_off';
     created_at?: string;
     updated_at?: string;
 }
@@ -42,7 +49,7 @@ export interface PayrollRun {
     restaurant_id: string;
     month: number;
     year: number;
-    status: 'draft' | 'paid';
+    status: 'draft' | 'calculated' | 'paid';
     created_at?: string;
     updated_at?: string;
 }
@@ -52,9 +59,12 @@ export interface PayrollItem {
     payroll_run_id: string;
     employee_id: string;
     monthly_salary: number;
+    gross_salary: number;
     present_days: number;
     absent_days: number;
     half_days: number;
+    leave_days: number;
+    weekly_off_days: number;
     overtime_hours: number;
     deductions: number;
     overtime_pay: number;
@@ -78,6 +88,7 @@ function mapDBToEmployee(dbRow: any): Employee {
         id: dbRow.id,
         restaurant_id: dbRow.restaurant_id,
         name: dbRow.name,
+        email: dbRow.email || null,
         phone: dbRow.mobile,
         role: dbRow.role,
         branch_id: dbRow.branch_id,
@@ -87,6 +98,12 @@ function mapDBToEmployee(dbRow: any): Employee {
         joining_date: dbRow.joining_date,
         status: dbRow.status,
         employee_id: dbRow.employee_id,
+        employee_code: dbRow.employee_code || null,
+        internal_id: dbRow.internal_id || null,
+        legacy_reference: dbRow.legacy_reference || null,
+        phone_normalized: dbRow.phone_normalized || null,
+        weekly_off: dbRow.weekly_off || 'sunday',
+        salary_type: dbRow.salary_type || 'monthly',
         is_online: Boolean(dbRow.is_online),
         availability_status: dbRow.availability_status || (dbRow.is_online ? 'available' : 'offline'),
         active_workload: Number(dbRow.active_workload) || 0,
@@ -102,6 +119,7 @@ function mapEmployeeToDB(employee: Partial<Employee>): any {
     const dbRow: any = {};
     if (employee.restaurant_id !== undefined) dbRow.restaurant_id = employee.restaurant_id;
     if (employee.name !== undefined) dbRow.name = employee.name;
+    if (employee.email !== undefined) dbRow.email = employee.email ? employee.email.toLowerCase().trim() : null;
     if (employee.phone !== undefined) dbRow.mobile = employee.phone;
     if (employee.role !== undefined) dbRow.role = employee.role;
     if (employee.branch_id !== undefined) dbRow.branch_id = employee.branch_id;
@@ -111,6 +129,8 @@ function mapEmployeeToDB(employee: Partial<Employee>): any {
     if (employee.joining_date !== undefined) dbRow.joining_date = employee.joining_date;
     if (employee.status !== undefined) dbRow.status = employee.status;
     if (employee.employee_id !== undefined) dbRow.employee_id = employee.employee_id;
+    if (employee.weekly_off !== undefined) dbRow.weekly_off = employee.weekly_off;
+    if (employee.salary_type !== undefined) dbRow.salary_type = employee.salary_type;
     if (employee.is_online !== undefined) dbRow.is_online = employee.is_online;
     if (employee.availability_status !== undefined) dbRow.availability_status = employee.availability_status;
     return dbRow;
@@ -159,6 +179,16 @@ export const PayrollService = {
     async createEmployee(employee: Omit<Employee, 'id'>): Promise<Employee> {
         const supabase = createClient();
         const dbPayload = mapEmployeeToDB(employee);
+        if (dbPayload.branch_id && dbPayload.branch_id.startsWith('brn_')) {
+            const { data: bRec } = await supabase
+                .from('branches')
+                .select('id')
+                .eq('internal_id', dbPayload.branch_id)
+                .maybeSingle();
+            if (bRec?.id) {
+                dbPayload.branch_id = bRec.id;
+            }
+        }
         const { data, error } = await supabase
             .from('employees')
             .insert(dbPayload)
@@ -176,8 +206,50 @@ export const PayrollService = {
     },
 
     async updateEmployee(id: string, updates: Partial<Employee>): Promise<void> {
+        // 1. Try internal Next.js API route first for server-side validation and branch FK safety
+        try {
+            const res = await fetch('/api/admin/employees', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id,
+                    ...updates
+                })
+            });
+            if (res.ok) return;
+            const errJson = await res.json().catch(() => ({}));
+            if (errJson.error) {
+                throw new Error(errJson.error);
+            }
+        } catch (apiErr: any) {
+            if (apiErr.message && !apiErr.message.includes('fetch') && !apiErr.message.includes('Failed to fetch')) {
+                throw apiErr;
+            }
+            console.warn('[PayrollService.updateEmployee] API fallback to direct supabase:', apiErr);
+        }
+
         const supabase = createClient();
         const dbPayload = mapEmployeeToDB(updates);
+
+        // Strict branch resolution & preservation: never overwrite with invalid ID
+        if (dbPayload.branch_id !== undefined) {
+            if (dbPayload.branch_id && String(dbPayload.branch_id).trim()) {
+                const bId = String(dbPayload.branch_id).trim();
+                const { data: bRec } = await supabase
+                    .from('branches')
+                    .select('id')
+                    .or(`id.eq.${bId},internal_id.eq.${bId}`)
+                    .maybeSingle();
+                if (bRec?.id) {
+                    dbPayload.branch_id = bRec.id;
+                } else {
+                    delete dbPayload.branch_id;
+                }
+            } else {
+                delete dbPayload.branch_id;
+            }
+        }
+
         const { error } = await supabase
             .from('employees')
             .update(dbPayload)
@@ -246,7 +318,7 @@ export const PayrollService = {
     async saveAttendance(
         restaurantId: string,
         date: string,
-        records: { employee_id: string; status: 'present' | 'absent' | 'half_day' | 'leave' }[]
+        records: { employee_id: string; status: 'present' | 'absent' | 'half_day' | 'leave' | 'weekly_off' }[]
     ): Promise<void> {
         const supabase = createClient();
         const payload = records.map(r => ({
@@ -262,6 +334,26 @@ export const PayrollService = {
             .upsert(payload, { onConflict: 'employee_id,date' });
 
         if (error) throw error;
+    },
+
+    async fetchMonthlyAttendance(restaurantId: string, month: number, year: number): Promise<Attendance[]> {
+        const supabase = createClient();
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const lastDay = new Date(year, month, 0).getDate();
+        const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+        const { data, error } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('restaurant_id', restaurantId)
+            .gte('date', startDate)
+            .lte('date', endDate);
+
+        if (error) {
+            console.error('Error fetching monthly attendance:', error);
+            return [];
+        }
+        return data as Attendance[];
     },
 
     async fetchPayrollRuns(restaurantId: string): Promise<PayrollRun[]> {
@@ -363,7 +455,6 @@ export const PayrollService = {
 
         // 2. Fetch attendance for this month
         const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-        // Last day of month
         const lastDay = new Date(year, month, 0).getDate();
         const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
@@ -376,37 +467,51 @@ export const PayrollService = {
 
         if (attError) throw attError;
 
-        // 3. For each employee, compute payroll values
+        // 3. Fetch existing payroll items to preserve overtime_hours
+        const { data: existingItems } = await supabase
+            .from('payroll_items')
+            .select('employee_id, overtime_hours')
+            .eq('payroll_run_id', payrollRunId);
+        const existingOvertimeMap: Record<string, number> = {};
+        (existingItems || []).forEach((item: any) => {
+            existingOvertimeMap[item.employee_id] = Number(item.overtime_hours) || 0;
+        });
+
+        // 4. For each employee, compute payroll values
         const payrollItemsToUpsert = employees.map(emp => {
-            const empAttendance = (attendance || []).filter(a => a.employee_id === emp.id);
+            const empAttendance = (attendance || []).filter((a: any) => a.employee_id === emp.id);
             
-            const present_days = empAttendance.filter(a => a.status === 'present').length;
-            const absent_days = empAttendance.filter(a => a.status === 'absent').length;
-            const half_days = empAttendance.filter(a => a.status === 'half_day').length;
+            const present_days = empAttendance.filter((a: any) => a.status === 'present').length;
+            const absent_days = empAttendance.filter((a: any) => a.status === 'absent').length;
+            const half_days = empAttendance.filter((a: any) => a.status === 'half_day').length;
+            const leave_days = empAttendance.filter((a: any) => a.status === 'leave').length;
+            const weekly_off_days = empAttendance.filter((a: any) => a.status === 'weekly_off').length;
             
             // Calculate salary structure
-            const baseSalary = Number(emp.monthly_salary) || 0;
-            const perDaySalary = Number(emp.per_day_salary) || (baseSalary > 0 ? Number((baseSalary / 30).toFixed(2)) : 0);
+            const grossSalary = Number(emp.monthly_salary) || 0;
+            const perDaySalary = Number(emp.per_day_salary) || (grossSalary > 0 ? Number((grossSalary / 30).toFixed(2)) : 0);
             
-            // Overtime
+            // Overtime — preserve existing overtime_hours if already set
             const overtimePerHour = Number(emp.overtime_per_hour) || 0;
-            // Standard MVP: overtime hours default to 0 unless specified or let's assume we can input them in the payroll list itself.
-            // Let's preserve current overtime_hours if they already exist, otherwise default to 0.
-            const overtime_hours = 0; 
-            const overtime_pay = overtime_hours * overtimePerHour;
+            const overtime_hours = existingOvertimeMap[emp.id] || 0;
+            const overtime_pay = Number((overtime_hours * overtimePerHour).toFixed(2));
 
-            // Deductions: 1 day per day salary for absent, 0.5 day for half day
+            // Deductions: absent = full day deduction, half_day = 0.5 day deduction
+            // Weekly off and leave are NOT deducted
             const deductions = Number(((absent_days * perDaySalary) + (half_days * perDaySalary * 0.5)).toFixed(2));
             
-            const final_salary = Math.max(0, Number((baseSalary - deductions + overtime_pay).toFixed(2)));
+            const final_salary = Math.max(0, Number((grossSalary - deductions + overtime_pay).toFixed(2)));
 
             return {
                 payroll_run_id: payrollRunId,
                 employee_id: emp.id,
-                monthly_salary: baseSalary,
+                monthly_salary: grossSalary,
+                gross_salary: grossSalary,
                 present_days,
                 absent_days,
                 half_days,
+                leave_days,
+                weekly_off_days,
                 overtime_hours,
                 deductions,
                 overtime_pay,
@@ -415,7 +520,7 @@ export const PayrollService = {
             };
         });
 
-        // 4. Upsert payroll items
+        // 5. Upsert payroll items
         for (const item of payrollItemsToUpsert) {
             const { error: upsertError } = await supabase
                 .from('payroll_items')
@@ -425,6 +530,12 @@ export const PayrollService = {
                 console.error('Error upserting payroll item:', upsertError);
             }
         }
+
+        // 6. Update run status to 'calculated'
+        await supabase
+            .from('payroll_runs')
+            .update({ status: 'calculated', updated_at: new Date().toISOString() })
+            .eq('id', payrollRunId);
     },
 
     async updatePayrollItem(
@@ -457,14 +568,13 @@ export const PayrollService = {
         if (error) throw error;
     },
 
-    async updatePayrollRunStatus(runId: string, status: 'draft' | 'paid'): Promise<void> {
+    async updatePayrollRunStatus(runId: string, status: 'draft' | 'calculated' | 'paid'): Promise<void> {
         const supabase = createClient();
         
-        // Begin transaction-like sequence:
         // Update the run status
         const { error: runError } = await supabase
             .from('payroll_runs')
-            .update({ status })
+            .update({ status, updated_at: new Date().toISOString() })
             .eq('id', runId);
 
         if (runError) throw runError;

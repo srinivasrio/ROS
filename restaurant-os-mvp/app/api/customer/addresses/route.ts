@@ -1,42 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { extractCustomerTokenForRestaurant, verifyJwt } from '@/lib/jwt-utils';
+import { resolveRestaurantId } from '@/services/utils.service';
+
+async function getCustomerScope(request: NextRequest, restaurantId: string): Promise<string | null> {
+    const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
+    const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    const token = bearer || extractCustomerTokenForRestaurant(request.cookies, restaurantId);
+    if (!token) return null;
+
+    let payload: any = null;
+    try {
+        payload = await verifyJwt(token);
+    } catch {
+        return null;
+    }
+
+    if (
+        String(payload?.role || '').toLowerCase() !== 'customer' ||
+        !payload?.customerId ||
+        String(payload.restaurantId || payload.restaurant_id || '') !== String(restaurantId)
+    ) {
+        return null;
+    }
+
+    const { data: customer } = await supabaseAdmin
+        .from('customers')
+        .select('id')
+        .eq('id', payload.customerId)
+        .eq('restaurant_id', restaurantId)
+        .maybeSingle();
+
+    return customer?.id || null;
+}
 
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = request.nextUrl;
-        const restaurantId = searchParams.get('restaurantId');
+        const restaurantCode = searchParams.get('restaurantId');
         const customerId = searchParams.get('customerId');
-        const mobile = searchParams.get('mobile') || searchParams.get('phone');
 
-        if (!restaurantId) {
+        if (!restaurantCode) {
             return NextResponse.json({ error: 'restaurantId is required' }, { status: 400 });
         }
 
-        let query = supabaseAdmin
+        const restaurantId = await resolveRestaurantId(restaurantCode);
+        if (!restaurantId) return NextResponse.json({ error: 'Invalid restaurant' }, { status: 400 });
+
+        const authenticatedCustomerId = await getCustomerScope(request, restaurantId);
+        if (!authenticatedCustomerId) {
+            return NextResponse.json({ error: 'Customer authentication is required' }, { status: 401 });
+        }
+
+        if (customerId && customerId !== authenticatedCustomerId) {
+            return NextResponse.json({ error: 'Customer access denied' }, { status: 403 });
+        }
+
+        const query = supabaseAdmin
             .from('customer_addresses')
             .select('*')
             .eq('restaurant_id', restaurantId)
+            .eq('customer_id', authenticatedCustomerId)
             .order('created_at', { ascending: false });
-
-        if (customerId) {
-            query = query.eq('customer_id', customerId);
-        } else if (mobile) {
-            // Find customer by mobile first
-            const { data: cust } = await supabaseAdmin
-                .from('customers')
-                .select('id')
-                .eq('restaurant_id', restaurantId)
-                .eq('mobile', mobile)
-                .maybeSingle();
-
-            if (cust) {
-                query = query.eq('customer_id', cust.id);
-            } else {
-                return NextResponse.json({ addresses: [] });
-            }
-        } else {
-            return NextResponse.json({ addresses: [] });
-        }
 
         const { data, error } = await query;
         if (error) {
@@ -53,10 +78,8 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
         const {
-            restaurantId,
+            restaurantId: restaurantCode,
             customerId,
-            mobile,
-            name,
             label,
             addressLine,
             landmark,
@@ -67,48 +90,27 @@ export async function POST(request: NextRequest) {
             isDefault,
         } = body;
 
-        if (!restaurantId || !addressLine) {
+        if (!restaurantCode || !addressLine) {
             return NextResponse.json({ error: 'restaurantId and addressLine are required' }, { status: 400 });
         }
 
-        const customerMobile = body.mobile || body.phone;
+        const restaurantId = await resolveRestaurantId(String(restaurantCode));
+        if (!restaurantId) return NextResponse.json({ error: 'Invalid restaurant' }, { status: 400 });
 
-        let resolvedCustomerId = customerId;
+        const authenticatedCustomerId = await getCustomerScope(request, restaurantId);
+        if (!authenticatedCustomerId) {
+            return NextResponse.json({ error: 'Customer authentication is required' }, { status: 401 });
+        }
 
-        // If no customerId provided but mobile is, find or create customer
-        if (!resolvedCustomerId && customerMobile) {
-            const { data: existingCust } = await supabaseAdmin
-                .from('customers')
-                .select('id')
-                .eq('restaurant_id', restaurantId)
-                .eq('mobile', customerMobile)
-                .maybeSingle();
-
-            if (existingCust) {
-                resolvedCustomerId = existingCust.id;
-            } else {
-                const { data: newCust, error: createCustErr } = await supabaseAdmin
-                    .from('customers')
-                    .insert({
-                        restaurant_id: restaurantId,
-                        mobile: customerMobile,
-                        name: name || null,
-                        visit_count: 1,
-                    })
-                    .select('id')
-                    .single();
-
-                if (!createCustErr && newCust) {
-                    resolvedCustomerId = newCust.id;
-                }
-            }
+        if (customerId && customerId !== authenticatedCustomerId) {
+            return NextResponse.json({ error: 'Customer access denied' }, { status: 403 });
         }
 
         const { data, error } = await supabaseAdmin
             .from('customer_addresses')
             .insert({
                 restaurant_id: restaurantId,
-                customer_id: resolvedCustomerId || null,
+                customer_id: authenticatedCustomerId,
                 label: label || 'Home',
                 address_line: addressLine,
                 landmark: landmark || null,

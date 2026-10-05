@@ -5,7 +5,8 @@ dotenv.config({ path: '.env.local' });
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const JWT_SECRET = process.env.JWT_SECRET || 'dine-in-one-jwt-secret-key-at-least-32-chars-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('JWT_SECRET is required');
 
 function base64UrlEncode(str) {
     const base64 = Buffer.from(str).toString('base64');

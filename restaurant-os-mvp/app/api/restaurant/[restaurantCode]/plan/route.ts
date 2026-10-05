@@ -1,19 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-
-interface PlanCacheEntry {
-    data: {
-        id: string;
-        name: string;
-        logoUrl: string | null;
-        status: string;
-        subscriptionPlan: string;
-    };
-    expiresAt: number;
-}
-
-const planCache = new Map<string, PlanCacheEntry>();
-const PLAN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+import { resolveRestaurantEntitlements, invalidateEntitlementCache } from '@/lib/entitlements';
+import { handleConditionalResponse } from '@/lib/api-cache';
 
 export async function GET(
     request: Request,
@@ -26,16 +14,7 @@ export async function GET(
             return NextResponse.json({ error: 'Restaurant code required' }, { status: 400 });
         }
 
-        const cached = planCache.get(cleanCode);
-        if (cached && cached.expiresAt > Date.now()) {
-            return NextResponse.json(cached.data, {
-                headers: {
-                    'Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
-                },
-            });
-        }
-
-        // 1. Resolve ID if needed (could be numeric ID, UUID, PEND-, REST-, or slug)
+        // 1. Resolve restaurant ID (could be numeric ID, UUID, PEND-, REST-, or slug)
         let resolvedId = cleanCode;
         const { data: directRest } = await supabaseAdmin
             .from('restaurants')
@@ -73,27 +52,43 @@ export async function GET(
         const profileInfo = (profile?.restaurant_info as any) || {};
         const name = restaurantData?.name || profileInfo.name || profile?.name || 'Restaurant OS';
         const logoUrl = profileInfo.logo_url || null;
-        const subscriptionPlan = restaurantData?.subscription_plan || 'Pro';
+
+        // 3. Centrally resolve real-time feature entitlements from subscription & database
+        const url = new URL(request.url);
+        if (url.searchParams.get('fresh') === 'true') {
+            invalidateEntitlementCache(resolvedId);
+        }
+        const entitlement = await resolveRestaurantEntitlements(resolvedId);
 
         const responseData = {
             id: resolvedId,
             name,
             logoUrl,
-            status: restaurantData?.status?.toUpperCase() || 'ACTIVE',
-            subscriptionPlan,
+            status: entitlement.status,
+            subscriptionPlan: entitlement.planName,
+            planSlug: entitlement.planSlug,
+            isTrial: entitlement.isTrial,
+            isSuspended: entitlement.isSuspended,
+            isExpired: entitlement.isExpired,
+            daysRemaining: entitlement.daysRemaining,
+            currentPeriodEnd: entitlement.currentPeriodEnd,
+            trialEndsAt: entitlement.trialEndsAt,
+            maxRestaurants: entitlement.maxRestaurants,
+            maxEmployees: entitlement.maxEmployees,
+            features: entitlement.features,
+            lockedFeatures: entitlement.lockedFeatures,
+            availableFeatures: entitlement.availableFeatures,
+            overrides: entitlement.overrides,
+            entitlement,
         };
 
-        planCache.set(cleanCode, { data: responseData, expiresAt: Date.now() + PLAN_CACHE_TTL });
-        if (resolvedId !== cleanCode) {
-            planCache.set(resolvedId, { data: responseData, expiresAt: Date.now() + PLAN_CACHE_TTL });
-        }
-
-        return NextResponse.json(responseData, {
-            headers: {
-                'Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
+        return handleConditionalResponse(request, responseData, {
+            extraHeaders: {
+                'Cache-Control': 'private, max-age=10, stale-while-revalidate=30',
             },
         });
     } catch (err: any) {
+        console.error('[API /restaurant/[code]/plan GET] Error:', err);
         return NextResponse.json({ error: err.message }, { status: 500 });
     }
 }

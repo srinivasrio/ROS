@@ -24,30 +24,33 @@ export default function OrderHistory() {
     const [loading, setLoading] = useState(!cached && orders.length === 0);
     const [isRevalidating, setIsRevalidating] = useState(false);
     const [activeCategory, setActiveCategory] = useState<OrderCategory>('ALL');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7days' | '30days'>('all');
+    const [page, setPage] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
+    const PAGE_SIZE = 25;
 
     useEffect(() => {
         if (!restaurantLoading && activeResId) {
             const loadHistory = (force = false) => {
-                const targetKey = `history-${activeResId}`;
+                const targetKey = `history-${activeResId}-p${page}`;
                 if (!force && hasFreshCache(targetKey)) {
                     const freshCached = getCached<Order[]>(targetKey);
                     if (freshCached) {
                         setOrders(freshCached);
+                        setHasMore(freshCached.length === PAGE_SIZE);
                         setLoading(false);
                         return;
                     }
                 }
 
                 setIsRevalidating(true);
-                OrderService.fetchHistoryOrders(activeResId)
+                OrderService.fetchHistoryOrders(activeResId, undefined, page, PAGE_SIZE)
                     .then(data => {
-                        const bounded = Array.isArray(data) ? data.slice(0, 100) : [];
+                        const bounded = Array.isArray(data) ? data : [];
                         setOrders(bounded);
+                        setHasMore(bounded.length === PAGE_SIZE);
                         setCache(targetKey, bounded);
-                        if (restaurantId && urlRestaurantCode && restaurantId !== urlRestaurantCode) {
-                            setCache(`history-${restaurantId}`, bounded);
-                            setCache(`history-${urlRestaurantCode}`, bounded);
-                        }
                     })
                     .catch(console.error)
                     .finally(() => {
@@ -70,7 +73,7 @@ export default function OrderHistory() {
                 sub.unsubscribe(); 
             };
         }
-    }, [activeResId, restaurantId, urlRestaurantCode, restaurantLoading]);
+    }, [activeResId, restaurantId, urlRestaurantCode, restaurantLoading, page]);
 
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
@@ -87,15 +90,62 @@ export default function OrderHistory() {
         return counts;
     }, [orders]);
 
-    // Filtered orders based on selected category
+    // Filtered orders based on selected category, date, and search
     const filteredOrders = useMemo(() => {
-        if (activeCategory === 'ALL') return orders;
-        return orders.filter(o => {
-            const type = (o.order_type || 'DINE_IN').toUpperCase();
-            if (activeCategory === 'DINE_IN') return type !== 'TAKEAWAY' && type !== 'DELIVERY';
-            return type === activeCategory;
-        });
-    }, [orders, activeCategory]);
+        let result = orders;
+        if (activeCategory !== 'ALL') {
+            result = result.filter(o => {
+                const type = (o.order_type || 'DINE_IN').toUpperCase();
+                if (activeCategory === 'DINE_IN') return type !== 'TAKEAWAY' && type !== 'DELIVERY';
+                return type === activeCategory;
+            });
+        }
+        if (dateFilter !== 'all') {
+            const now = new Date();
+            if (dateFilter === 'today') {
+                const todayStr = now.toISOString().split('T')[0];
+                result = result.filter(o => o.created_at && o.created_at.startsWith(todayStr));
+            } else if (dateFilter === '7days') {
+                const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                result = result.filter(o => new Date(o.created_at) >= cutoff);
+            } else if (dateFilter === '30days') {
+                const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                result = result.filter(o => new Date(o.created_at) >= cutoff);
+            }
+        }
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim();
+            result = result.filter(o => 
+                String(o.order_number || '').toLowerCase().includes(q) ||
+                (o.id || '').toLowerCase().includes(q) ||
+                (o.customer_phone || '').includes(q) ||
+                String(o.table_number || '').toLowerCase().includes(q)
+            );
+        }
+        return result;
+    }, [orders, activeCategory, dateFilter, searchQuery]);
+
+    const exportToCSV = () => {
+        if (!filteredOrders.length) return;
+        const headers = ['Order #', 'Date & Time', 'Type', 'Table', 'Status', 'Items Count', 'Total Amount'];
+        const rows = filteredOrders.map(o => [
+            o.order_number || o.id,
+            `"${new Date(o.created_at).toLocaleString('en-IN')}"`,
+            o.order_type || 'DINE_IN',
+            o.table_number || (o as any).table_id || '-',
+            o.status,
+            o.items?.reduce((sum, item) => sum + item.quantity, 0) || 0,
+            o.total_amount
+        ]);
+        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement('a');
+        link.setAttribute('href', encodedUri);
+        link.setAttribute('download', `order_history_${activeResId}_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     const categoryButtons: { key: OrderCategory; label: string; icon: React.ReactNode; color: string; activeColor: string }[] = [
         { key: 'ALL', label: 'All Orders', icon: <LayoutGrid size={15} />, color: 'text-neutral-600', activeColor: 'bg-neutral-900 text-white shadow-sm' },
@@ -114,7 +164,11 @@ export default function OrderHistory() {
                     </div>
                     <p className="text-sm font-medium text-black mt-1">View and export past transactions (Served/Paid).</p>
                 </div>
-                <button className="flex items-center px-5 py-2.5 bg-white border border-neutral-200 text-black text-xs font-bold rounded-lg hover:bg-neutral-50 transition-all shadow-sm">
+                <button 
+                    onClick={exportToCSV}
+                    disabled={filteredOrders.length === 0}
+                    className="flex items-center px-5 py-2.5 bg-white border border-neutral-200 text-black text-xs font-bold rounded-lg hover:bg-neutral-50 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                >
                     <LucideDownload size={16} className="mr-2" />
                     Export to CSV
                 </button>
@@ -153,13 +207,31 @@ export default function OrderHistory() {
 
                 {/* Filters */}
                 <div className="p-4 border-b border-neutral-200 flex gap-4 bg-neutral-50 shrink-0">
-                    <div className="flex items-center bg-white border border-neutral-300 rounded-lg px-3 py-2 w-64">
-                        <LucideSearch size={18} className="text-black mr-2" />
-                        <input type="text" placeholder="Search Order ID..." className="text-sm outline-none w-full" />
+                    <div className="flex items-center bg-white border border-neutral-300 rounded-lg px-3 py-2 w-72">
+                        <LucideSearch size={18} className="text-neutral-500 mr-2" />
+                        <input 
+                            type="text" 
+                            placeholder="Search Order #, table, phone..." 
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="text-sm outline-none w-full text-black placeholder:text-neutral-400" 
+                        />
+                        {searchQuery && (
+                            <button onClick={() => setSearchQuery('')} className="text-neutral-400 hover:text-black text-xs font-bold px-1">✕</button>
+                        )}
                     </div>
                     <div className="flex items-center bg-white border border-neutral-300 rounded-lg px-3 py-2">
-                        <LucideCalendar size={18} className="text-black mr-2" />
-                        <span className="text-sm text-black">Last 7 Days</span>
+                        <LucideCalendar size={18} className="text-neutral-500 mr-2" />
+                        <select
+                            value={dateFilter}
+                            onChange={e => setDateFilter(e.target.value as any)}
+                            className="text-sm text-black bg-transparent outline-none font-medium cursor-pointer"
+                        >
+                            <option value="all">All Time</option>
+                            <option value="today">Today</option>
+                            <option value="7days">Last 7 Days</option>
+                            <option value="30days">Last 30 Days</option>
+                        </select>
                     </div>
                 </div>
 
@@ -251,6 +323,31 @@ export default function OrderHistory() {
                             )}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Pagination Controls */}
+                <div className="p-4 border-t border-neutral-200 flex items-center justify-between bg-neutral-50 shrink-0">
+                    <span className="text-xs font-semibold text-neutral-600">
+                        Page {page + 1} ({orders.length} order{orders.length === 1 ? '' : 's'})
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setPage(p => Math.max(0, p - 1))}
+                            disabled={page === 0 || loading}
+                            className="px-3 py-1.5 bg-white border border-neutral-300 text-black text-xs font-bold rounded-lg hover:bg-neutral-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                        >
+                            Previous
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setPage(p => p + 1)}
+                            disabled={!hasMore || loading}
+                            className="px-3 py-1.5 bg-white border border-neutral-300 text-black text-xs font-bold rounded-lg hover:bg-neutral-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                        >
+                            Next
+                        </button>
+                    </div>
                 </div>
             </div>
 

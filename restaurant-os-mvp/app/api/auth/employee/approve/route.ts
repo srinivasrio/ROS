@@ -75,8 +75,7 @@ export async function POST(request: Request) {
         // 3. Validate Admin / Owner Role (case-insensitive)
         const rawRole = (actor.role || '').toLowerCase();
         const isSuperAdmin = rawRole === 'super_admin' || 
-                             rawRole === 'superadmin' || 
-                             actor.email === 'superadmin@dineinone.com';
+                             rawRole === 'superadmin';
         let isAdmin = isSuperAdmin || ['restaurant_admin', 'admin', 'owner', 'manager'].includes(rawRole);
 
         // Fallback DB check if JWT role is not an explicit admin string

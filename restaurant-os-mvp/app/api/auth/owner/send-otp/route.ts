@@ -35,11 +35,14 @@ export async function POST(request: Request) {
             }
 
             // Generate 6-digit OTP
-            const isDev = process.env.NODE_ENV === 'development' || !process.env.SMS_GATEWAY_API_KEY;
+            const isDev = process.env.NODE_ENV === 'development';
+            if (!isDev && !process.env.SMS_GATEWAY_API_KEY) {
+                return NextResponse.json({ error: 'SMS verification is not configured. Please contact support.' }, { status: 503 });
+            }
             const otp = isDev ? '123456' : crypto.randomInt(100000, 999999).toString();
             OtpManager.setOtp(cleanPhone, otp, 600);
 
-            console.log(`[Owner Registration] Mobile OTP generated for ${cleanPhone}: ${otp}`);
+            console.log(`[Owner Registration] Mobile OTP generated for ${cleanPhone.slice(-4)}`);
 
             return NextResponse.json({
                 success: true,
@@ -71,7 +74,7 @@ export async function POST(request: Request) {
             const otp = isDev ? '123456' : crypto.randomInt(100000, 999999).toString();
             OtpManager.setOtp(cleanEmail, otp, 600);
 
-            console.log(`[Owner Registration] Email OTP generated for ${cleanEmail}: ${otp}`);
+            console.log(`[Owner Registration] Email OTP generated for ${cleanEmail.replace(/^[^@]+/, '***')}`);
 
             // Dispatch email
             await EmailService.sendSecurityEmail(

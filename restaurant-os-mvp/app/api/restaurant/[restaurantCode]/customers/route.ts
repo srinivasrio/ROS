@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { CustomerService } from '@/services/customers.service';
+import { CustomerService } from '@/services/customers.server.service';
 import { resolveRestaurantId } from '@/services/utils.service';
-import { verifyJwt, extractTokenForRestaurant, signJwt, getCustomerTokenName } from '@/lib/jwt-utils';
+import { verifyJwt, extractTokenForRestaurant, extractCustomerTokenForRestaurant, signJwt, getCustomerTokenName } from '@/lib/jwt-utils';
+import { CustomerOtpService } from '@/lib/customer-otp';
 
 /**
  * POST /api/restaurant/[restaurantCode]/customers
- * Public endpoint — upsert customer info after QR scan or customer login.
- * Issues a customer JWT session cookie for persistent order tracking.
+ * Upsert customer info and establish customer session.
+ * STRICT SECURITY REQUIREMENT (P1-05):
+ * Prevents phone-only authentication. Requires verified OTP or existing verified Customer JWT.
  */
 export async function POST(
     req: NextRequest,
@@ -21,7 +23,7 @@ export async function POST(
         }
 
         const body = await req.json();
-        const { name, mobile, email, dateOfBirth } = body;
+        const { name, mobile, email, dateOfBirth, otp } = body;
 
         // At least one field must be provided
         if (!name && !mobile && !email && !dateOfBirth) {
@@ -34,6 +36,49 @@ export async function POST(
         }
         if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
             return NextResponse.json({ error: 'Invalid email address' }, { status: 400 });
+        }
+
+        // P1-05: Check if request has an existing verified Customer JWT session
+        let existingToken: string | null = null;
+        const authHeader = req.headers.get('authorization');
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            existingToken = authHeader.substring(7).trim();
+        }
+        if (!existingToken) {
+            existingToken = extractCustomerTokenForRestaurant(req.cookies, restaurantId || restaurantCode);
+        }
+
+        let isSessionVerified = false;
+        if (existingToken) {
+            try {
+                const payload = await verifyJwt(existingToken);
+                const tokenRestId = payload?.restaurantId || payload?.restaurant_id;
+                if (payload?.customerId && payload?.role === 'customer' && tokenRestId && String(tokenRestId) === String(restaurantId)) {
+                    isSessionVerified = true;
+                }
+            } catch {}
+        }
+
+        // If not already verified, check if valid OTP is supplied
+        if (!isSessionVerified && otp && mobile) {
+            const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
+            const otpVerification = await CustomerOtpService.verifyOtp(restaurantId, mobile, otp, clientIp);
+            if (!otpVerification.success) {
+                const status = otpVerification.remainingAttempts === 0 ? 429 : 400;
+                return NextResponse.json(
+                    { error: otpVerification.error || 'Invalid verification code' },
+                    { status }
+                );
+            }
+            isSessionVerified = true;
+        }
+
+        // STRICT ENFORCEMENT: Customer JWT CANNOT be issued using phone number alone
+        if (!isSessionVerified) {
+            return NextResponse.json(
+                { error: 'OTP verification required. Please verify phone number with an OTP before authenticating.' },
+                { status: 401 }
+            );
         }
 
         const result = await CustomerService.upsertCustomer(restaurantId, {
@@ -121,7 +166,7 @@ export async function GET(
         }
 
         const role = (user.role || '').toLowerCase();
-        const isSuperAdmin = role === 'super_admin' || role === 'superadmin' || user.email === 'superadmin@dineinone.com';
+        const isSuperAdmin = role === 'super_admin' || role === 'superadmin';
         const isAdmin = ['restaurant_admin', 'admin', 'owner', 'manager'].includes(role) || isSuperAdmin;
 
         if (!isAdmin) {

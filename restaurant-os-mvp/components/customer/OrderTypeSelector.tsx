@@ -6,11 +6,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     Utensils, ShoppingBag, Bike, MapPin, QrCode, Camera,
     ChevronRight, ArrowRight, X, Phone, User, Loader2, Navigation,
-    Edit3, CheckCircle2, Clock
+    Edit3, CheckCircle2, Clock, Hash, Sparkles, AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HomepageBuilderService } from '@/services/homepage-builder.service';
 import { formatAddress } from '@/lib/utils';
+import { TableNotFoundWarningCard } from '@/components/customer/TableNotFoundWarningCard';
+import { parseTableQrCode, TableVerifyResponse } from '@/lib/table-qr-utils';
 
 interface OrderTypeSelectorProps {
     restaurantCode: string;
@@ -37,7 +39,7 @@ interface DeliverySettings {
     address?: string;
 }
 
-type ModalType = 'none' | 'qr_scanner' | 'manual_table' | 'delivery_address';
+type ModalType = 'none' | 'dine_in_options' | 'qr_scanner' | 'manual_table' | 'delivery_address' | 'table_warning';
 
 export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorProps) {
     const router = useRouter();
@@ -54,6 +56,20 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
 
     const [activeModal, setActiveModal] = useState<ModalType>('none');
     const [manualTableNumber, setManualTableNumber] = useState(tableFromUrl);
+    const [verifyingTable, setVerifyingTable] = useState(false);
+    const [warningDetails, setWarningDetails] = useState<{
+        scannedTable: string | null;
+        scannedRestaurantName: string | null;
+        scannedRestaurantCode: string | null;
+        isDifferentRestaurant: boolean;
+        message: string | null;
+    }>({
+        scannedTable: null,
+        scannedRestaurantName: null,
+        scannedRestaurantCode: null,
+        isDifferentRestaurant: false,
+        message: null,
+    });
     const [deliveryAddress, setDeliveryAddress] = useState('');
     const [deliveryLandmark, setDeliveryLandmark] = useState('');
     const [deliveryCity, setDeliveryCity] = useState('');
@@ -157,14 +173,35 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
     };
 
     // Handler 1: Dine In
-    const handleSelectDineIn = () => {
-        // If customer already has table from QR code scan
+    const handleSelectDineIn = async () => {
+        // If customer already has table from QR code scan or URL param, verify it first
         if (tableFromUrl) {
-            router.push(`/${restaurantCode}/customer/home/${tableFromUrl}`);
-            return;
+            setVerifyingTable(true);
+            try {
+                const res = await fetch(`/api/customer/table/verify?restaurantId=${encodeURIComponent(restaurantCode)}&table=${encodeURIComponent(tableFromUrl)}`);
+                const data: TableVerifyResponse = await res.json();
+                if (data.valid) {
+                    router.push(`/${restaurantCode}/customer/home/${data.tableNumber || tableFromUrl}`);
+                    return;
+                } else {
+                    setWarningDetails({
+                        scannedTable: tableFromUrl,
+                        scannedRestaurantName: data.scannedRestaurant?.name || null,
+                        scannedRestaurantCode: data.scannedRestaurant?.code || null,
+                        isDifferentRestaurant: data.reason === 'different_restaurant',
+                        message: data.message || `Table "${tableFromUrl}" does not exist in this restaurant.`,
+                    });
+                    setActiveModal('table_warning');
+                    return;
+                }
+            } catch {
+                // If network/verify fails, show options modal
+            } finally {
+                setVerifyingTable(false);
+            }
         }
-        // Otherwise prompt for table selection (Scan QR or enter table number)
-        setActiveModal('manual_table');
+        // Prompt for table access (Scan QR or enter table number)
+        setActiveModal('dine_in_options');
     };
 
     // Handler 2: Takeaway
@@ -196,11 +233,19 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
         }
 
         try {
-            const res = await fetch(`/api/customer/table/verify?restaurantId=${restaurantCode}&table=${encodeURIComponent(trimmed)}`);
+            setVerifyingTable(true);
+            const res = await fetch(`/api/customer/table/verify?restaurantId=${encodeURIComponent(restaurantCode)}&table=${encodeURIComponent(trimmed)}`);
             if (res.ok) {
-                const data = await res.json();
+                const data: TableVerifyResponse = await res.json();
                 if (!data.valid) {
-                    toast.error(`Table "${trimmed}" does not exist in this restaurant.`);
+                    setWarningDetails({
+                        scannedTable: trimmed,
+                        scannedRestaurantName: null,
+                        scannedRestaurantCode: null,
+                        isDifferentRestaurant: false,
+                        message: data.message || `Table "${trimmed}" does not exist in this restaurant.`,
+                    });
+                    setActiveModal('table_warning');
                     return;
                 }
                 toast.success(`Connected to Table ${data.tableNumber || trimmed}`);
@@ -208,11 +253,11 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
                 router.push(`/${restaurantCode}/customer/home/${data.tableNumber || trimmed}`);
                 return;
             }
-        } catch {}
-
-        toast.success(`Connecting to Table ${trimmed}`);
-        setActiveModal('none');
-        router.push(`/${restaurantCode}/customer/home/${trimmed}`);
+        } catch {
+            toast.error('Could not verify table. Please check your network.');
+        } finally {
+            setVerifyingTable(false);
+        }
     };
 
     // QR Scanner Lifecycle
@@ -269,43 +314,52 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
         }
 
         try {
-            let scannedTable = qrString.trim();
-
-            if (scannedTable.startsWith('http://') || scannedTable.startsWith('https://')) {
-                const url = new URL(scannedTable);
-                const tableQuery = url.searchParams.get('table');
-                if (tableQuery) {
-                    scannedTable = tableQuery;
-                } else {
-                    const match = url.pathname.match(/\/customer\/(?:welcome|table|home)\/([^/?#]+)/i);
-                    if (match && match[1]) scannedTable = match[1];
-                }
-            } else if (scannedTable.startsWith('{')) {
-                const parsed = JSON.parse(scannedTable);
-                scannedTable = parsed.tableNumber || parsed.tableId || parsed.table || '';
-            }
+            setVerifyingTable(true);
+            const parsed = parseTableQrCode(qrString);
+            const scannedTable = parsed.table;
+            const scannedRestCode = parsed.restaurantCode;
 
             if (!scannedTable) {
-                toast.error('Invalid QR code format.');
+                toast.error('Invalid QR code format. Please scan a table QR code.');
+                setActiveModal('dine_in_options');
                 return;
             }
 
-            const res = await fetch(`/api/customer/table/verify?restaurantId=${restaurantCode}&table=${encodeURIComponent(scannedTable)}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.valid) {
-                    toast.success(`Connected to Table ${data.tableNumber || scannedTable}`);
-                    setActiveModal('none');
-                    router.push(`/${restaurantCode}/customer/home/${data.tableNumber || scannedTable}`);
-                    return;
-                }
+            const res = await fetch('/api/customer/table/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    restaurantId: restaurantCode,
+                    table: scannedTable,
+                    qrData: qrString,
+                    scannedRestaurantId: scannedRestCode,
+                }),
+            });
+
+            const data: TableVerifyResponse = await res.json();
+
+            if (data.valid) {
+                toast.success(`Connected to Table ${data.tableNumber || scannedTable}`);
+                setActiveModal('none');
+                router.push(`/${restaurantCode}/customer/home/${data.tableNumber || scannedTable}`);
+                return;
             }
 
-            toast.success(`Table scanned: ${scannedTable}`);
-            setActiveModal('none');
-            router.push(`/${restaurantCode}/customer/home/${scannedTable}`);
-        } catch {
-            toast.error('Failed to process QR code. Please try manual entry.');
+            // Cross-restaurant QR or table not found in this restaurant:
+            setWarningDetails({
+                scannedTable: data.scannedTable || scannedTable,
+                scannedRestaurantName: data.scannedRestaurant?.name || null,
+                scannedRestaurantCode: data.scannedRestaurant?.code || scannedRestCode || null,
+                isDifferentRestaurant: data.reason === 'different_restaurant',
+                message: data.message || null,
+            });
+            setActiveModal('table_warning');
+        } catch (err) {
+            console.error('[handleQrSuccess] Verification error:', err);
+            toast.error('Failed to verify scanned QR code. You can enter the table number manually.');
+            setActiveModal('manual_table');
+        } finally {
+            setVerifyingTable(false);
         }
     };
 
@@ -598,9 +652,107 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
 
             {/* MODALS */}
             <AnimatePresence>
-                {/* Manual Table / QR Modal */}
+                {/* Table Not Found Warning Card Modal */}
+                {activeModal === 'table_warning' && (
+                    <TableNotFoundWarningCard
+                        key="modal-table-warning"
+                        isOpen={true}
+                        visitedRestaurantName={profile?.name || restaurantCode}
+                        visitedRestaurantCode={restaurantCode}
+                        scannedTable={warningDetails.scannedTable}
+                        scannedRestaurantName={warningDetails.scannedRestaurantName}
+                        scannedRestaurantCode={warningDetails.scannedRestaurantCode}
+                        isDifferentRestaurant={warningDetails.isDifferentRestaurant}
+                        customMessage={warningDetails.message}
+                        onScanAgain={() => setActiveModal('qr_scanner')}
+                        onManualEntry={() => setActiveModal('manual_table')}
+                        onClose={() => setActiveModal('none')}
+                    />
+                )}
+
+                {/* Dine In Choice Modal: Scan QR vs Manual Entry */}
+                {activeModal === 'dine_in_options' && (
+                    <div key="modal-dine-in-options" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.94, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.94, y: 20 }}
+                            className="w-full max-w-sm rounded-3xl p-6 space-y-4 text-center relative overflow-hidden"
+                            style={{
+                                backgroundColor: '#EEF2F6',
+                                boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35)',
+                                border: '1px solid rgba(255, 255, 255, 0.9)',
+                            }}
+                        >
+                            <button
+                                onClick={() => setActiveModal('none')}
+                                className="absolute top-4 right-4 p-1 rounded-full text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+
+                            <div className="size-16 rounded-2xl mx-auto flex items-center justify-center text-orange-600 bg-orange-100/70 border border-orange-200/80 shadow-xs">
+                                <Utensils size={30} />
+                            </div>
+
+                            <div>
+                                <h3 className="text-lg font-black text-slate-900 tracking-tight">
+                                    Dine In Table Access
+                                </h3>
+                                <p className="text-xs text-slate-500 font-medium mt-1">
+                                    Connect to your table at <span className="font-bold text-slate-700">{profile?.name || 'this restaurant'}</span>
+                                </p>
+                            </div>
+
+                            <div className="space-y-2.5 pt-1">
+                                {/* Option 1: Scan QR */}
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveModal('qr_scanner')}
+                                    className="w-full p-4 rounded-2xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-bold text-sm shadow-md shadow-orange-500/25 active:scale-[0.98] transition-all flex items-center gap-3.5 cursor-pointer text-left group"
+                                >
+                                    <div className="size-11 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                                        <Camera size={22} className="group-hover:scale-110 transition-transform" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5 font-black text-sm">
+                                            <span>Scan Table QR</span>
+                                            <span className="text-[10px] font-extrabold uppercase bg-white/25 px-1.5 py-0.5 rounded-full">Fast</span>
+                                        </div>
+                                        <div className="text-[11px] text-orange-100 font-medium">
+                                            Point camera at your table stand
+                                        </div>
+                                    </div>
+                                    <ChevronRight size={18} className="text-white/70 group-hover:translate-x-0.5 transition-transform" />
+                                </button>
+
+                                {/* Option 2: Enter Manually */}
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveModal('manual_table')}
+                                    className="w-full p-4 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-sm active:scale-[0.98] transition-all flex items-center gap-3.5 cursor-pointer text-left group shadow-xs"
+                                >
+                                    <div className="size-11 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-slate-700">
+                                        <Hash size={20} className="group-hover:scale-110 transition-transform" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-black text-sm text-slate-900">
+                                            Enter Table Number
+                                        </div>
+                                        <div className="text-[11px] text-slate-500 font-medium">
+                                            Type number if camera unavailable
+                                        </div>
+                                    </div>
+                                    <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+
+                {/* Manual Table Modal */}
                 {activeModal === 'manual_table' && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                    <div key="modal-manual-table" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95, y: 15 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -614,18 +766,18 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
                         >
                             <div className="flex items-center justify-between">
                                 <h3 className="text-base font-black text-slate-900">
-                                    Table Number
+                                    Enter Table Number
                                 </h3>
                                 <button
                                     onClick={() => setActiveModal('none')}
-                                    className="p-1 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                                    className="p-1 rounded-full text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                                 >
                                     <X size={18} />
                                 </button>
                             </div>
 
                             <p className="text-xs text-slate-500">
-                                Enter the number printed on your table stand, or scan the QR code.
+                                Enter the number printed on your table stand at <span className="font-semibold text-slate-700">{profile?.name || 'this restaurant'}</span>.
                             </p>
 
                             <form onSubmit={handleManualTableSubmit} className="space-y-3">
@@ -646,7 +798,7 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
                                         </div>
                                         <div className="flex flex-wrap justify-center gap-1.5 max-h-24 overflow-y-auto">
                                             {['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map(tbl => (
-                                                <button
+                                                 <button
                                                     key={tbl}
                                                     type="button"
                                                     onClick={() => setManualTableNumber(tbl)}
@@ -665,10 +817,20 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
 
                                 <button
                                     type="submit"
-                                    className="w-full py-3.5 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm shadow-md shadow-orange-600/20 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                                    disabled={verifyingTable}
+                                    className="w-full py-3.5 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm shadow-md shadow-orange-600/20 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-60"
                                 >
-                                    <span>Continue to Menu</span>
-                                    <ArrowRight size={16} />
+                                    {verifyingTable ? (
+                                        <>
+                                            <Loader2 size={16} className="animate-spin" />
+                                            <span>Verifying Table...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>Continue to Menu</span>
+                                            <ArrowRight size={16} />
+                                        </>
+                                    )}
                                 </button>
 
                                 <button
@@ -677,46 +839,66 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
                                     className="w-full py-3 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
                                 >
                                     <Camera size={14} className="text-orange-600" />
-                                    <span>Scan Table QR with Camera</span>
+                                    <span>Scan Table QR with Camera Instead</span>
                                 </button>
                             </form>
                         </motion.div>
                     </div>
                 )}
 
-                {/* QR Scanner Modal */}
+                {/* QR Scanner Modal with Framing Guide */}
                 {activeModal === 'qr_scanner' && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+                    <div key="modal-qr-scanner" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.95 }}
-                            className="w-full max-w-sm rounded-3xl p-5 space-y-4 text-center"
+                            className="w-full max-w-sm rounded-3xl p-5 space-y-4 text-center relative overflow-hidden"
                             style={{
                                 backgroundColor: '#EEF2F6',
-                                boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)',
+                                boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.4)',
                                 border: '1px solid rgba(255, 255, 255, 0.9)',
                             }}
                         >
                             <div className="flex items-center justify-between">
-                                <h3 className="text-sm font-black text-slate-900">
-                                    Scan Table QR
-                                </h3>
+                                <div className="text-left">
+                                    <h3 className="text-sm font-black text-slate-900">
+                                        Scan Table QR Code
+                                    </h3>
+                                    <p className="text-[11px] text-slate-500 font-medium">
+                                        Point camera at the table QR stand
+                                    </p>
+                                </div>
                                 <button
                                     onClick={() => setActiveModal('none')}
-                                    className="p-1 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                                    className="p-1 rounded-full text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                                 >
                                     <X size={18} />
                                 </button>
                             </div>
 
-                            <div
-                                id={scannerContainerId}
-                                className="w-full aspect-square rounded-2xl overflow-hidden bg-black flex items-center justify-center"
-                            />
+                            {/* Camera Viewport with Framing Guide */}
+                            <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-slate-900 flex items-center justify-center shadow-inner">
+                                <div
+                                    id={scannerContainerId}
+                                    className="w-full h-full object-cover"
+                                />
 
-                            <p className="text-xs text-slate-500">
-                                Point your camera at the QR code on your table
+                                {/* Viewfinder Overlay Corners */}
+                                <div className="absolute inset-6 pointer-events-none border-2 border-dashed border-white/30 rounded-2xl flex items-center justify-center">
+                                    <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-orange-500 to-transparent animate-pulse" />
+                                </div>
+
+                                {verifyingTable && (
+                                    <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2 text-white">
+                                        <Loader2 size={30} className="animate-spin text-orange-500" />
+                                        <span className="text-xs font-bold">Verifying Table QR...</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                                Only table QR codes registered for <span className="font-bold text-slate-800">{profile?.name || 'this restaurant'}</span> are allowed.
                             </p>
 
                             <button
@@ -732,7 +914,7 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
 
                 {/* Delivery Address Modal */}
                 {activeModal === 'delivery_address' && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                    <div key="modal-delivery-address" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
                         <motion.div
                             initial={{ opacity: 0, scale: 0.95, y: 15 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}

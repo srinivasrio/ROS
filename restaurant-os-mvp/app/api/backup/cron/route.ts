@@ -8,10 +8,10 @@ export async function GET(request: Request) {
         
         // Authorization check
         const authHeader = request.headers.get('authorization');
-        const token = authHeader?.split(' ')[1];
-        const cronSecret = process.env.CRON_SECRET || 'dine-in-one-cron-secret-key-2026';
-        
-        if (token !== cronSecret) {
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+        const cronSecret = process.env.CRON_SECRET;
+
+        if (!cronSecret || !token || token !== cronSecret) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 

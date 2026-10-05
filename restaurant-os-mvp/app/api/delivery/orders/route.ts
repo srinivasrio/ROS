@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getDeliveryOrAdminUserFromRequest } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { verifyFeatureEntitlement } from '@/lib/entitlement-guard';
 import crypto from 'crypto';
 
 const ADMIN_ROLES = ['restaurant_admin', 'admin', 'owner', 'restaurant_owner', 'manager'];
@@ -43,6 +44,12 @@ export async function GET(request: NextRequest) {
         const resolvedRid = await resolveRestaurantId(rid);
         if (!resolvedRid) {
             return NextResponse.json({ error: 'Invalid restaurant' }, { status: 404 });
+        }
+
+        // Feature Entitlement Authorization
+        const entitlementCheck = await verifyFeatureEntitlement(resolvedRid, 'delivery');
+        if (!entitlementCheck.allowed) {
+            return entitlementCheck.response;
         }
 
         const statusFilter = searchParams.get('status');
@@ -171,6 +178,12 @@ export async function POST(request: NextRequest) {
         const resolvedRid = await resolveRestaurantId(restaurantId);
         if (!resolvedRid) {
             return NextResponse.json({ error: 'Invalid restaurant' }, { status: 404 });
+        }
+
+        // Feature Entitlement Authorization
+        const entitlementCheck = await verifyFeatureEntitlement(resolvedRid, 'delivery');
+        if (!entitlementCheck.allowed) {
+            return entitlementCheck.response;
         }
 
         if (!deliveryAddress || !deliveryAddress.trim()) {
@@ -354,6 +367,12 @@ export async function PATCH(request: NextRequest) {
         }
 
         const rid = (await resolveRestaurantId(rawRid)) || rawRid;
+
+        // Feature Entitlement Authorization
+        const entitlementCheck = await verifyFeatureEntitlement(rid, 'delivery');
+        if (!entitlementCheck.allowed) {
+            return entitlementCheck.response;
+        }
 
         if (!orderId) {
             return NextResponse.json({ error: 'orderId is required' }, { status: 400 });

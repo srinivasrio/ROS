@@ -470,7 +470,7 @@ export default function SharedHomepageLayout({
 
   return (
     <div className={`w-full ${mode === 'customer' ? 'bg-[#EEF2F6]' : 'bg-slate-50'} text-slate-900 font-sans antialiased pb-20 sm:pb-24`}>
-      {sortedSections.map((section: any) => {
+      {sortedSections.map((section: any, sectionIdx: number) => {
         const sectionType = section.section_type || section.type;
         const isActive = section.active !== false;
 
@@ -492,7 +492,7 @@ export default function SharedHomepageLayout({
 
         return (
           <div
-            key={section.id || sectionType}
+            key={section.id || `${sectionType || 'sec'}-${sectionIdx}`}
             id={`section-${sectionType}`}
             onClick={() => {
               if (mode === 'admin' && onSelectSection) {
@@ -758,15 +758,15 @@ export default function SharedHomepageLayout({
                 </div>
 
                 <div className="flex gap-4 overflow-x-auto no-scrollbar py-2 overscroll-x-contain">
-                  {(recentOrders || []).map((order: any) => (
+                  {(recentOrders || []).map((order: any, orderIdx: number) => (
                     <div
-                      key={order.id}
+                      key={order.id || `order-${orderIdx}`}
                       className="w-64 shrink-0 bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs flex flex-col justify-between"
                     >
                       <div>
                         <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
                           <span className="font-semibold text-slate-900">Order #{order.id?.slice?.(0, 6) || 'Past'}</span>
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1" suppressHydrationWarning>
                             <Clock className="size-3" />
                             {order.created_at ? new Date(order.created_at).toLocaleDateString() : 'Recent'}
                           </span>

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { CustomerService } from '@/services/customers.service';
+import { CustomerService } from '@/services/customers.server.service';
 import { resolveRestaurantId } from '@/services/utils.service';
 import { verifyJwt, extractTokenForRestaurant } from '@/lib/jwt-utils';
 
@@ -20,7 +20,7 @@ async function getAuthenticatedUser(req: NextRequest, restaurantCode: string, re
     }
 
     const role = (user.role || '').toLowerCase();
-    const isSuperAdmin = role === 'super_admin' || role === 'superadmin' || user.email === 'superadmin@dineinone.com';
+    const isSuperAdmin = role === 'super_admin' || role === 'superadmin';
     const isAdmin = ['restaurant_admin', 'admin', 'owner', 'manager'].includes(role) || isSuperAdmin;
 
     if (!isAdmin) {

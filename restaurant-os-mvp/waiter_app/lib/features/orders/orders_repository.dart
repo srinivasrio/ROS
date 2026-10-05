@@ -108,24 +108,22 @@ class OrdersRepository {
           .update({'status': 'served'})
           .eq('order_id', orderId);
 
-      // 3. Update table status to 'need_bill' to reflect bill settlement phase
+      // 3. Update table status to 'cleaning' (awaiting staff clearance)
       final numTableId = int.tryParse(tableId);
+      final tableUpdate = {
+        'status': 'cleaning',
+        'last_activity_at': DateTime.now().toIso8601String(),
+      };
       if (numTableId != null) {
         await SupabaseService.client
             .from('tables')
-            .update({
-              'status': 'need_bill',
-              'last_activity_at': DateTime.now().toIso8601String(),
-            })
+            .update(tableUpdate)
             .eq('id', numTableId)
             .eq('restaurant_id', restaurantId);
       } else {
         await SupabaseService.client
             .from('table_merge_groups')
-            .update({
-              'status': 'need_bill',
-              'last_activity_at': DateTime.now().toIso8601String(),
-            })
+            .update(tableUpdate)
             .eq('id', tableId)
             .eq('restaurant_id', restaurantId);
       }

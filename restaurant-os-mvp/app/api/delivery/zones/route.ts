@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAdminUserFromRequest } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { verifyFeatureEntitlement } from '@/lib/entitlement-guard';
 
 /**
  * GET /api/delivery/zones?restaurantId=xxx
@@ -15,6 +16,12 @@ export async function GET(request: NextRequest) {
         }
 
         const restaurantId = (await resolveRestaurantId(rawRestaurantId)) || rawRestaurantId;
+
+        // Feature Entitlement Authorization
+        const entitlementCheck = await verifyFeatureEntitlement(restaurantId, 'delivery');
+        if (!entitlementCheck.allowed) {
+            return entitlementCheck.response;
+        }
 
         const { data, error } = await supabaseAdmin.rpc('get_restaurant_delivery_zones', {
             p_restaurant_id: restaurantId,
@@ -86,6 +93,12 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Restaurant ID is required' }, { status: 400 });
         }
         const rid = (await resolveRestaurantId(rawRid)) || rawRid;
+
+        // Feature Entitlement Authorization
+        const entitlementCheck = await verifyFeatureEntitlement(rid, 'delivery');
+        if (!entitlementCheck.allowed) {
+            return entitlementCheck.response;
+        }
 
         if (!name || !name.trim()) {
             return NextResponse.json({ error: 'Zone name is required' }, { status: 400 });

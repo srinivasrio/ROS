@@ -1,26 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { verifyPin } from '@/lib/auth-utils';
 import { signJwt } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
+import {
+    checkRateLimitAndLockout,
+    recordFailedAttempt,
+    resetFailedAttempts,
+    recordAuthAuditLog,
+    getAuthCookieOptions
+} from '@/lib/panel-auth';
+import { normalizeE164Phone } from '@/lib/entity-id';
 import crypto from 'crypto';
 
 /**
  * POST /api/auth/delivery/login
- * 
- * Authenticates a delivery boy using mobile number or employee ID.
- * Validates the employee exists, is approved, and is registered as a delivery boy.
- * Returns a JWT scoped to the delivery panel and records session in dine_sessions.
+ * Mobile + PIN authentication for Delivery employees.
+ * Server verifies role is delivery_boy (or restaurant_admin).
+ * Passwords are not required. PIN is verified against secure Argon2 hash.
  */
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { identifier, restaurantId } = body;
+        const rawIdentifier = String(body?.identifier || body?.mobile || '').trim();
+        const rawPin = String(body?.pin || '').trim();
+        const restaurantId = body?.restaurantId;
 
-        if (!identifier || !identifier.trim()) {
-            return NextResponse.json({ error: 'Mobile number or employee ID is required' }, { status: 400 });
+        if (!rawIdentifier || !rawPin) {
+            return NextResponse.json({ error: 'Please enter both your mobile number and employee PIN' }, { status: 400 });
         }
 
-        const cleanIdentifier = identifier.trim();
+        const cleanMobile = rawIdentifier.replace(/[^0-9]/g, '').slice(-10);
+        const searchMobile = cleanMobile.length >= 10 ? cleanMobile : rawIdentifier;
+
+        const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
+        const userAgent = request.headers.get('user-agent') || 'unknown';
+        const uaLower = userAgent.toLowerCase();
+        const device = (uaLower.includes('mobile') || uaLower.includes('android') || uaLower.includes('iphone')) ? 'mobile' : 'desktop';
+        const browser = uaLower.includes('chrome') ? 'chrome' : uaLower.includes('safari') ? 'safari' : uaLower.includes('firefox') ? 'firefox' : 'unknown';
 
         // 1. Resolve restaurant if provided
         let resolvedRestId: string | null = null;
@@ -28,26 +45,27 @@ export async function POST(request: NextRequest) {
             resolvedRestId = await resolveRestaurantId(restaurantId);
         }
 
-        // 2. Look up employee by mobile or employee_id across the system
+        // 2. Fetch employee by mobile or employee_id
         let employeeQuery = supabaseAdmin
             .from('employees')
-            .select('id, name, email, mobile, role, status, approval_status, restaurant_id, employee_id, is_deleted, avatar_url, session_version');
+            .select('*');
 
-        const cleanMobile = cleanIdentifier.replace(/[^0-9]/g, '').slice(-10);
-        const isNumeric = /^\d+$/.test(cleanIdentifier.replace(/[\s-+()]/g, ''));
-
-        if (isNumeric && cleanMobile.length >= 10) {
+        const e164 = normalizeE164Phone(rawIdentifier);
+        if (cleanMobile.length >= 10) {
             const orFilters = [
                 `mobile.eq.${cleanMobile}`,
                 `mobile.eq.+91${cleanMobile}`,
                 `mobile.eq.91${cleanMobile}`,
-                `mobile.eq.0${cleanMobile}`,
                 `mobile.ilike.%${cleanMobile}%`,
-                `employee_id.eq.${cleanIdentifier}`,
+                `employee_id.eq.${rawIdentifier}`,
+                `employee_code.eq.${rawIdentifier}`
             ];
+            if (e164) {
+                orFilters.unshift(`phone_normalized.eq.${e164}`);
+            }
             employeeQuery = employeeQuery.or(orFilters.join(','));
         } else {
-            employeeQuery = employeeQuery.or(`employee_id.ilike.${cleanIdentifier},mobile.ilike.%${cleanIdentifier}%`);
+            employeeQuery = employeeQuery.or(`employee_id.ilike.${rawIdentifier},employee_code.eq.${rawIdentifier},mobile.ilike.%${rawIdentifier}%`);
         }
 
         employeeQuery = employeeQuery.eq('is_deleted', false);
@@ -60,147 +78,175 @@ export async function POST(request: NextRequest) {
         }
 
         if (!employees || employees.length === 0) {
-            return NextResponse.json({ 
-                error: `No staff account found with identifier "${cleanIdentifier}". Please check your mobile number or contact your restaurant manager.` 
+            return NextResponse.json({
+                error: `No staff account found with mobile number "${searchMobile}". Please contact your restaurant manager.`
             }, { status: 404 });
         }
 
-        // Selection priority:
-        // A. If resolvedRestId is provided, look for delivery_boy in that restaurant
-        // B. Look for delivery_boy in any restaurant
-        // C. Look for any employee matching resolvedRestId
-        // D. First employee found
-        let employee = employees.find(e => 
-            e.role?.toLowerCase() === 'delivery_boy' && 
-            resolvedRestId && 
-            e.restaurant_id === resolvedRestId
+        // Prioritize delivery_boy role
+        let employee = employees.find(e =>
+            (e.role?.toLowerCase() === 'delivery_boy' || e.role?.toLowerCase() === 'delivery') &&
+            (!resolvedRestId || e.restaurant_id === resolvedRestId)
         );
 
         if (!employee) {
-            employee = employees.find(e => e.role?.toLowerCase() === 'delivery_boy');
-        }
-
-        if (!employee && resolvedRestId) {
-            employee = employees.find(e => e.restaurant_id === resolvedRestId);
+            employee = employees.find(e => e.role?.toLowerCase() === 'delivery_boy' || e.role?.toLowerCase() === 'delivery');
         }
 
         if (!employee) {
             employee = employees[0];
         }
 
-        // 3. Status checks and auto-activation
+        // 3. ROLE AUTHORIZATION CHECK (Delivery panel only allows delivery_boy / restaurant_admin)
+        const rawRole = (employee.role || '').toLowerCase().trim();
+        const isAuthorizedDelivery = ['delivery_boy', 'delivery', 'restaurant_admin', 'admin'].includes(rawRole);
+
+        if (!isAuthorizedDelivery) {
+            await recordAuthAuditLog({
+                restaurantId: employee.restaurant_id,
+                userId: employee.id,
+                employeeId: employee.employee_id,
+                action: 'unauthorized_panel_attempt',
+                ip,
+                device,
+                browser,
+                details: { attempted_panel: 'delivery', actual_role: rawRole }
+            });
+            return NextResponse.json({
+                error: `Access Denied: Role "${employee.role}" is not authorized to access the Delivery Panel.`
+            }, { status: 403 });
+        }
+
+        // 4. RATE LIMIT & LOCKOUT CHECK
+        const lockoutStatus = await checkRateLimitAndLockout(employee.id);
+        if (lockoutStatus.locked) {
+            const minutesLeft = Math.ceil((lockoutStatus.remainingCooldownSeconds || 60) / 60);
+            return NextResponse.json({
+                error: `Account is locked due to too many failed PIN attempts. Please try again in ${minutesLeft} minute${minutesLeft > 1 ? 's' : ''}.`
+            }, { status: 429 });
+        }
+
+        // 5. PIN VERIFICATION
+        let storedHash = employee.pin;
+        if (!storedHash) {
+            const { data: authRecord } = await supabaseAdmin
+                .from('auth')
+                .select('password_hash')
+                .eq('user_id', employee.id)
+                .maybeSingle();
+            storedHash = authRecord?.password_hash;
+        }
+
+        const isPinValid = await verifyPin(rawPin, storedHash);
+
+        if (!isPinValid) {
+            const failResult = await recordFailedAttempt(employee.id, {
+                restaurantId: employee.restaurant_id,
+                employeeId: employee.employee_id,
+                ip,
+                device,
+                browser,
+                panel: 'delivery',
+                method: 'pin'
+            });
+
+            if (failResult.locked) {
+                return NextResponse.json({
+                    error: 'Account locked due to 5 consecutive failed PIN attempts. Cooldown period: 15 minutes.'
+                }, { status: 429 });
+            }
+
+            return NextResponse.json({
+                error: `Incorrect employee PIN. (${5 - failResult.failedAttempts} attempt${5 - failResult.failedAttempts === 1 ? '' : 's'} remaining)`
+            }, { status: 401 });
+        }
+
+        // 6. EMPLOYEE STATUS CHECKS
         if (employee.is_deleted) {
             return NextResponse.json({ error: 'This delivery account has been deactivated.' }, { status: 403 });
         }
 
-        if (['pending_activation', 'pending', 'invited'].includes(employee.status) || employee.approval_status === 'pending_verification') {
+        if (employee.status === 'inactive' || employee.status === 'suspended') {
+            return NextResponse.json({
+                error: 'Account is disabled or suspended. Please contact your restaurant manager.'
+            }, { status: 403 });
+        }
+
+        // Auto-activate pending employee upon valid PIN entry
+        if (['pending_activation', 'pending', 'invited'].includes(employee.status)) {
             await supabaseAdmin
                 .from('employees')
                 .update({ status: 'active', approval_status: 'approved' })
                 .eq('id', employee.id);
             employee.status = 'active';
             employee.approval_status = 'approved';
-        } else if (employee.status === 'inactive' || employee.status === 'suspended') {
-            return NextResponse.json({ error: `Account is ${employee.status}. Contact your restaurant admin.` }, { status: 403 });
         }
 
-        if (employee.approval_status === 'rejected') {
-            return NextResponse.json({ error: 'Account application was rejected. Contact your restaurant admin.' }, { status: 403 });
+        // 7. RESTAURANT CHECK
+        if (employee.restaurant_id) {
+            const { data: rest } = await supabaseAdmin
+                .from('restaurants')
+                .select('id, name, status, slug')
+                .eq('id', employee.restaurant_id)
+                .maybeSingle();
+
+            if (rest && rest.status?.toLowerCase() === 'suspended') {
+                return NextResponse.json({ error: 'Restaurant account is currently suspended.' }, { status: 403 });
+            }
         }
 
-        // 4. Verify/Auto-heal delivery boy registration in delivery_boys table
-        let { data: deliveryBoy, error: dbErr } = await supabaseAdmin
-            .from('delivery_boys')
-            .select('id, status, vehicle_type, vehicle_number')
-            .eq('employee_id', employee.id)
-            .eq('restaurant_id', employee.restaurant_id)
-            .maybeSingle();
+        // 8. RESOLVE OR REGISTER DELIVERY BOY RECORD
+        let deliveryBoyRecord: any = null;
+        if (employee.restaurant_id) {
+            const { data: existingDb } = await supabaseAdmin
+                .from('delivery_boys')
+                .select('id, status, vehicle_type, vehicle_number')
+                .eq('employee_id', employee.id)
+                .eq('restaurant_id', employee.restaurant_id)
+                .maybeSingle();
 
-        if (!deliveryBoy) {
-            // Auto-heal: If employee has role delivery_boy, insert into delivery_boys
-            if (employee.role?.toLowerCase() === 'delivery_boy') {
-                const { data: newDb, error: insertErr } = await supabaseAdmin
+            if (existingDb) {
+                deliveryBoyRecord = existingDb;
+            } else {
+                const { data: newDb, error: insertDbErr } = await supabaseAdmin
                     .from('delivery_boys')
                     .upsert({
                         restaurant_id: employee.restaurant_id,
                         employee_id: employee.id,
-                        status: 'active',
+                        status: 'active'
                     }, { onConflict: 'restaurant_id,employee_id' })
                     .select('id, status, vehicle_type, vehicle_number')
-                    .single();
+                    .maybeSingle();
 
-                if (newDb) {
-                    deliveryBoy = newDb;
-                } else {
-                    console.error('[DeliveryLogin] Auto-heal delivery boy error:', insertErr);
+                if (!insertDbErr && newDb) {
+                    deliveryBoyRecord = newDb;
                 }
             }
         }
 
-        if (!deliveryBoy) {
-            return NextResponse.json({ 
-                error: 'You are not registered as a delivery boy for this restaurant. Contact your restaurant admin.' 
-            }, { status: 403 });
-        }
+        // 9. RESET FAILED ATTEMPTS
+        await resetFailedAttempts(employee.id, { ip, device, browser });
 
-        if (deliveryBoy.status === 'inactive') {
-            return NextResponse.json({ 
-                error: 'Your delivery account is currently inactive. Contact your restaurant admin.' 
-            }, { status: 403 });
-        }
-
-        // Update delivery boy status to active if offline
-        if (deliveryBoy.status === 'offline') {
-            await supabaseAdmin
-                .from('delivery_boys')
-                .update({ status: 'active', updated_at: new Date().toISOString() })
-                .eq('id', deliveryBoy.id);
-            deliveryBoy.status = 'active';
-        }
-
-        // 5. Fetch Restaurant details for slug cookies & validation
-        let restaurantName = 'Dine in One';
-        let restaurantSlug: string | null = null;
-        if (employee.restaurant_id) {
-            const { data: rest } = await supabaseAdmin
-                .from('restaurants')
-                .select('name, slug, status')
-                .eq('id', employee.restaurant_id)
-                .maybeSingle();
-            if (rest) {
-                if (rest.status === 'suspended') {
-                    return NextResponse.json({ error: 'Restaurant account is currently inactive.' }, { status: 403 });
-                }
-                restaurantName = rest.name || restaurantName;
-                restaurantSlug = rest.slug || null;
-            }
-        }
-
-        // 6. Sign JWT token & create dine_sessions entry
+        // 10. CREATE SESSION & SIGN JWT
         const sessionId = crypto.randomUUID();
         const currentSessionVersion = employee.session_version ?? 1;
 
-        const tokenPayload = {
+        const token = await signJwt({
             sessionId,
             userId: employee.id,
             name: employee.name,
+            role: 'delivery_boy',
+            sessionVersion: currentSessionVersion,
             email: employee.email || null,
             mobile: employee.mobile || cleanMobile,
-            role: 'delivery_boy',
-            restaurantId: employee.restaurant_id,
-            restaurant_id: employee.restaurant_id,
-            employee_id: employee.employee_id,
-            employeeId: employee.employee_id,
-            deliveryBoyId: deliveryBoy.id,
-            sessionVersion: currentSessionVersion,
-        };
+            restaurantId: employee.restaurant_id || null,
+            restaurant_id: employee.restaurant_id || null,
+            employee_id: employee.employee_id || null,
+            deliveryBoyId: deliveryBoyRecord?.id || null,
+        });
 
-        const token = await signJwt(tokenPayload, 3600 * 12); // 12-hour session
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-        const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
-        const userAgent = request.headers.get('user-agent') || 'unknown';
 
-        // Record active session
         await supabaseAdmin.from('dine_sessions').insert({
             id: sessionId,
             user_id: employee.id,
@@ -210,60 +256,69 @@ export async function POST(request: NextRequest) {
             is_active: true,
         });
 
-        // 7. Set auth cookies
-        const cleanRid = String(employee.restaurant_id).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-        const cleanDeliveryId = String(deliveryBoy.id).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-        const empMobile = String(employee.mobile || cleanMobile || '').replace(/[^0-9]/g, '').slice(-10);
-        const empId = String(employee.employee_id || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+        await recordAuthAuditLog({
+            restaurantId: employee.restaurant_id,
+            userId: employee.id,
+            employeeId: employee.employee_id,
+            action: 'login',
+            ip,
+            device,
+            browser,
+            details: { panel: 'delivery', method: 'pin', role: 'delivery_boy', deliveryBoyId: deliveryBoyRecord?.id }
+        });
+
+        const rid = employee.restaurant_id;
+        const dbId = deliveryBoyRecord?.id || 'default';
+        const redirectUrl = rid ? `/${rid}/delivery/${dbId}/dashboard` : '/';
 
         const isHttps = request.nextUrl?.protocol === 'https:' || request.headers.get('x-forwarded-proto') === 'https';
-        const isSecure = process.env.NODE_ENV === 'production' && isHttps;
-
-        const cookieOptions = {
-            path: '/',
-            httpOnly: false,
-            secure: isSecure,
-            sameSite: 'lax' as const,
-            maxAge: 3600 * 12,
-        };
-
-        const redirectUrl = `/${employee.restaurant_id}/delivery/${deliveryBoy.id}/dashboard`;
+        const cookieOpts = getAuthCookieOptions(isHttps);
 
         const response = NextResponse.json({
             success: true,
             redirectUrl,
-            session: tokenPayload,
-            user: employee,
-            deliveryBoy,
-            restaurantName,
-            restaurantSlug,
+            token,
+            user: {
+                id: employee.id,
+                internal_id: employee.internal_id,
+                employee_code: employee.employee_code,
+                legacy_reference: employee.legacy_reference || employee.employee_id,
+                name: employee.name,
+                role: 'delivery_boy',
+                email: employee.email || null,
+                mobile: employee.phone_normalized || employee.mobile || cleanMobile,
+                restaurant_id: employee.restaurant_id || null,
+                employee_id: employee.employee_code || employee.employee_id || null,
+                deliveryBoyId: dbId,
+                status: employee.status || 'active'
+            },
+            session: {
+                userId: employee.id,
+                internalId: employee.internal_id,
+                name: employee.name,
+                role: 'delivery_boy',
+                restaurantId: employee.restaurant_id || null,
+                employeeId: employee.employee_code || employee.employee_id || null,
+                deliveryBoyId: dbId,
+                mobile: employee.phone_normalized || employee.mobile || cleanMobile,
+            }
         });
 
-        // Default & delivery specific cookies
-        response.cookies.set('dine_auth_token', token, cookieOptions);
-        response.cookies.set('dine_auth_token_delivery', token, cookieOptions);
-        response.cookies.set(`dine_auth_token_${cleanRid}`, token, cookieOptions);
-        response.cookies.set(`dine_auth_token_${cleanRid}_delivery`, token, cookieOptions);
-        response.cookies.set(`dine_auth_token_${cleanRid}_${cleanDeliveryId}`, token, cookieOptions);
-        if (empMobile) {
-            response.cookies.set(`dine_auth_token_${cleanRid}_${empMobile}`, token, cookieOptions);
-            response.cookies.set(`dine_auth_token_staff_${empMobile}`, token, cookieOptions);
-        }
-        if (empId) {
-            response.cookies.set(`dine_auth_token_${cleanRid}_${empId}`, token, cookieOptions);
-        }
-        response.cookies.set(`dine_auth_token_staff_${cleanDeliveryId}`, token, cookieOptions);
-
-        // Also set cookies for slug if different from RID
-        if (restaurantSlug) {
-            const cleanSlug = String(restaurantSlug).toLowerCase().trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-            if (cleanSlug && cleanSlug !== cleanRid) {
-                response.cookies.set(`dine_auth_token_${cleanSlug}`, token, cookieOptions);
-                response.cookies.set(`dine_auth_token_${cleanSlug}_delivery`, token, cookieOptions);
-                response.cookies.set(`dine_auth_token_${cleanSlug}_${cleanDeliveryId}`, token, cookieOptions);
-                if (empMobile) {
-                    response.cookies.set(`dine_auth_token_${cleanSlug}_${empMobile}`, token, cookieOptions);
-                }
+        // Set secure cookies
+        response.cookies.set('dine_auth_token', token, cookieOpts);
+        response.cookies.set('dine_auth_token_delivery', token, cookieOpts);
+        if (rid) {
+            const cleanRid = String(rid).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+            response.cookies.set(`dine_auth_token_${cleanRid}`, token, cookieOpts);
+            response.cookies.set(`dine_auth_token_${cleanRid}_delivery`, token, cookieOpts);
+            if (dbId && dbId !== 'default') {
+                const cleanDbId = String(dbId).replace(/[^a-zA-Z0-9_-]/g, '_');
+                response.cookies.set(`dine_auth_token_${cleanRid}_${cleanDbId}`, token, cookieOpts);
+                response.cookies.set(`dine_auth_token_staff_${cleanDbId}`, token, cookieOpts);
+            }
+            if (cleanMobile) {
+                response.cookies.set(`dine_auth_token_${cleanRid}_${cleanMobile}`, token, cookieOpts);
+                response.cookies.set(`dine_auth_token_staff_${cleanMobile}`, token, cookieOpts);
             }
         }
 
@@ -271,6 +326,6 @@ export async function POST(request: NextRequest) {
 
     } catch (err: any) {
         console.error('[DeliveryLogin] Error:', err);
-        return NextResponse.json({ error: err.message || 'Login failed' }, { status: 500 });
+        return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
     }
 }

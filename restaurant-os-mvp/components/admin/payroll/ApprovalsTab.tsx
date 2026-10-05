@@ -125,7 +125,7 @@ export default function ApprovalsTab({ restaurantId }: ApprovalsTabProps) {
                                 pendingStaff.map((emp) => (
                                     <tr key={emp.id} className="hover:bg-neutral-50 transition-colors">
                                         <td className="px-6 py-4 font-mono text-xs font-semibold text-blue-600">
-                                            {emp.employee_id || '-'}
+                                            {emp.employee_code || emp.employee_id || '-'}
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center">

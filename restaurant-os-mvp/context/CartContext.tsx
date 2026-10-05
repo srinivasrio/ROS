@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { getCategoryMenuItemImage } from '@/lib/utils';
 
 export interface CartItem {
@@ -80,18 +80,31 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 export function CartProvider({ children }: { children: React.ReactNode }) {
     const [cart, setCart] = useState<Record<string, CartItem>>({});
     const [isLoaded, setIsLoaded] = useState(false);
-    const [tableNumber, setTableNumber] = useState<string | null>(null);
+    const [tableNumber, setTableNumberState] = useState<string | null>(null);
+
+    const setTableNumber = useCallback((newTable: string | null) => {
+        setTableNumberState(prev => {
+            if (prev && newTable && prev !== newTable) {
+                // Table switched! Wipe previous table's cart to prevent cross-table order leakage.
+                setCart({});
+                try {
+                    localStorage.removeItem('customer_cart');
+                } catch {}
+            }
+            return newTable;
+        });
+    }, []);
 
     // Load cart from localStorage on mount
     useEffect(() => {
         try {
+            const savedTable = localStorage.getItem('customer_table_number');
+            if (savedTable) {
+                setTableNumberState(savedTable);
+            }
             const savedCart = localStorage.getItem('customer_cart');
             if (savedCart) {
                 setCart(JSON.parse(savedCart));
-            }
-            const savedTable = localStorage.getItem('customer_table_number');
-            if (savedTable) {
-                setTableNumber(savedTable);
             }
         } catch (e) {
             console.error('Failed to parse cart from localStorage:', e);

@@ -3,6 +3,7 @@ interface OtpEntry {
     code: string;
     expiresAt: number;
     verified: boolean;
+    attempts: number;
 }
 
 const g = global as unknown as { __dineOtpStore?: Map<string, OtpEntry> };
@@ -27,7 +28,8 @@ export const OtpManager = {
         otpStore.set(cleanKey, {
             code: code.trim(),
             expiresAt: Date.now() + ttlSeconds * 1000,
-            verified: false
+            verified: false,
+            attempts: 0
         });
     },
 
@@ -36,14 +38,15 @@ export const OtpManager = {
         const cleanCode = code.trim();
         const entry = otpStore.get(cleanKey);
 
-        const isDev = process.env.NODE_ENV === 'development' || !process.env.SMS_GATEWAY_API_KEY;
+        const isDev = process.env.NODE_ENV === 'development';
         if (isDev && cleanCode === '123456') {
             if (entry) entry.verified = true;
             else {
                 otpStore.set(cleanKey, {
                     code: '123456',
                     expiresAt: Date.now() + 600 * 1000,
-                    verified: true
+                    verified: true,
+                    attempts: 0
                 });
             }
             return true;
@@ -55,10 +58,17 @@ export const OtpManager = {
             return false;
         }
 
+        if (entry.attempts >= 5) {
+            otpStore.delete(cleanKey);
+            return false;
+        }
+
         if (entry.code === cleanCode) {
             entry.verified = true;
             return true;
         }
+
+        entry.attempts += 1;
 
         return false;
     },

@@ -1,130 +1,86 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { signJwt } from '@/lib/jwt-utils';
-import argon2 from 'argon2';
+import { verifyPassword } from '@/lib/auth-utils';
+import { RateLimiter } from '@/lib/rate-limiter';
+import crypto from 'crypto';
 
+/**
+ * POST /api/auth/login
+ * 
+ * LEGACY ENDPOINT - DEPRECATED
+ * 
+ * This endpoint now ONLY supports the new multi-step authentication flow:
+ * 1. Password verification → returns requirement for email verification
+ * 2. Email verification → returns requirement for TOTP
+ * 3. TOTP verification → creates session
+ * 
+ * All default credential bypasses have been REMOVED.
+ * All plaintext password fallbacks have been REMOVED.
+ * 
+ * Use the new endpoints instead:
+ * - POST /api/auth/super-admin/login/initiate (password verification)
+ * - POST /api/auth/super-admin/login/verify-email (email OTP verification)
+ * - POST /api/auth/super-admin/login/verify-totp (TOTP verification)
+ */
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { email, password } = body;
+        const { email, password, step } = body;
 
-        if (!email || !password) {
-            return NextResponse.json({ success: false, error: 'Email and password are required' }, { status: 400 });
+        // If step is provided, redirect to appropriate new endpoint
+        if (step === 'initiate' || step === 'password') {
+            return NextResponse.json({
+                success: false,
+                error: 'This endpoint is deprecated. Use /api/auth/super-admin/login/initiate for password verification.',
+                redirectTo: '/api/auth/super-admin/login/initiate'
+            }, { status: 410 });
         }
 
-        const cleanEmail = email.toLowerCase().trim();
-
-        // 1. Fetch employee / user record with super admin role
-        const { data: employees, error: empError } = await supabaseAdmin
-            .from('employees')
-            .select('*')
-            .eq('email', cleanEmail);
-
-        if (empError) {
-            console.error('Super Admin login query error:', empError);
-            return NextResponse.json({ success: false, error: 'Database query failed' }, { status: 500 });
+        if (step === 'verify-email') {
+            return NextResponse.json({
+                success: false,
+                error: 'This endpoint is deprecated. Use /api/auth/super-admin/login/verify-email for email verification.',
+                redirectTo: '/api/auth/super-admin/login/verify-email'
+            }, { status: 410 });
         }
 
-        let employee = employees && employees.length > 0 ? employees[0] : null;
-
-        // Fallback search in dine_users
-        if (!employee) {
-            const { data: dineUsers } = await supabaseAdmin
-                .from('dine_users')
-                .select('*')
-                .eq('email', cleanEmail)
-                .maybeSingle();
-
-            if (dineUsers) {
-                employee = {
-                    id: dineUsers.id,
-                    name: dineUsers.name || 'Super Admin',
-                    email: dineUsers.email,
-                    role: dineUsers.role || 'SUPER_ADMIN'
-                };
-            }
+        if (step === 'verify-totp') {
+            return NextResponse.json({
+                success: false,
+                error: 'This endpoint is deprecated. Use /api/auth/super-admin/login/verify-totp for TOTP verification.',
+                redirectTo: '/api/auth/super-admin/login/verify-totp'
+            }, { status: 410 });
         }
 
-        if (!employee) {
-            return NextResponse.json({ success: false, error: 'Invalid credentials or non-existent account' }, { status: 401 });
-        }
-
-        // Verify Super Admin role
-        const role = (employee.role || '').toUpperCase();
-        if (role !== 'SUPER_ADMIN' && role !== 'SUPERADMIN' && cleanEmail !== 'superadmin@dineinone.com') {
-            return NextResponse.json({ success: false, error: 'Access denied: Super Admin privileges required' }, { status: 403 });
-        }
-
-        // 2. Verify password
-        const { data: authRecord } = await supabaseAdmin
-            .from('auth')
-            .select('*')
-            .eq('user_id', employee.id)
-            .maybeSingle();
-
-        let isPasswordValid = false;
-
-        if (authRecord?.password_hash) {
-            try {
-                if (authRecord.password_hash.startsWith('$argon2')) {
-                    isPasswordValid = await argon2.verify(authRecord.password_hash, password);
-                } else {
-                    isPasswordValid = (authRecord.password_hash === password);
+        // Legacy direct login attempt (should not work with new security model)
+        // This is kept only to return a clear error message
+        if (email && password) {
+            const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
+            
+            await supabaseAdmin.from('audit_logs').insert({
+                action: 'super_admin_legacy_login_attempt',
+                ip_address: ip,
+                details: { 
+                    email: email.toLowerCase().trim(),
+                    reason: 'deprecated_endpoint_used'
                 }
-            } catch (hashErr) {
-                console.warn('Argon2 verify failed, falling back to standard comparison:', hashErr);
-            }
+            });
+
+            return NextResponse.json({
+                success: false,
+                error: 'Direct login is no longer supported. Super Admin authentication now requires: Password → Email Verification → TOTP (Google Authenticator). Please use the new login flow.',
+                deprecated: true
+            }, { status: 410 });
         }
 
-        // Allow default superadmin credentials if matching
-        if (!isPasswordValid && cleanEmail === 'superadmin@dineinone.com' && password === 'Admin@12345') {
-            isPasswordValid = true;
-        }
-
-        if (!isPasswordValid) {
-            return NextResponse.json({ success: false, error: 'Invalid password. Please check your credentials.' }, { status: 401 });
-        }
-
-        // 3. Generate JWT Token
-        const token = await signJwt({
-            userId: employee.id,
-            email: cleanEmail,
-            name: employee.name || 'Super Admin',
-            role: 'SUPER_ADMIN',
-        }, 60 * 60 * 24); // 24 hours
-
-        // 4. Set Cookie & Response
-        const response = NextResponse.json({
-            success: true,
-            user: {
-                id: employee.id,
-                name: employee.name || 'Super Admin',
-                email: cleanEmail,
-                role: 'SUPER_ADMIN'
-            }
-        });
-
-        // Set secure HTTP-only cookies
-        response.cookies.set('dine_superadmin_token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 60 * 60 * 24
-        });
-
-        response.cookies.set('dine_auth_token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 60 * 60 * 24
-        });
-
-        return response;
+        return NextResponse.json({ 
+            success: false, 
+            error: 'Invalid request. Use the new multi-step authentication flow.' 
+        }, { status: 400 });
 
     } catch (err: any) {
-        console.error('Super Admin login error:', err);
-        return NextResponse.json({ success: false, error: err.message || 'Internal server error' }, { status: 500 });
+        console.error('Super Admin legacy login error:', err);
+        return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
     }
 }

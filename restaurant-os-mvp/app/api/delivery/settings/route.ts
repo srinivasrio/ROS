@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAdminUserFromRequest } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { verifyFeatureEntitlement } from '@/lib/entitlement-guard';
+import { canRestaurantAccessFeature } from '@/lib/entitlements';
 
 /**
  * GET /api/delivery/settings?restaurantId=xxx
@@ -19,6 +21,7 @@ export async function GET(request: NextRequest) {
         }
 
         const restaurantId = await resolveRestaurantId(rawRestaurantId) || rawRestaurantId;
+        const isEntitledToDelivery = await canRestaurantAccessFeature(restaurantId, 'delivery');
 
         const { data, error } = await supabaseAdmin
             .from('delivery_settings')
@@ -59,13 +62,15 @@ export async function GET(request: NextRequest) {
             });
         }
 
+        // If not entitled to delivery, force delivery_enabled and enabled to false
+        const effectiveDeliveryEnabled = isEntitledToDelivery ? (data?.delivery_enabled ?? false) : false;
+        const effectiveEnabled = isEntitledToDelivery ? (data?.enabled ?? false) : false;
+
         // Return defaults if no settings exist
         return NextResponse.json({
             settings: {
                 ...(data || {
                     restaurant_id: restaurantId,
-                    enabled: false,
-                    delivery_enabled: false,
                     dine_in_enabled: true,
                     takeaway_enabled: true,
                     delivery_fee: 0,
@@ -80,6 +85,9 @@ export async function GET(request: NextRequest) {
                     longitude: null,
                     address: '',
                 }),
+                enabled: effectiveEnabled,
+                delivery_enabled: effectiveDeliveryEnabled,
+                is_entitled_to_delivery: isEntitledToDelivery,
                 latitude: finalLat,
                 longitude: finalLng,
                 address: finalAddress,
@@ -128,6 +136,13 @@ export async function POST(request: NextRequest) {
         const rid = (await resolveRestaurantId(rawRid)) || rawRid;
 
         const isDeliveryActive = delivery_enabled !== undefined ? Boolean(delivery_enabled) : (enabled !== undefined ? Boolean(enabled) : false);
+
+        if (isDeliveryActive) {
+            const entitlementCheck = await verifyFeatureEntitlement(rid, 'delivery');
+            if (!entitlementCheck.allowed) {
+                return entitlementCheck.response;
+            }
+        }
 
         // Resolve delivery radius prioritizing delivery_order_radius then max_delivery_radius_km
         const resolvedDeliveryRadius = delivery_order_radius !== undefined && delivery_order_radius !== '' 

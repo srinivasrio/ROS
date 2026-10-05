@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useEffect, useCallback } from 'react';
 import { Save as LucideSave, Building as LucideBuilding, FileText as LucideFileText, CreditCard as LucideCreditCard, Award as LucideAward, Loader2 as LucideLoader2 } from 'lucide-react';
 import { useRestaurantId } from '@/hooks/useRestaurantId';

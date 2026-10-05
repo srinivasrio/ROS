@@ -2,6 +2,14 @@
  * Simple in-memory cache for Customer Panel data to enable "Instant Load"
  * across all bottom navigation tabs.
  */
+let _isHydrated = false;
+
+if (typeof window !== 'undefined') {
+    setTimeout(() => {
+        _isHydrated = true;
+    }, 0);
+}
+
 class CustomerCacheService {
     private cache: Map<string, { data: any; timestamp: number }> = new Map();
     private TTL = 1000 * 60 * 5; // 5 minutes cache
@@ -11,6 +19,7 @@ class CustomerCacheService {
     }
 
     set(restaurantId: string, page: string, data: any, extra?: string) {
+        if (typeof window === 'undefined') return;
         const key = this.getCacheKey(restaurantId, page, extra);
         this.cache.set(key, {
             data,
@@ -19,6 +28,7 @@ class CustomerCacheService {
     }
 
     get(restaurantId: string, page: string, extra?: string) {
+        if (typeof window === 'undefined' || !_isHydrated) return null;
         const key = this.getCacheKey(restaurantId, page, extra);
         const entry = this.cache.get(key);
         

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowRight, ShieldCheck, UtensilsCrossed, Loader2, User } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { springSnap, haptic } from '../components/ui';
+import { setDineToken } from '@/lib/supabase';
 
 function WaiterLoginInner() {
     const params = useParams();
@@ -65,8 +66,15 @@ function WaiterLoginInner() {
             try {
                 sessionStorage.setItem('waiterSession', JSON.stringify(sessionData));
             } catch (_) {}
-            const targetRestaurant = data.session.restaurantId || restaurantCode;
-            router.push(`/${targetRestaurant}/waiter/${waiterMobile}/dashboard`);
+            if (data.token) {
+                setDineToken(data.token);
+            }
+            const redirectParam = searchParams.get('redirect');
+            const targetRestaurant = data.session?.restaurantId || restaurantCode;
+            const targetUrl = (redirectParam && redirectParam.startsWith('/'))
+                ? redirectParam
+                : `/${targetRestaurant}/waiter/${waiterMobile}/dashboard`;
+            window.location.href = targetUrl;
         } catch (err) {
             console.error('Login error', err);
             setError('Connection failed. Please try again.');

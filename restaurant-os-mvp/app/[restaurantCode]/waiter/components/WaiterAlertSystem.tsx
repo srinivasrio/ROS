@@ -247,9 +247,10 @@ function TableAccessAlert({ request, onApprove, onDecline, onDismiss }: {
 function IncomingRequestAlert({ request, details, onAccept, onDismiss }: {
     request: ServiceRequest & { count: number };
     details: { label: string; icon: any; image?: string | null; color: string };
-    onAccept: () => void;
+    onAccept: () => Promise<void> | void;
     onDismiss: () => void;
 }) {
+    const [submitting, setSubmitting] = useState(false);
     const Icon = details.icon;
     const cleanNote = cleanDisplayNote(request.notes);
     return (
@@ -304,16 +305,32 @@ function IncomingRequestAlert({ request, details, onAccept, onDismiss }: {
 
             <div className="flex gap-2.5 mt-5">
                 <button
+                    disabled={submitting}
                     onClick={() => { haptic.light(); onDismiss(); }}
-                    className="flex-1 h-12 rounded-[14px] bg-white border-[1.5px] border-w-border-strong text-w-ink-soft text-sm font-bold active:scale-[0.97] transition-transform"
+                    className="flex-1 h-12 rounded-[14px] bg-white border-[1.5px] border-w-border-strong text-w-ink-soft text-sm font-bold active:scale-[0.97] transition-transform disabled:opacity-50"
                 >
                     Dismiss
                 </button>
                 <button
-                    onClick={() => { haptic.success(); onAccept(); }}
-                    className="flex-[2] h-12 rounded-[14px] bg-w-brand text-white text-sm font-extrabold shadow-[0_4px_12px_rgba(255,107,53,0.35)] active:scale-[0.97] transition-transform inline-flex items-center justify-center gap-2"
+                    disabled={submitting}
+                    onClick={async () => {
+                        setSubmitting(true);
+                        haptic.success();
+                        try {
+                            await onAccept();
+                        } finally {
+                            setSubmitting(false);
+                        }
+                    }}
+                    className="flex-[2] h-12 rounded-[14px] bg-w-brand text-white text-sm font-extrabold shadow-[0_4px_12px_rgba(255,107,53,0.35)] active:scale-[0.97] transition-transform inline-flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                    <CheckCheck size={18} /> Accept Request
+                    {submitting ? (
+                        <Spinner className="size-4 text-white" />
+                    ) : (
+                        <>
+                            <CheckCheck size={18} /> Accept Request
+                        </>
+                    )}
                 </button>
             </div>
         </motion.div>
@@ -452,7 +469,9 @@ export default function WaiterAlertSystem() {
             } catch (fetchErr) {
                 console.error('Failed to revert optimistic update:', fetchErr);
             }
-            toast.error(err.message || 'Failed to accept service request.');
+            if (!err?.message?.includes('already been accepted')) {
+                toast.error(err.message || 'Failed to accept service request.');
+            }
         }
     };
 
@@ -536,7 +555,7 @@ export default function WaiterAlertSystem() {
             acc[key].ids.push(alert.id);
             return acc;
         }, {} as Record<string, ServiceRequest & { count: number; ids: number[] }>),
-    ).filter((r) => r.request_status === 'pending' || r.request_status === 'accepted');
+    ).filter((r) => r.request_status === 'pending');
 
     const topAlert = groupedAlerts[groupedAlerts.length - 1];
 
@@ -606,6 +625,7 @@ export default function WaiterAlertSystem() {
                             request={topAlert}
                             details={getServiceRequestDetails(topAlert.request_type, restaurantId || undefined)}
                             onAccept={async () => {
+                                handleDismissGroup(topAlert.ids);
                                 await handleAcceptGroup(topAlert.ids);
                                 toast.success(`Accepted request from Table ${topAlert.tables?.table_number}`);
                             }}

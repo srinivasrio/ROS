@@ -96,7 +96,7 @@ final menuRepositoryProvider = Provider<MenuRepository>((ref) => MenuRepository(
 final menuControllerProvider = StateNotifierProvider<MenuController, MenuState>((ref) {
   final repository = ref.watch(menuRepositoryProvider);
   final authState = ref.watch(authControllerProvider);
-  final restaurantId = authState.session?.restaurantId ?? '202603180001';
+  final restaurantId = authState.session?.restaurantId;
 
   return MenuController(repository, restaurantId);
 });
@@ -106,14 +106,18 @@ class MenuController extends StateNotifier<MenuState> {
   String? _restaurantId;
 
   MenuController(this._repository, this._restaurantId) : super(const MenuState()) {
-    if (_restaurantId != null) {
+    if (_restaurantId != null && _restaurantId!.trim().isNotEmpty) {
       loadMenu();
     }
   }
 
   Future<void> loadMenu([String? restaurantId]) async {
-    if (restaurantId != null) _restaurantId = restaurantId;
-    final restId = _restaurantId ?? '202603180001';
+    if (restaurantId != null && restaurantId.trim().isNotEmpty) _restaurantId = restaurantId.trim();
+    final restId = _restaurantId;
+    if (restId == null || restId.trim().isEmpty) {
+      state = state.copyWith(isLoading: false, categories: [], allItems: []);
+      return;
+    }
     state = state.copyWith(isLoading: true, errorMessage: null);
 
     try {

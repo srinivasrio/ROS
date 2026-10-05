@@ -440,7 +440,7 @@ export const DeliveryService = {
         if (order.status === 'placed') {
             await client
                 .from('orders')
-                .update({ status: 'preparing', updated_at: new Date().toISOString() })
+                .update({ status: 'preparing' })
                 .eq('id', orderId)
                 .eq('restaurant_id', rid);
         }

@@ -12,11 +12,13 @@ import { toast } from 'sonner';
 import { useParams } from 'next/navigation';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
 import { LoadingState } from '@/components/ui/LoadingState';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 export default function InventoryDashboard() {
     const params = useParams();
     const urlRestaurantCode = (params?.restaurantCode as string) || '';
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
+    const { loading: entLoading, hasFeature } = useEntitlements(urlRestaurantCode);
     const activeResId = restaurantId || urlRestaurantCode;
     const cacheKey = `inventory-${activeResId}`;
     const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`inventory-${urlRestaurantCode}`) : null);
@@ -50,14 +52,14 @@ export default function InventoryDashboard() {
     const closeModal = () => setModalConfig(prev => ({ ...prev, isOpen: false }));
 
     useEffect(() => {
-        if (!restaurantLoading && activeResId) {
+        if (!restaurantLoading && !entLoading && hasFeature('inventory') && activeResId) {
             loadData(false);
         }
-    }, [activeResId, restaurantLoading]);
+    }, [activeResId, restaurantLoading, entLoading, hasFeature]);
 
     const loadData = async (force = false) => {
         const targetResId = restaurantId || urlRestaurantCode;
-        if (!targetResId) return;
+        if (!targetResId || !hasFeature('inventory')) return;
         const currentCacheKey = `inventory-${targetResId}`;
 
         if (!force && hasFreshCache(currentCacheKey)) {

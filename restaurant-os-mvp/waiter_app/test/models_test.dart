@@ -184,8 +184,9 @@ void main() {
         assignedWaiterId: null,
       );
 
-      expect(unassignedReq.isVisibleToUser(currentUserId: 'waiter-1', userRole: 'waiter'), true);
-      expect(unassignedReq.isVisibleToUser(currentUserId: 'waiter-2', userRole: 'waiter'), true);
+      expect(unassignedReq.isVisibleToUser(currentUserId: 'waiter-1', userRole: 'waiter'), false);
+      expect(unassignedReq.isVisibleToUser(currentUserId: 'waiter-2', userRole: 'waiter'), false);
+      expect(unassignedReq.isVisibleToUser(currentUserId: 'admin-1', userRole: 'admin'), true);
     });
 
     test('Co-waiters can view customer requests and manage co-managed tables', () {

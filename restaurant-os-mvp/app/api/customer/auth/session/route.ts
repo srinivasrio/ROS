@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyJwt, extractCustomerTokenForRestaurant } from '@/lib/jwt-utils';
-import { CustomerService } from '@/services/customers.service';
+import { CustomerService } from '@/services/customers.server.service';
 import { resolveRestaurantId } from '@/services/utils.service';
 
 /**

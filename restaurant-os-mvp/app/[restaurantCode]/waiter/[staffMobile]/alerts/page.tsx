@@ -110,7 +110,7 @@ export default function WaiterAlerts() {
                 if (!activeRef.current) return;
                 setWaiterRecord(waiter);
 
-                if (waiter?.id) {
+                if ((waiter as any)?.id) {
                     await loadAlerts(waiter, hasCache);
 
                     sub = OrderService.subscribeToServiceRequests(
@@ -133,12 +133,21 @@ export default function WaiterAlerts() {
                                 loadAlerts(waiter, true);
                             }
                         },
-                        waiter.id,
+                        (waiter as any).id,
                     );
 
-                    /* 15s silent polling — realtime handles instant updates */
-                    const poll = setInterval(() => loadAlerts(waiter, true), 15000);
-                    (activeRef as any).poll = poll;
+                    // Controlled synchronization on tab visibility / reconnection (P0 fix WT-01)
+                    const handleSyncOnVisible = () => {
+                        if (document.visibilityState === 'visible' && activeRef.current) {
+                            loadAlerts(waiter, true);
+                        }
+                    };
+                    document.addEventListener('visibilitychange', handleSyncOnVisible);
+                    window.addEventListener('online', handleSyncOnVisible);
+                    (activeRef as any).cleanupSync = () => {
+                        document.removeEventListener('visibilitychange', handleSyncOnVisible);
+                        window.removeEventListener('online', handleSyncOnVisible);
+                    };
                 } else {
                     setLoading(false);
                 }
@@ -154,7 +163,7 @@ export default function WaiterAlerts() {
 
         return () => {
             activeRef.current = false;
-            if ((activeRef as any).poll) clearInterval((activeRef as any).poll);
+            if ((activeRef as any).cleanupSync) (activeRef as any).cleanupSync();
             if (sub) sub.unsubscribe();
             cacheSub.unsubscribe();
         };

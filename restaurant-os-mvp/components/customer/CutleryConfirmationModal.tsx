@@ -19,19 +19,19 @@ const CUTLERY_ITEMS: CutleryItem[] = [
         id: 'spoon',
         label: 'Spoon',
         subtitle: 'Dining & dessert spoon',
-        image: '/services/spoon.jpg',
+        image: '/services/spoon.webp',
     },
     {
         id: 'knife',
         label: 'Knife',
         subtitle: 'Table & butter knife',
-        image: '/services/knife.jpg',
+        image: '/services/knife.webp',
     },
     {
         id: 'fork',
         label: 'Fork',
         subtitle: 'Dinner & salad fork',
-        image: '/services/fork.jpg',
+        image: '/services/fork.webp',
     },
 ];
 

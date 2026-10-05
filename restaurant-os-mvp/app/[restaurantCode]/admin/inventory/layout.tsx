@@ -3,18 +3,32 @@
 import Link from 'next/link';
 import { usePathname, useParams } from 'next/navigation';
 import { LayoutDashboard as LucideLayoutDashboard, BookOpen as LucideBookOpen, Calendar as LucideCalendar, Bell as LucideBell } from 'lucide-react';
-import { motion } from 'framer-motion';
+import FeatureLockedGate from '@/components/FeatureLockedGate';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 export default function InventoryLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const params = useParams();
-    const restaurantId = params.restaurantId as string;
+    const restaurantCode = (params.restaurantCode || params.restaurantId) as string;
+    const { loading, hasFeature, planName, isSuspended, isExpired } = useEntitlements(restaurantCode);
+
+    if (!loading && !hasFeature('inventory')) {
+        return (
+            <FeatureLockedGate
+                feature="inventory"
+                restaurantCode={restaurantCode}
+                currentPlanName={planName}
+                isSuspended={isSuspended}
+                isExpired={isExpired}
+            />
+        );
+    }
 
     const tabs = [
-        { href: `/${restaurantId}/admin/inventory`, icon: LucideLayoutDashboard, label: 'Dashboard' },
-        { href: `/${restaurantId}/admin/inventory/recipes`, icon: LucideBookOpen, label: 'Recipe Mapping' },
-        { href: `/${restaurantId}/admin/inventory/calendar`, icon: LucideCalendar, label: 'Festival Calendar' },
-        { href: `/${restaurantId}/admin/inventory/alerts`, icon: LucideBell, label: 'Alerts & Suggestions' },
+        { href: `/${restaurantCode}/admin/inventory`, icon: LucideLayoutDashboard, label: 'Dashboard' },
+        { href: `/${restaurantCode}/admin/inventory/recipes`, icon: LucideBookOpen, label: 'Recipe Mapping' },
+        { href: `/${restaurantCode}/admin/inventory/calendar`, icon: LucideCalendar, label: 'Festival Calendar' },
+        { href: `/${restaurantCode}/admin/inventory/alerts`, icon: LucideBell, label: 'Alerts & Suggestions' },
     ];
 
     return (
@@ -38,7 +52,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
                                     <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
                                 )}
                             </Link>
-                        )
+                        );
                     })}
                 </nav>
             </header>

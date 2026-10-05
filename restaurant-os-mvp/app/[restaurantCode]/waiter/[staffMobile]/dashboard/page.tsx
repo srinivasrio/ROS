@@ -97,6 +97,11 @@ export default function WaiterDashboard() {
         waiterRecordRef.current = waiterRecord;
     }, [waiterRecord]);
     const reloadDebounceRef = useRef<NodeJS.Timeout | null>(null);
+    const restaurantNameRef = useRef(restaurantName);
+    useEffect(() => { restaurantNameRef.current = restaurantName; }, [restaurantName]);
+    const restaurantLogoRef = useRef(restaurantLogo);
+    useEffect(() => { restaurantLogoRef.current = restaurantLogo; }, [restaurantLogo]);
+    const loadTablesRef = useRef<((background?: boolean) => Promise<void>) | null>(null);
 
     const [pendingCartCount, setPendingCartCount] = useState<number>(0);
 
@@ -251,8 +256,8 @@ export default function WaiterDashboard() {
                     tables: rows,
                     orders: activeOrders || [],
                     areas: areaRows.length > 0 ? areaRows : (cachedDashboard?.areas || []),
-                    restaurantName: restaurantName || cachedDashboard?.restaurantName || '',
-                    restaurantLogo: restaurantLogo || cachedDashboard?.restaurantLogo || null
+                    restaurantName: restaurantNameRef.current || cachedDashboard?.restaurantName || '',
+                    restaurantLogo: restaurantLogoRef.current || cachedDashboard?.restaurantLogo || null
                 };
             }
         } catch (e) {
@@ -261,14 +266,18 @@ export default function WaiterDashboard() {
             setLoading(false);
             setRefreshing(false);
         }
-    }, [restaurantId, restaurantName, restaurantLogo]);
+    }, [restaurantId]);
+
+    useEffect(() => {
+        loadTablesRef.current = loadTables;
+    }, [loadTables]);
 
     const debouncedReload = useCallback(() => {
         if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
         reloadDebounceRef.current = setTimeout(() => {
-            loadTables(true);
+            loadTablesRef.current?.(true);
         }, 250);
-    }, [loadTables]);
+    }, []);
 
     const handleTableCleared = useCallback((targetId: string | number) => {
         setTables((prev) =>
@@ -301,14 +310,23 @@ export default function WaiterDashboard() {
         if (!restaurantLoading && restaurantId) {
             loadTables();
 
-            const t1 = setInterval(() => loadTables(true), 30000);
+            // Controlled sync on tab visibility or network reconnection (P0 fix WT-01)
+            const handleSyncOnVisible = () => {
+                if (document.visibilityState === 'visible') {
+                    debouncedReload();
+                }
+            };
+            document.addEventListener('visibilitychange', handleSyncOnVisible);
+            window.addEventListener('online', handleSyncOnVisible);
+
             const subTables = OrderService.subscribeToTables(restaurantId, debouncedReload);
             const subOrders = OrderService.subscribeToOrders(restaurantId, debouncedReload);
             const subItems = OrderService.subscribeToOrderItems(restaurantId, debouncedReload);
             const subMerge = OrderService.subscribeToMergeGroups(restaurantId, debouncedReload);
 
             return () => {
-                clearInterval(t1);
+                document.removeEventListener('visibilitychange', handleSyncOnVisible);
+                window.removeEventListener('online', handleSyncOnVisible);
                 if (reloadDebounceRef.current) clearTimeout(reloadDebounceRef.current);
                 subTables.unsubscribe();
                 subOrders.unsubscribe();
@@ -401,10 +419,15 @@ export default function WaiterDashboard() {
 
         const isAdmin = waiterRecord?.role && ['admin', 'supervisor', 'restaurant_admin'].includes(waiterRecord.role);
 
+        const waiterId = waiterRecord?.id ? String(waiterRecord.id).toLowerCase() : '';
+        const waiterEmpId = waiterRecord?.employee_id ? String(waiterRecord.employee_id).toLowerCase() : '';
+        const waiterMobile = waiterRecord?.mobile ? String(waiterRecord.mobile).trim() : '';
+
         tables.forEach((t: any) => {
-            const isMine = !!waiterRecord?.id && t.assigned_waiter_id === waiterRecord.id;
-            const coWaiters: string[] = Array.isArray(t.co_waiter_ids) ? t.co_waiter_ids : [];
-            const isCo = !!waiterRecord?.id && coWaiters.includes(waiterRecord.id);
+            const assignedId = t.assigned_waiter_id ? String(t.assigned_waiter_id).toLowerCase() : '';
+            const isMine = !!(waiterId && assignedId && (assignedId === waiterId || (waiterEmpId && assignedId === waiterEmpId) || (waiterMobile && assignedId === waiterMobile)));
+            const coWaiters: string[] = Array.isArray(t.co_waiter_ids) ? t.co_waiter_ids.map((x: any) => String(x).toLowerCase()) : [];
+            const isCo = !!(waiterId && (coWaiters.includes(waiterId) || (waiterEmpId && coWaiters.includes(waiterEmpId))));
             const canManage = !!isAdmin || isMine || isCo || !t.assigned_waiter_id;
 
             if (t.is_merged && t.merged_group_id) {
@@ -452,11 +475,16 @@ export default function WaiterDashboard() {
 
     const isAssignedToMe = useCallback((t: FloorTable) => {
         if (!waiterRecord?.id) return false;
-        const isMine = t.assigned_waiter_id === waiterRecord.id;
-        const coWaiters = Array.isArray(t.co_waiter_ids) ? t.co_waiter_ids : [];
-        const isCo = coWaiters.includes(waiterRecord.id);
+        const waiterId = String(waiterRecord.id).toLowerCase();
+        const waiterEmpId = waiterRecord.employee_id ? String(waiterRecord.employee_id).toLowerCase() : '';
+        const waiterMobile = waiterRecord.mobile ? String(waiterRecord.mobile).trim() : '';
+
+        const assignedId = t.assigned_waiter_id ? String(t.assigned_waiter_id).toLowerCase() : '';
+        const isMine = !!(assignedId && (assignedId === waiterId || (waiterEmpId && assignedId === waiterEmpId) || (waiterMobile && assignedId === waiterMobile)));
+        const coWaiters = Array.isArray(t.co_waiter_ids) ? t.co_waiter_ids.map((id: any) => String(id).toLowerCase()) : [];
+        const isCo = coWaiters.includes(waiterId) || (waiterEmpId ? coWaiters.includes(waiterEmpId) : false);
         return isMine || isCo;
-    }, [waiterRecord?.id]);
+    }, [waiterRecord]);
 
     const { allTables, myTables, otherTables, availableTables, readyTables, preparingTables } = useMemo(() => {
         const areaFiltered = areaFilter

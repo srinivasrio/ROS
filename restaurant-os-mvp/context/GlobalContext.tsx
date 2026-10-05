@@ -61,7 +61,16 @@ export function GlobalContextProvider({ children }: { children: React.ReactNode 
     const stateRef = useRef(state);
     stateRef.current = state;
 
-    const refreshContext = useCallback(async () => {
+    // Cache user profile & restaurant context for 60 seconds across route navigations (P2-05 / AU-01)
+    const userSessionCacheRef = useRef<{
+        userId: string;
+        role: string | null;
+        restaurantId: string | null;
+        staffId: string | null;
+        cachedAt: number;
+    } | null>(null);
+
+    const refreshContext = useCallback(async (force = false) => {
         try {
             // Only show hard loading state if we don't have any context yet
             // This prevents UI flashing during navigation
@@ -78,7 +87,7 @@ export function GlobalContextProvider({ children }: { children: React.ReactNode 
             else if (pathname.includes('/supervisor')) panel = 'supervisor';
             else if (pathname.includes('/menu') || pathname.includes('/order')) panel = 'customer';
 
-            // 2. Fetch Session & Profile (optional)
+            // 2. Fetch Session & Profile (reusing context cache if available)
             let role = null;
             let staffId = null;
             let sessionId = null;
@@ -88,25 +97,44 @@ export function GlobalContextProvider({ children }: { children: React.ReactNode 
                 const { data: { session } } = await supabase.auth.getSession();
                 if (session?.user) {
                     sessionId = session.user.id;
-                    const { data: profile } = await supabase
-                        .from('users')
-                        .select('role, restaurant_id, branch_id')
-                        .eq('id', session.user.id)
-                        .single();
+                    const now = Date.now();
+                    const cached = userSessionCacheRef.current;
 
-                    if (profile) {
-                        role = profile.role;
-                        restaurantId = profile.restaurant_id || restaurantId;
-                        
-                        // If user has a specific staff record
-                        const { data: staff } = await supabase
-                            .from('staff')
-                            .select('id')
-                            .eq('user_id', session.user.id)
-                            .maybeSingle();
-                        
-                        if (staff) staffId = staff.id;
+                    if (!force && cached && cached.userId === session.user.id && (now - cached.cachedAt) < 60000) {
+                        role = cached.role;
+                        restaurantId = cached.restaurantId || restaurantId;
+                        staffId = cached.staffId;
+                    } else {
+                        const { data: profile } = await (supabase
+                            .from('users')
+                            .select('role, restaurant_id, branch_id')
+                            .eq('id', session.user.id)
+                            .single() as any);
+
+                        if (profile) {
+                            role = profile.role;
+                            restaurantId = profile.restaurant_id || restaurantId;
+
+                            // If user has a specific staff record
+                            const { data: staff } = await (supabase
+                                .from('staff')
+                                .select('id')
+                                .eq('user_id', session.user.id)
+                                .maybeSingle() as any);
+
+                            if (staff) staffId = staff.id;
+                        }
+
+                        userSessionCacheRef.current = {
+                            userId: session.user.id,
+                            role,
+                            restaurantId,
+                            staffId,
+                            cachedAt: now,
+                        };
                     }
+                } else {
+                    userSessionCacheRef.current = null;
                 }
             } catch (_) {
                 // Ignore auth session check failures in global context
@@ -150,6 +178,20 @@ export function GlobalContextProvider({ children }: { children: React.ReactNode 
 
     useEffect(() => {
         refreshContext();
+    }, [refreshContext]);
+
+    // Invalidate cached context on auth changes (login, logout, token refresh)
+    useEffect(() => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+            if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+                userSessionCacheRef.current = null;
+                refreshContext(true);
+            }
+        });
+
+        return () => {
+            subscription.unsubscribe();
+        };
     }, [refreshContext]);
 
     const validateContext = useCallback((required: (keyof GlobalContextState)[]) => {

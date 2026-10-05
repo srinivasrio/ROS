@@ -4,11 +4,23 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { OrderService, type Order, type OrderStatus, type TableMergeGroup } from '@/services/orders.service';
 import KitchenTicket from '@/components/kitchen/KitchenTicket';
-import { Table as LucideTable, ChevronDown as LucideChevronDown, ChefHat as LucideChefHat, CheckCircle as LucideCheckCircle, Utensils as LucideUtensils, Clock as LucideClock } from 'lucide-react';
+import { 
+    Table as LucideTable, 
+    ChevronDown as LucideChevronDown, 
+    ChefHat as LucideChefHat, 
+    CheckCircle as LucideCheckCircle, 
+    Utensils as LucideUtensils, 
+    Clock as LucideClock,
+    Volume2,
+    VolumeX,
+    Sparkles,
+    AlertCircle
+} from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { UserService } from '@/services/users.service';
 import { useRestaurantId } from '@/hooks/useRestaurantId';
 import { getCached, setCache } from '@/lib/data-cache';
+import { toast } from 'sonner';
 
 interface OrderKanbanBoardProps {
     isReadOnly?: boolean;
@@ -16,17 +28,32 @@ interface OrderKanbanBoardProps {
     density?: 'compact' | 'comfortable';
 }
 
-export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen Display System', density = 'comfortable' }: OrderKanbanBoardProps) {
+export default function OrderKanbanBoard({ 
+    isReadOnly = false, 
+    title = 'Kitchen Display System', 
+    density = 'comfortable' 
+}: OrderKanbanBoardProps) {
     const params = useParams();
     const urlRestaurantCode = (params?.restaurantCode as string) || '';
-    const { restaurantId, loading: profileLoading } = useRestaurantId();
+    const { restaurantId, loading: profileLoading, branchId } = useRestaurantId();
     const activeResId = restaurantId || urlRestaurantCode;
-    const cacheKey = `kds-${activeResId}`;
+    const cacheKey = `kds-${activeResId}${branchId ? `-${branchId}` : ''}`;
     const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`kds-${urlRestaurantCode}`) : null);
+    
     const [orders, setOrders] = useState<Order[]>(cached?.orders || []);
     const [mergeGroups, setMergeGroups] = useState<TableMergeGroup[]>(cached?.mergeGroups || []);
     const [loading, setLoading] = useState(!cached && orders.length === 0);
+    const [audioBlocked, setAudioBlocked] = useState(false);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+    
     const currentProfileRef = useRef<any>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const alertedOrderIds = useRef<Set<string>>(new Set());
+    const isInitialLoad = useRef(true);
 
     useEffect(() => {
         if (restaurantId) {
@@ -35,6 +62,70 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
             }).catch(console.error);
         }
     }, [restaurantId]);
+
+    // Audio Playback Handler
+    const playAlertSound = () => {
+        try {
+            if (!audioRef.current) {
+                audioRef.current = new Audio('/sounds/alert.mp3');
+            }
+            audioRef.current.currentTime = 0;
+            const playPromise = audioRef.current.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(() => {
+                    setAudioBlocked(true);
+                });
+            }
+        } catch {
+            setAudioBlocked(true);
+        }
+    };
+
+    const enableAudio = () => {
+        try {
+            if (!audioRef.current) {
+                audioRef.current = new Audio('/sounds/alert.mp3');
+            }
+            audioRef.current.play().then(() => {
+                audioRef.current?.pause();
+                if (audioRef.current) audioRef.current.currentTime = 0;
+                setAudioBlocked(false);
+                toast.success('Audio alerts active for new incoming tickets');
+            }).catch(() => {
+                setAudioBlocked(true);
+            });
+        } catch {
+            setAudioBlocked(true);
+        }
+    };
+
+    // Track incoming orders and trigger audio alerts
+    useEffect(() => {
+        if (loading) return;
+
+        if (isInitialLoad.current) {
+            orders.forEach(o => alertedOrderIds.current.add(o.id));
+            isInitialLoad.current = false;
+            return;
+        }
+
+        const incomingOrders = orders.filter(o => o.status === 'placed' || o.status === 'queued');
+        let hasNew = false;
+        incomingOrders.forEach(o => {
+            if (!alertedOrderIds.current.has(o.id)) {
+                alertedOrderIds.current.add(o.id);
+                hasNew = true;
+            }
+        });
+
+        if (hasNew) {
+            playAlertSound();
+            toast.info('New incoming order ticket received!', {
+                icon: '🔔',
+                duration: 4000
+            });
+        }
+    }, [orders, loading]);
 
     // Initial Fetch & Real-time Subscription
     useEffect(() => {
@@ -52,8 +143,8 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
             isFetching = true;
             try {
                 const [ordersRes, groupsRes] = await Promise.allSettled([
-                    OrderService.fetchActiveOrders(restaurantId),
-                    OrderService.fetchMergeGroups(restaurantId)
+                    OrderService.fetchActiveOrders(restaurantId, undefined, branchId || undefined),
+                    OrderService.fetchMergeGroups(restaurantId, undefined, branchId || undefined)
                 ]);
                 const finalOrders = ordersRes.status === 'fulfilled' ? (ordersRes.value || []) : [];
                 const finalGroups = groupsRes.status === 'fulfilled' ? (groupsRes.value || []) : [];
@@ -95,7 +186,15 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
         const handleOnline = () => {
             debouncedLoadOrders();
         };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                debouncedLoadOrders();
+            }
+        };
+
         window.addEventListener('online', handleOnline);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
 
         loadOrders();
 
@@ -105,8 +204,12 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
             } else if (payload.eventType === 'UPDATE') {
                 const updatedOrder = payload.new as any;
                 if (!updatedOrder) return;
+                if (branchId && updatedOrder.branch_id && updatedOrder.branch_id !== branchId) {
+                    setOrders(prev => prev.filter(o => o.id !== updatedOrder.id));
+                    return;
+                }
                 setOrders(prev => {
-                    if (updatedOrder.is_completed || !['placed', 'preparing', 'ready', 'served', 'paid'].includes(updatedOrder.status)) {
+                    if (updatedOrder.is_completed || !['queued', 'placed', 'preparing', 'ready', 'served', 'paid'].includes(updatedOrder.status)) {
                         return prev.filter(o => o.id !== updatedOrder.id);
                     }
                     const exists = prev.some(o => o.id === updatedOrder.id);
@@ -170,60 +273,78 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
         return () => {
             if (debounceTimer) clearTimeout(debounceTimer);
             window.removeEventListener('online', handleOnline);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
             subscription.unsubscribe();
             itemSubscription.unsubscribe();
         };
-    }, [profileLoading, restaurantId]);
-
+    }, [profileLoading, restaurantId, branchId]);
 
     const getEffectiveOrderStatus = (order: Order): OrderStatus => {
         const activeItems = (order.items || []).filter(item => item.status !== 'cancelled');
         if (activeItems.length === 0) {
-            return (order.status as OrderStatus) || 'placed';
+            return (order.status === 'queued' ? 'placed' : (order.status as OrderStatus)) || 'placed';
         }
 
         const itemStatuses = activeItems.map(i => i.status?.toLowerCase());
 
-        // 1. First priority: Even ONE item in incoming -> table should be in Incoming
+        // 1. First priority: Even ONE item in incoming -> order belongs in Incoming
         if (itemStatuses.some(s => s === 'placed' || s === 'queued' || s === 'incoming')) {
             return 'placed';
         }
 
-        // 2. Second priority: If ANY item is preparing -> table should be in Preparing
+        // 2. Second priority: If ANY item is preparing -> order belongs in Preparing
         if (itemStatuses.some(s => s === 'preparing' || s === 'cooking')) {
             return 'preparing';
         }
 
-        // 3. Third priority: If ANY item is ready -> table should be in Ready
+        // 3. Third priority: If ANY item is ready -> order belongs in Ready
         if (itemStatuses.some(s => s === 'ready')) {
             return 'ready';
         }
 
-        // 4. Last priority: If ALL items are served (or paid) -> table should be in Served (Dining)
+        // 4. Last priority: If ALL items are served (or paid) -> order belongs in Served
         if (itemStatuses.every(s => s === 'served' || s === 'paid')) {
             return 'served';
         }
 
+        if (order.status === 'queued') return 'placed';
         return (order.status as OrderStatus) || 'placed';
     };
 
     const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
         if (isReadOnly || !restaurantId) return;
         
-        // Optimistic update
+        // Chef in KDS cannot mark served - only waiter can mark served
+        if (newStatus === 'served') {
+            toast.error('Only waiters can mark orders as served after delivering to the customer.');
+            return;
+        }
+
+        // Optimistic update with state snapshot for rollback
+        const prevOrders = [...orders];
         setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+        
         try {
             const staffId = currentProfileRef.current?.id;
             await OrderService.updateOrderStatus(orderId, restaurantId, newStatus, staffId);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to update status', err);
+            setOrders(prevOrders);
+            toast.error('Failed to update order status. Rolling back.');
         }
     };
 
     const handleItemStatusChange = async (itemId: string, newStatus: OrderStatus) => {
         if (isReadOnly || !restaurantId) return;
 
+        // Chef in KDS cannot mark served - only waiter can mark served
+        if (newStatus === 'served') {
+            toast.error('Only waiters can mark items as served after delivering to the customer.');
+            return;
+        }
+
         // Optimistically update the specific item and recalculate effective order status
+        const prevOrders = [...orders];
         setOrders(prev => prev.map(o => {
             const hasItem = o.items?.some(i => i.id === itemId);
             if (!hasItem) return o;
@@ -239,8 +360,10 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
         try {
             const staffId = currentProfileRef.current?.id;
             await OrderService.updateOrderItemStatus(itemId, restaurantId, newStatus, staffId);
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to update item status', err);
+            setOrders(prevOrders);
+            toast.error('Failed to update item status. Rolling back.');
         }
     };
 
@@ -248,125 +371,188 @@ export default function OrderKanbanBoard({ isReadOnly = false, title = 'Kitchen 
         if (isReadOnly) return;
         try {
             await OrderService.extendOrderItemTimer(itemId, minutes);
+            toast.success(`Extended timer by ${minutes}m`);
         } catch (err) {
             console.error('Failed to extend timer:', err);
+            toast.error('Failed to extend timer');
         }
     };
 
     const getOrdersByStatus = (status: OrderStatus) => orders.filter(o => getEffectiveOrderStatus(o) === status);
 
-    return (
-        <div className="flex flex-col h-full overflow-hidden bg-neutral-50 relative">
-            <div className="flex-1 overflow-x-auto overflow-y-hidden">
-                {/* Wrap in LayoutGroup to enable shared layout animations across columns */}
-                <LayoutGroup>
-                    <div className="flex flex-col md:flex-row h-full min-h-0 md:overflow-x-auto md:overflow-y-hidden overflow-y-auto premium-scrollbar">
+    const isBoardLoading = !mounted || loading;
 
-                        {/* Column 1: Incoming (Placed) */}
-                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[240px] xl:min-w-[280px] h-full">
-                            <KDSColumn
-                                title="Incoming"
-                                icon={<LucideClock size={18} />}
-                                color="blue"
-                                orders={getOrdersByStatus('placed')}
-                                mergeGroups={mergeGroups}
-                                onStatusChange={handleStatusChange}
-                                onItemStatusChange={handleItemStatusChange}
-                                onExtendTimer={handleExtendTimer}
-                                isReadOnly={isReadOnly}
-                                density={density}
-                                isFirst={true}
-                            />
-                        </div>
+    return (
+        <div className="flex flex-col h-full overflow-hidden bg-neutral-100/70 relative">
+            {/* Audio Autoplay Gate Banner */}
+            {audioBlocked && (
+                <div 
+                    onClick={enableAudio}
+                    className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 text-xs font-black flex items-center justify-between cursor-pointer transition-all shadow-md shrink-0 z-30 select-none animate-pulse"
+                >
+                    <div className="flex items-center gap-2">
+                        <VolumeX size={15} />
+                        <span>Kitchen audio alerts are paused by browser policy. Click here to enable live sound alerts!</span>
+                    </div>
+                    <span className="underline uppercase tracking-wider text-[11px] bg-black/20 px-2 py-0.5 rounded">
+                        Enable Sound
+                    </span>
+                </div>
+            )}
+
+            {/* 4 Equal-Width Columns Container */}
+            <div className="flex-1 overflow-x-auto overflow-y-hidden p-3 md:p-4">
+                <LayoutGroup>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4 h-full min-h-0 w-full min-w-[320px] md:min-w-0">
+                        {/* Column 1: Incoming */}
+                        <KDSColumn
+                            title="Incoming"
+                            subtitle="New Orders"
+                            icon={<LucideClock size={16} />}
+                            color="blue"
+                            orders={getOrdersByStatus('placed')}
+                            mergeGroups={mergeGroups}
+                            onStatusChange={handleStatusChange}
+                            onItemStatusChange={handleItemStatusChange}
+                            onExtendTimer={handleExtendTimer}
+                            isReadOnly={isReadOnly}
+                            density={density}
+                            loading={isBoardLoading}
+                            emptyMessage="No incoming orders"
+                            emptySubMessage="New orders will appear here automatically"
+                        />
 
                         {/* Column 2: Preparing */}
-                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[240px] xl:min-w-[280px] h-full">
-                            <KDSColumn
-                                title="Preparing"
-                                icon={<LucideChefHat size={18} />}
-                                color="orange"
-                                orders={getOrdersByStatus('preparing')}
-                                mergeGroups={mergeGroups}
-                                onStatusChange={handleStatusChange}
-                                onItemStatusChange={handleItemStatusChange}
-                                onExtendTimer={handleExtendTimer}
-                                isReadOnly={isReadOnly}
-                                density={density}
-                            />
-                        </div>
+                        <KDSColumn
+                            title="Preparing"
+                            subtitle="In The Kitchen"
+                            icon={<LucideChefHat size={16} />}
+                            color="orange"
+                            orders={getOrdersByStatus('preparing')}
+                            mergeGroups={mergeGroups}
+                            onStatusChange={handleStatusChange}
+                            onItemStatusChange={handleItemStatusChange}
+                            onExtendTimer={handleExtendTimer}
+                            isReadOnly={isReadOnly}
+                            density={density}
+                            loading={isBoardLoading}
+                            emptyMessage="Kitchen is clear"
+                            emptySubMessage="Start orders from Incoming to begin prep"
+                        />
 
                         {/* Column 3: Ready */}
-                        <div className="flex-none w-full md:flex-1 md:w-auto md:min-w-[240px] xl:min-w-[280px] h-full">
-                            <KDSColumn
-                                title="Ready"
-                                icon={<LucideCheckCircle size={18} />}
-                                color="green"
-                                orders={getOrdersByStatus('ready')}
-                                mergeGroups={mergeGroups}
-                                onStatusChange={handleStatusChange}
-                                onItemStatusChange={handleItemStatusChange}
-                                onExtendTimer={handleExtendTimer}
-                                isReadOnly={isReadOnly}
-                                density={density}
-                            />
-                        </div>
+                        <KDSColumn
+                            title="Ready"
+                            subtitle="Ready For Pickup"
+                            icon={<LucideCheckCircle size={16} />}
+                            color="green"
+                            orders={getOrdersByStatus('ready')}
+                            mergeGroups={mergeGroups}
+                            onStatusChange={handleStatusChange}
+                            onItemStatusChange={handleItemStatusChange}
+                            onExtendTimer={handleExtendTimer}
+                            isReadOnly={isReadOnly}
+                            density={density}
+                            loading={isBoardLoading}
+                            emptyMessage="No ready tickets"
+                            emptySubMessage="Finished orders wait here for waiters or pickup"
+                        />
 
-                        {/* Column 4: Dining (half width) */}
-                        <div className="w-full md:w-[200px] md:flex-none h-full">
-                            <KDSColumn
-                                title="Dining"
-                                icon={<LucideUtensils size={18} />}
-                                color="gray"
-                                orders={getOrdersByStatus('served')}
-                                mergeGroups={mergeGroups}
-                                onStatusChange={handleStatusChange}
-                                onItemStatusChange={handleItemStatusChange}
-                                onExtendTimer={handleExtendTimer}
-                                isReadOnly={isReadOnly}
-                                density={density}
-                                isLast={true}
-                            />
-                        </div>
-
+                        {/* Column 4: Served (Equal Width) */}
+                        <KDSColumn
+                            title="Served"
+                            subtitle="Dining / Dispatched"
+                            icon={<LucideUtensils size={16} />}
+                            color="gray"
+                            orders={getOrdersByStatus('served')}
+                            mergeGroups={mergeGroups}
+                            onStatusChange={handleStatusChange}
+                            onItemStatusChange={handleItemStatusChange}
+                            onExtendTimer={handleExtendTimer}
+                            isReadOnly={isReadOnly}
+                            density={density}
+                            loading={isBoardLoading}
+                            emptyMessage="No served orders yet"
+                            emptySubMessage="Orders handed over during this shift"
+                        />
                     </div>
                 </LayoutGroup>
             </div>
         </div>
     );
+
 }
 
-function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, onItemStatusChange, onExtendTimer, isReadOnly, density, isFirst = false, isLast = false }: { title: string, icon: React.ReactNode, color: string, orders: Order[], mergeGroups: TableMergeGroup[], onStatusChange: (id: string, status: OrderStatus) => void, onItemStatusChange: (itemId: string, status: OrderStatus) => void, onExtendTimer: (itemId: string, minutes: number) => void, isReadOnly: boolean, density: 'compact' | 'comfortable', isFirst?: boolean, isLast?: boolean }) {
+interface KDSColumnProps {
+    title: string;
+    subtitle: string;
+    icon: React.ReactNode;
+    color: 'blue' | 'orange' | 'green' | 'gray';
+    orders: Order[];
+    mergeGroups: TableMergeGroup[];
+    onStatusChange: (id: string, status: OrderStatus) => void;
+    onItemStatusChange: (itemId: string, status: OrderStatus) => void;
+    onExtendTimer: (itemId: string, minutes: number) => void;
+    isReadOnly: boolean;
+    density: 'compact' | 'comfortable';
+    loading: boolean;
+    emptyMessage: string;
+    emptySubMessage: string;
+}
+
+function KDSColumn({
+    title,
+    subtitle,
+    icon,
+    color,
+    orders,
+    mergeGroups,
+    onStatusChange,
+    onItemStatusChange,
+    onExtendTimer,
+    isReadOnly,
+    density,
+    loading,
+    emptyMessage,
+    emptySubMessage
+}: KDSColumnProps) {
     const isCompact = density === 'compact';
 
-    // Advanced Professional UI: Full height panels in KDS
-    const columnStyles = {
-        blue: 'bg-blue-50/50',
-        orange: 'bg-orange-50/50',
-        green: 'bg-green-50/50',
-        gray: 'bg-neutral-100/50',
-    };
+    // Premium column themes
+    const themeStyles = {
+        blue: {
+            bg: 'bg-slate-50/80',
+            header: 'bg-white border-blue-200 text-blue-900',
+            badge: 'bg-blue-600 text-white shadow-blue-500/20',
+            iconContainer: 'bg-blue-50 text-blue-600 border border-blue-200',
+            accent: 'border-blue-500',
+        },
+        orange: {
+            bg: 'bg-amber-50/40',
+            header: 'bg-white border-amber-200 text-amber-950',
+            badge: 'bg-amber-500 text-white shadow-amber-500/20',
+            iconContainer: 'bg-amber-50 text-amber-600 border border-amber-200',
+            accent: 'border-amber-500',
+        },
+        green: {
+            bg: 'bg-emerald-50/40',
+            header: 'bg-white border-emerald-200 text-emerald-950',
+            badge: 'bg-emerald-600 text-white shadow-emerald-500/20',
+            iconContainer: 'bg-emerald-50 text-emerald-600 border border-emerald-200',
+            accent: 'border-emerald-500',
+        },
+        gray: {
+            bg: 'bg-slate-50/80',
+            header: 'bg-white border-slate-200 text-slate-800',
+            badge: 'bg-slate-700 text-white shadow-slate-500/20',
+            iconContainer: 'bg-slate-100 text-slate-600 border border-slate-200',
+            accent: 'border-slate-400',
+        },
+    }[color];
 
-    const headerStyles = {
-        blue: 'bg-blue-100/40 text-blue-700 border-blue-200/50',
-        orange: 'bg-orange-100/40 text-orange-700 border-orange-200/50',
-        green: 'bg-green-100/40 text-green-700 border-green-200/50',
-        gray: 'bg-neutral-200/40 text-neutral-700 border-neutral-300/50',
-    };
-
-    const iconStyles = {
-        blue: 'bg-blue-500 text-white shadow-blue-550/20',
-        orange: 'bg-orange-500 text-white shadow-orange-550/20',
-        green: 'bg-green-500 text-white shadow-green-550/20',
-        gray: 'bg-zinc-650 text-white shadow-zinc-650/20',
-    };
-
-    const activeStyle = columnStyles[color as keyof typeof columnStyles];
-    const headerStyle = headerStyles[color as keyof typeof headerStyles];
-    const iconStyle = iconStyles[color as keyof typeof iconStyles];
-
-    // Group orders by Table ID
+    // Group orders by Table ID or Merge Group
     const groupedOrders = orders.reduce((groups, order) => {
-        const tableId = order.table_id || order.merge_group_id || 'unknown';
+        const tableId = order.table_id || order.merge_group_id || (order.order_type === 'TAKEAWAY' ? 'takeaway' : order.order_type === 'DELIVERY' ? 'delivery' : 'other');
         if (!groups[tableId as any]) {
             groups[tableId as any] = [];
         }
@@ -375,136 +561,249 @@ function KDSColumn({ title, icon, color, orders, mergeGroups, onStatusChange, on
     }, {} as Record<string | number, Order[]>);
 
     const sortedTableIds = Object.keys(groupedOrders).sort((a, b) => {
-        // Resolve display names for numeric sorting
         const nameA = (typeof a === 'string' && isNaN(Number(a))
-            ? mergeGroups.find(g => g.id === a)?.display_name || 'Merged'
+            ? mergeGroups.find(g => g.id === a)?.display_name || a
             : a).toString();
         const nameB = (typeof b === 'string' && isNaN(Number(b))
-            ? mergeGroups.find(g => g.id === b)?.display_name || 'Merged'
+            ? mergeGroups.find(g => g.id === b)?.display_name || b
             : b).toString();
 
         return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
     });
 
     return (
-        <div className={`flex flex-col h-full border-r border-neutral-200 last:border-r-0 ${activeStyle} relative group/column shadow-[1px_0_0_0_rgba(0,0,0,0.05)]`}>
-            {/* Header - More prominent */}
-            <div className={`${isCompact ? 'p-2.5' : 'p-3.5'} flex justify-between items-center border-b border-neutral-200/80 ${headerStyle} backdrop-blur-md sticky top-0 z-20 shadow-sm`}>
-                <div className="flex items-center gap-2.5">
-                    <span className="text-neutral-500">{icon}</span>
-                    <h2 className={`font-black tracking-[0.1em] uppercase ${isCompact ? 'text-[11px]' : 'text-xs'} opacity-90`}>{title}</h2>
+        <div className={`flex flex-col h-full rounded-2xl border border-neutral-200/90 ${themeStyles.bg} overflow-hidden shadow-xs`}>
+            {/* Column Header */}
+            <div className={`p-3 md:p-3.5 border-b flex items-center justify-between ${themeStyles.header} backdrop-blur-md shrink-0`}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={`size-8 rounded-xl flex items-center justify-center ${themeStyles.iconContainer}`}>
+                        {icon}
+                    </div>
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                            <h2 className="font-black text-xs md:text-sm tracking-tight uppercase truncate">
+                                {title}
+                            </h2>
+                        </div>
+                        <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider truncate">
+                            {subtitle}
+                        </p>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black bg-white text-neutral-700 shadow-sm ring-1 ring-neutral-200 min-w-[24px] text-center`}>
-                        {orders.length}
-                    </span>
-                </div>
+
+                {/* Counter Badge */}
+                <span 
+                    suppressHydrationWarning 
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-black shadow-xs ${themeStyles.badge}`}
+                >
+                    {loading ? '—' : orders.length}
+                </span>
             </div>
 
-            {/* Table Group List */}
-            <div className={`flex-1 overflow-y-auto ${isCompact ? 'p-3 space-y-3' : 'p-4 space-y-4'} premium-scrollbar bg-neutral-50/50`}>
-                {orders.length === 0 && (
-                    <div className="h-full flex flex-col items-center justify-center text-neutral-400 gap-3 opacity-60">
-                        <div className="p-4 rounded-full bg-neutral-100 scale-110 shadow-inner">
+            {/* Column Content Scroll Area */}
+            <div className={`flex-1 overflow-y-auto kds-scroll p-3 space-y-3`}>
+                {loading ? (
+                    // Skeleton Loading States
+                    <div className="space-y-3">
+                        {[1, 2, 3].map(i => (
+                            <div key={i} className="kds-skeleton h-36 w-full shadow-2xs" />
+                        ))}
+                    </div>
+                ) : orders.length === 0 ? (
+                    // Meaningful Empty State
+                    <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center p-4">
+                        <div className="p-3.5 rounded-2xl bg-white border border-neutral-200/80 shadow-2xs text-neutral-300 mb-2.5">
                             {icon}
                         </div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]">Empty</p>
+                        <p className="text-xs font-black text-neutral-700 tracking-tight">
+                            {emptyMessage}
+                        </p>
+                        <p className="text-[11px] text-neutral-400 font-medium max-w-[200px] mt-1 leading-normal">
+                            {emptySubMessage}
+                        </p>
                     </div>
+                ) : (
+                    // Grouped Orders by Table / Group
+                    <AnimatePresence mode="popLayout">
+                        {sortedTableIds.map(tableId => (
+                            <KDSTableGroup
+                                key={tableId}
+                                tableId={tableId as any}
+                                orders={groupedOrders[tableId as any]}
+                                mergeGroups={mergeGroups}
+                                onStatusChange={onStatusChange}
+                                onItemStatusChange={onItemStatusChange}
+                                onExtendTimer={onExtendTimer}
+                                color={color}
+                                isReadOnly={isReadOnly}
+                                density={density}
+                            />
+                        ))}
+                    </AnimatePresence>
                 )}
-
-                <AnimatePresence mode='popLayout'>
-                    {sortedTableIds.map(tableId => (
-                        <KDSTableGroup
-                            key={tableId}
-                            tableId={tableId as any}
-                            orders={groupedOrders[tableId as any]}
-                            mergeGroups={mergeGroups}
-                            onStatusChange={onStatusChange}
-                            onItemStatusChange={onItemStatusChange}
-                            onExtendTimer={onExtendTimer}
-                            color={color}
-                            isReadOnly={isReadOnly}
-                            density={density}
-                        />
-                    ))}
-                </AnimatePresence>
             </div>
-
-            {/* Pronounced divider line for depth */}
-            {!isLast && <div className="absolute top-0 right-0 w-[1px] h-full bg-neutral-200/50 pointer-events-none" />}
         </div>
     );
 }
 
-function KDSTableGroup({ tableId, orders, mergeGroups, onStatusChange, onItemStatusChange, onExtendTimer, color, isReadOnly, density }: { tableId: number | string, orders: Order[], mergeGroups: TableMergeGroup[], onStatusChange: (id: string, status: OrderStatus) => void, onItemStatusChange: (itemId: string, status: OrderStatus) => void, onExtendTimer: (itemId: string, minutes: number) => void, color: string, isReadOnly: boolean, density: 'compact' | 'comfortable' }) {
+function KDSTableGroup({ 
+    tableId, 
+    orders, 
+    mergeGroups, 
+    onStatusChange, 
+    onItemStatusChange, 
+    onExtendTimer, 
+    color, 
+    isReadOnly, 
+    density 
+}: { 
+    tableId: number | string; 
+    orders: Order[]; 
+    mergeGroups: TableMergeGroup[]; 
+    onStatusChange: (id: string, status: OrderStatus) => void; 
+    onItemStatusChange: (itemId: string, status: OrderStatus) => void; 
+    onExtendTimer: (itemId: string, minutes: number) => void; 
+    color: string; 
+    isReadOnly: boolean; 
+    density: 'compact' | 'comfortable'; 
+}) {
     const [isOpen, setIsOpen] = useState(true);
     const sortedOrders = [...orders].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const isCompact = density === 'compact';
 
-    const tableName = typeof tableId === 'string' && isNaN(Number(tableId))
-        ? mergeGroups.find(g => g.id === tableId)?.display_name || 'Merged'
-        : orders[0]?.table_number ? `Table ${orders[0].table_number}` : `Table ${tableId}`;
+    let tableName = `Table ${tableId}`;
+    let isTakeaway = false;
+    let isDelivery = false;
+    let isMerged = false;
 
-    // Interactive Table Colors
-    const headerBg = {
-        blue: isOpen ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-blue-700 border border-blue-200',
-        orange: isOpen ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-orange-700 border border-orange-200',
-        green: isOpen ? 'bg-green-600 text-white shadow-sm' : 'bg-white text-green-700 border border-green-200',
-        gray: isOpen ? 'bg-neutral-700 text-white shadow-sm' : 'bg-white text-neutral-600 border border-neutral-200',
-    }[color] || (isOpen ? 'bg-neutral-800 text-white' : 'bg-white text-neutral-700');
+    if (tableId === 'takeaway') {
+        tableName = 'Takeaway';
+        isTakeaway = true;
+    } else if (tableId === 'delivery') {
+        tableName = 'Delivery';
+        isDelivery = true;
+    } else if (typeof tableId === 'string' && isNaN(Number(tableId))) {
+        tableName = mergeGroups.find(g => g.id === tableId)?.display_name || 'Merged Group';
+        isMerged = true;
+    } else if (orders[0]?.table_number) {
+        tableName = `Table ${orders[0].table_number}`;
+    }
 
-    const cardBorder = {
-        blue: isOpen ? 'border-blue-200 ring-blue-500/10' : 'border-neutral-200',
-        orange: isOpen ? 'border-orange-200 ring-orange-500/10' : 'border-neutral-200',
-        green: isOpen ? 'border-green-200 ring-green-500/10' : 'border-neutral-200',
-        gray: isOpen ? 'border-neutral-300 ring-neutral-400/10' : 'border-neutral-200',
-    }[color] || (isOpen ? 'border-neutral-300 ring-neutral-400/10' : 'border-neutral-200');
+    const totalItemsCount = orders.reduce((sum, o) => {
+        const active = o.items?.filter(item => item.status !== 'cancelled') || [];
+        return sum + active.reduce((acc, it) => acc + (it.quantity || 1), 0);
+    }, 0);
+
+    const hasLateOrder = orders.some(o => {
+        if (o.status === 'served' || o.status === 'paid' || o.status === 'cancelled') return false;
+        let timeStr = o.created_at;
+        if (timeStr && !timeStr.endsWith('Z') && !timeStr.includes('+')) timeStr += 'Z';
+        const diff = Date.now() - new Date(timeStr).getTime();
+        return diff >= 900000;
+    });
+
+    const headerTheme = {
+        blue: {
+            stripe: 'from-blue-500 via-indigo-500 to-sky-400',
+            bg: isOpen ? 'bg-gradient-to-r from-blue-50/90 via-indigo-50/50 to-white text-slate-900 border-b border-blue-100' : 'bg-white text-slate-800 hover:bg-blue-50/30',
+            icon: 'bg-white text-blue-600 border-blue-200/80 shadow-2xs',
+            badge: 'bg-blue-100/90 text-blue-900 border-blue-200/80',
+        },
+        orange: {
+            stripe: 'from-amber-500 via-orange-500 to-amber-600',
+            bg: isOpen ? 'bg-gradient-to-r from-amber-50/90 via-orange-50/50 to-white text-slate-900 border-b border-amber-200/70' : 'bg-white text-slate-800 hover:bg-amber-50/30',
+            icon: 'bg-white text-amber-600 border-amber-200/80 shadow-2xs',
+            badge: 'bg-amber-100/90 text-amber-950 border-amber-200/80',
+        },
+        green: {
+            stripe: 'from-emerald-500 via-teal-500 to-green-600',
+            bg: isOpen ? 'bg-gradient-to-r from-emerald-50/90 via-teal-50/50 to-white text-slate-900 border-b border-emerald-200/70' : 'bg-white text-slate-800 hover:bg-emerald-50/30',
+            icon: 'bg-white text-emerald-600 border-emerald-200/80 shadow-2xs',
+            badge: 'bg-emerald-100/90 text-emerald-950 border-emerald-200/80',
+        },
+        gray: {
+            stripe: 'from-slate-400 via-slate-500 to-zinc-400',
+            bg: isOpen ? 'bg-gradient-to-r from-slate-100/90 via-slate-50 to-white text-slate-800 border-b border-slate-200' : 'bg-white text-slate-800 hover:bg-slate-50/50',
+            icon: 'bg-white text-slate-600 border-slate-200/80 shadow-2xs',
+            badge: 'bg-slate-200/90 text-slate-800 border-slate-300/80',
+        },
+    }[color] || {
+        stripe: 'from-slate-400 to-slate-500',
+        bg: isOpen ? 'bg-slate-50 text-slate-800 border-b border-slate-200' : 'bg-white text-slate-800',
+        icon: 'bg-white text-slate-600 border-slate-200 shadow-2xs',
+        badge: 'bg-slate-100 text-slate-800 border-slate-200',
+    };
 
     return (
         <motion.div
             layout
-            initial={{ opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className={`rounded-xl border overflow-hidden shadow-sm bg-white transition-all duration-300 ${cardBorder} ${isOpen ? 'shadow-md ring-2' : 'hover:border-neutral-300'}`}
+            exit={{ opacity: 0, scale: 0.98 }}
+            className="rounded-xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-xs bg-white transition-all duration-200"
         >
-            {/* Table Group Header - More vibrant and weighted */}
+            {/* Top Phase Accent Stripe */}
+            <div className={`h-[2.5px] w-full bg-gradient-to-r ${headerTheme.stripe}`} />
+
+            {/* Table Group Header Button - Compact & Structured */}
             <button
+                type="button"
                 onClick={() => setIsOpen(!isOpen)}
-                className={`w-full flex items-center justify-between ${isCompact ? 'p-2' : 'p-3'} transition-all duration-300 border-b border-transparent ${isOpen ? 'border-black/5' : ''} ${headerBg}`}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 transition-colors ${headerTheme.bg}`}
             >
-                <div className="flex items-center gap-2.5">
-                    <div className={`${isOpen ? 'bg-white/20' : 'bg-neutral-100'} size-8 rounded-lg flex items-center justify-center font-black shadow-inner`}>
-                        <LucideTable size={16} />
+                <div className="flex items-center gap-2 min-w-0">
+                    <div className={`size-6 rounded-lg flex items-center justify-center font-black border text-xs ${headerTheme.icon}`}>
+                        {isTakeaway ? (
+                            <span>🛍️</span>
+                        ) : isDelivery ? (
+                            <span>🛵</span>
+                        ) : (
+                            <LucideTable size={13} />
+                        )}
                     </div>
-                    <div className="text-left">
-                        <p className={`${isCompact ? 'text-[11px]' : 'text-sm'} font-black uppercase tracking-tight`}>{tableName}</p>
-                        <p className={`text-[9px] font-bold uppercase tracking-wider opacity-80`}>{orders.length} Ticket{orders.length > 1 ? 's' : ''}</p>
+
+                    <div className="flex items-center gap-1.5 min-w-0 flex-wrap text-left">
+                        <p className="text-xs font-black uppercase tracking-tight text-slate-900 truncate">
+                            {tableName}
+                        </p>
+                        {isMerged && (
+                            <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-violet-100 text-violet-800 border border-violet-200">
+                                Merged
+                            </span>
+                        )}
+                        {hasLateOrder && (
+                            <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-rose-600 text-white animate-pulse shadow-2xs">
+                                LATE
+                            </span>
+                        )}
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100/90 border border-slate-200/80 px-1.5 py-0.2 rounded-md">
+                            {totalItemsCount} item{totalItemsCount > 1 ? 's' : ''} • {orders.length} tkt{orders.length > 1 ? 's' : ''}
+                        </span>
                     </div>
                 </div>
-                <motion.div
-                    animate={{ rotate: isOpen ? 180 : 0 }}
-                    transition={{ duration: 0.3, ease: "easeOut" }}
-                    className={`${isOpen ? 'bg-white/20 text-white' : 'bg-neutral-100 text-black'} p-1 rounded-full`}
-                >
-                    <LucideChevronDown size={14} />
-                </motion.div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <motion.div
+                        animate={{ rotate: isOpen ? 180 : 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="size-5 rounded-md bg-white/90 border border-slate-200/60 shadow-2xs text-slate-700 flex items-center justify-center"
+                    >
+                        <LucideChevronDown size={12} />
+                    </motion.div>
+                </div>
             </button>
 
-            {/* Expanded List - Smooth Height Animation */}
+            {/* Expanded Tickets List */}
             <AnimatePresence initial={false}>
                 {isOpen && (
                     <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        transition={{
-                            duration: 0.4,
-                            ease: [0.4, 0, 0.2, 1]
-                        }}
+                        transition={{ duration: 0.2, ease: 'easeInOut' }}
                         className="overflow-hidden"
                     >
-                        <div className={`${isCompact ? 'p-2.5 space-y-2.5' : 'p-3.5 space-y-3.5'} bg-neutral-900/[0.02] shadow-[inset_0_2px_4px_rgba(0,0,0,0.02)]`}>
+                        <div className="p-2 space-y-2 bg-slate-50/60 border-t border-slate-100">
                             {sortedOrders.map(order => (
                                 <KitchenTicket
                                     key={order.id}
@@ -523,3 +822,4 @@ function KDSTableGroup({ tableId, orders, mergeGroups, onStatusChange, onItemSta
         </motion.div>
     );
 }
+

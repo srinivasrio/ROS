@@ -257,7 +257,7 @@ export default function SharedOfferDetailModal({
                 {expiry && (
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-slate-500">Valid Until:</span>
-                    <span className="font-black text-slate-800">
+                    <span className="font-black text-slate-800" suppressHydrationWarning>
                       {new Date(expiry).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                     </span>
                   </div>

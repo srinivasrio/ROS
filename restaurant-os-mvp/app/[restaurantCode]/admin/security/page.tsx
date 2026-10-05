@@ -24,6 +24,7 @@ import {
 import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
 import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
+import { SafeEmailBody } from '@/components/admin/SafeEmailBody';
 
 interface MetricCardProps {
     title: string;
@@ -544,10 +545,7 @@ export default function SecurityCenterPage() {
                                             <span className="text-[9px] text-neutral-400 dark:text-zinc-500 font-bold">{new Date(email.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                         </div>
                                         <div className="font-extrabold text-xs text-neutral-900 dark:text-white">{email.subject}</div>
-                                        <div 
-                                            className="text-[11px] font-semibold text-neutral-500 dark:text-zinc-400 bg-neutral-100/50 dark:bg-zinc-900/50 p-2 rounded max-h-[100px] overflow-y-auto break-all font-mono"
-                                            dangerouslySetInnerHTML={{ __html: email.body }}
-                                        />
+                                        <SafeEmailBody content={email.body} />
                                     </div>
                                 ))
                             )}

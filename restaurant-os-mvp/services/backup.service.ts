@@ -16,18 +16,47 @@ const BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'dineinone-assets';
 // Deterministic list of tables to backup/restore (excluding backups/secrets tables themselves)
 const TABLES_TO_BACKUP = [
     'restaurants', 'restaurant_profile', 'restaurant_legal', 'branches',
+    'roles', 'restaurant_users', 'employee_branch_access', 'subscriptions', 'payments', 'invoices', 'invoice_items',
+    'terms_acceptances', 'restaurant_deletion_requests', 'restaurant_registration_requests', 'email_otp_verifications',
+    'plans', 'support_tickets', 'security_events', 'notifications', 'platform_settings',
     'auth', 'employees', 'audit_logs', 'users', 'customers',
     'categories', 'sub_categories', 'menu_items', 'menu_recipe_mapping', 'today_specials', 'today_special_items',
     'tables', 'table_merge_groups',
     'orders', 'order_items', 'order_status_history',
     'offers', 'service_requests', 'service_options',
     'inventory_items', 'inventory_categories', 'inventory_consumption_log', 'inventory_adjustment_log', 'inventory_alerts', 'suppliers',
-    'activity_logs', 'ai_snapshot', 'debug_logs',
-    'homepage_sections', 'category_buttons', 'quick_actions', 'theme_settings', 'restaurant_theme',
-    'homepage_categories', 'homepage_services', 'homepage_specials', 'homepage_offers', 'section_style_settings', 'homepage_banners',
+    'activity_logs', 'ai_snapshot',
+    'homepage_sections', 'restaurant_theme',
+    'homepage_categories', 'homepage_services', 'homepage_specials', 'section_style_settings', 'homepage_banners',
     'waiter_workloads', 'waiter_assignments', 'service_assignments', 'attendance', 'payroll_runs', 'payroll_items',
+    'delivery_boys', 'delivery_settings', 'delivery_assignments', 'delivery_zones', 'customer_addresses',
     'user_otps', 'waiter_shifts', 'login_audit_logs', 'dine_sessions', 'staff_tasks', 'staff_assignment_config'
 ];
+
+const BACKUP_PAGE_SIZE = 1000;
+
+async function exportTable(table: string): Promise<any[]> {
+    const rows: any[] = [];
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabaseAdmin
+            .from(table)
+            .select('*')
+            .range(offset, offset + BACKUP_PAGE_SIZE - 1);
+
+        if (error) {
+            throw new Error(`Failed to export table ${table} at offset ${offset}: ${error.message}`);
+        }
+
+        const page = data || [];
+        rows.push(...page);
+        if (page.length < BACKUP_PAGE_SIZE) break;
+        offset += BACKUP_PAGE_SIZE;
+    }
+
+    return rows;
+}
 
 export class BackupService {
     /**
@@ -42,13 +71,11 @@ export class BackupService {
             
             const backupData: Record<string, any[]> = {};
             
-            // 1. Export all table rows
+            // 1. Export all table rows in bounded pages. A single Supabase
+            // select can be capped by the API row limit and produce an
+            // incomplete backup while still returning success.
             for (const table of TABLES_TO_BACKUP) {
-                const { data, error } = await supabaseAdmin.from(table).select('*');
-                if (error) {
-                    throw new Error(`Failed to export table ${table}: ${error.message}`);
-                }
-                backupData[table] = data || [];
+                backupData[table] = await exportTable(table);
             }
             
             // 2. Compress payload

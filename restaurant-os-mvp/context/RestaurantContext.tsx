@@ -16,6 +16,8 @@ export interface FeatureFlags {
 interface RestaurantContextType {
     restaurantId: string | null;
     restaurantName: string | null;
+    branchId: string | null;
+    branchName: string | null;
     businessType: BusinessType;
     featureFlags: FeatureFlags;
     user: UserProfile | null;
@@ -111,16 +113,20 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
 
     const activeRestaurantId = (isTenantId ? urlRestaurantIdFromPath : resolvedRestaurantId) || user?.restaurant_id || null;
     const activeRestaurantName = user?.restaurant_name || null;
+    const activeBranchId = user?.branch_id || user?.branchId || null;
+    const activeBranchName = user?.branch_name || null;
 
     const value = React.useMemo(() => ({
         restaurantId: activeRestaurantId,
         restaurantName: activeRestaurantName,
+        branchId: activeBranchId,
+        branchName: activeBranchName,
         businessType,
         featureFlags,
         user,
         loading,
         refreshProfile: () => fetchProfile(true)
-    }), [activeRestaurantId, activeRestaurantName, businessType, featureFlags, user, loading, fetchProfile]);
+    }), [activeRestaurantId, activeRestaurantName, activeBranchId, activeBranchName, businessType, featureFlags, user, loading, fetchProfile]);
 
     return (
         <RestaurantContext.Provider value={value}>

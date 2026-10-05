@@ -69,13 +69,15 @@ class RealtimeSubscriptionManager {
             const realtime = (supabase as any).realtime;
             if (!realtime) return;
 
-            const isConnected = realtime.isConnected?.() ?? (realtime.conn && realtime.conn.readyState === 1);
+            const conn = realtime.conn;
+            const readyState = conn ? conn.readyState : -1;
+            // WebSocket readyState: 0 = CONNECTING, 1 = OPEN, 2 = CLOSING, 3 = CLOSED
+            const isConnectingOrOpen = readyState === 0 || readyState === 1;
 
-            if (!isConnected) {
-                // Force reconnect the underlying socket
-                try {
-                    realtime.disconnect?.();
-                } catch (_) {}
+            if (!isConnectingOrOpen && !realtime.isConnected?.()) {
+                if (process.env.NODE_ENV === 'development') {
+                    console.log(`[RealtimeManager] Reconnecting WebSocket safely (readyState: ${readyState})`);
+                }
                 realtime.connect?.();
             }
 
@@ -163,6 +165,9 @@ class RealtimeSubscriptionManager {
                     current.teardownTimer = setTimeout(() => {
                         const check = this.channels.get(channelKey);
                         if (check && check.refCount === 0) {
+                            if (process.env.NODE_ENV === 'development') {
+                                console.log(`[RealtimeManager] Grace period expired. Tearing down channel: ${channelKey}`);
+                            }
                             try {
                                 supabase.removeChannel(check.channel);
                             } catch (_) {}
@@ -180,6 +185,10 @@ class RealtimeSubscriptionManager {
     public dispatch<T extends { [key: string]: any } = any>(channelKey: string, payload: RealtimePostgresChangesPayload<T>): void {
         const entry = this.channels.get(channelKey);
         if (!entry || entry.listeners.size === 0) return;
+
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`[RealtimeManager] Dispatching ${payload.eventType} event on ${channelKey} to ${entry.listeners.size} listener(s)`);
+        }
 
         entry.listeners.forEach(fn => {
             try {
@@ -212,4 +221,12 @@ class RealtimeSubscriptionManager {
     }
 }
 
-export const realtimeManager = new RealtimeSubscriptionManager();
+const globalForRealtime = globalThis as unknown as {
+    __realtimeManager?: RealtimeSubscriptionManager;
+};
+
+export const realtimeManager = globalForRealtime.__realtimeManager ?? new RealtimeSubscriptionManager();
+
+if (process.env.NODE_ENV !== 'production') {
+    globalForRealtime.__realtimeManager = realtimeManager;
+}

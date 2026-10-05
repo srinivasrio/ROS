@@ -31,11 +31,11 @@ export const ContextValidator = {
 
         // 1. Validate Branch belongs to Restaurant
         if (branchId) {
-            const { data: branch, error } = await supabase
+            const { data: branch, error } = await (supabase
                 .from('branches')
                 .select('restaurant_id')
                 .eq('id', branchId)
-                .single();
+                .single() as any);
             
             if (error || !branch || branch.restaurant_id !== restaurantId) {
                 throw new ContextValidationError('Branch does not belong to this restaurant', 'branch_id');
@@ -50,7 +50,7 @@ export const ContextValidator = {
                 .eq('id', tableId)
                 .single();
             
-            const { data: table, error } = await query;
+            const { data: table, error } = await (query as any);
 
             if (error || !table || table.restaurant_id !== restaurantId) {
                 throw new ContextValidationError('Table mismatch for this restaurant', 'table_id');
@@ -62,11 +62,11 @@ export const ContextValidator = {
 
         // 3. Validate Order belongs to Restaurant/Branch
         if (orderId) {
-            const { data: order, error } = await supabase
+            const { data: order, error } = await (supabase
                 .from('orders')
                 .select('restaurant_id, branch_id')
                 .eq('id', orderId)
-                .single();
+                .single() as any);
 
             if (error || !order || order.restaurant_id !== restaurantId) {
                 throw new ContextValidationError('Order mismatch for this restaurant', 'order_id');
@@ -78,11 +78,11 @@ export const ContextValidator = {
 
         // 4. Validate Staff belongs to Restaurant/Branch
         if (staffId) {
-            const { data: staff, error } = await supabase
+            const { data: staff, error } = await (supabase
                 .from('staff')
                 .select('restaurant_id, branch_id')
                 .eq('id', staffId)
-                .single();
+                .single() as any);
 
             if (error || !staff || staff.restaurant_id !== restaurantId) {
                 throw new ContextValidationError('Staff mismatch for this restaurant', 'staff_id');
