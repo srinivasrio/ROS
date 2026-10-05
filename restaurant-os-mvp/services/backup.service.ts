@@ -1,16 +1,9 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { supabaseAdmin } from '../lib/supabase-admin';
+import { r2Client } from '../lib/r2';
 import zlib from 'zlib';
 
-const s3Client = new S3Client({
-    region: 'auto',
-    endpoint: process.env.CLOUDFLARE_R2_ENDPOINT,
-    credentials: {
-        accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || '',
-        secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY || '',
-    },
-});
-
+const s3Client = r2Client;
 const BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'dineinone-assets';
 
 // Deterministic list of tables to backup/restore (excluding backups/secrets tables themselves)
