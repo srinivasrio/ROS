@@ -104,11 +104,12 @@ export type AnyDatabase = {
     public: any;
 };
 
-const globalForSupabase = globalThis as unknown as {
-    __supabaseClient?: ReturnType<typeof createSupabaseClient<AnyDatabase>>;
-};
+import { createDualSupabaseClient } from './dual-supabase';
 
-export const supabase = globalForSupabase.__supabaseClient ?? createSupabaseClient<AnyDatabase>(
+const secondaryUrl = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_URL || process.env.SECONDARY_SUPABASE_URL;
+const secondaryAnonKey = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_ANON_KEY || process.env.SECONDARY_SUPABASE_ANON_KEY;
+
+const primaryBaseClient = createSupabaseClient<AnyDatabase>(
     supabaseUrl,
     supabaseAnonKey,
     {
@@ -123,13 +124,32 @@ export const supabase = globalForSupabase.__supabaseClient ?? createSupabaseClie
     }
 );
 
+const secondaryBaseClient = (secondaryUrl && secondaryAnonKey)
+    ? createSupabaseClient<AnyDatabase>(secondaryUrl, secondaryAnonKey, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false
+        },
+        global: {
+            fetch: customFetch
+        }
+    })
+    : null;
+
+const globalForSupabase = globalThis as unknown as {
+    __supabaseClient?: ReturnType<typeof createSupabaseClient<AnyDatabase>>;
+};
+
+export const supabase = globalForSupabase.__supabaseClient ?? createDualSupabaseClient(primaryBaseClient, secondaryBaseClient);
+
 if (process.env.NODE_ENV !== 'production') {
     globalForSupabase.__supabaseClient = supabase;
 }
 
 export function createClient(customHeaders?: Record<string, string>) {
     if (customHeaders && Object.keys(customHeaders).length > 0) {
-        return createSupabaseClient<AnyDatabase>(
+        const pClient = createSupabaseClient<AnyDatabase>(
             supabaseUrl,
             supabaseAnonKey,
             {
@@ -153,6 +173,35 @@ export function createClient(customHeaders?: Record<string, string>) {
                 }
             }
         );
+
+        const sClient = (secondaryUrl && secondaryAnonKey)
+            ? createSupabaseClient<AnyDatabase>(
+                secondaryUrl,
+                secondaryAnonKey,
+                {
+                    auth: {
+                        persistSession: false,
+                        autoRefreshToken: false,
+                        detectSessionInUrl: false
+                    },
+                    global: {
+                        fetch: (url, options = {}) => {
+                            const token = getDineToken();
+                            const headers = new Headers(options.headers || {});
+                            if (token && !headers.has('x-dine-token')) {
+                                headers.set('x-dine-token', token);
+                            }
+                            for (const [k, v] of Object.entries(customHeaders)) {
+                                headers.set(k, v);
+                            }
+                            return fetch(url, { ...options, headers });
+                        }
+                    }
+                }
+            )
+            : null;
+
+        return createDualSupabaseClient(pClient, sClient);
     }
     return supabase;
 }
