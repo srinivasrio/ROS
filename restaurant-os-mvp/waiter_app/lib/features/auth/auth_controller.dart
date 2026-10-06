@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/realtime/supabase_service.dart';
 import '../../core/storage/secure_storage_service.dart';
 import 'auth_repository.dart';
 
@@ -135,3 +136,44 @@ class AuthController extends StateNotifier<AuthState> {
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
 }
+
+final waiterOnlineStatusProvider = StateNotifierProvider<WaiterOnlineNotifier, bool>((ref) {
+  return WaiterOnlineNotifier(ref);
+});
+
+class WaiterOnlineNotifier extends StateNotifier<bool> {
+  final Ref _ref;
+  WaiterOnlineNotifier(this._ref) : super(true) {
+    _init();
+  }
+
+  Future<void> _init() async {
+    final session = _ref.read(authControllerProvider).session;
+    if (session == null) return;
+    try {
+      final res = await SupabaseService.client
+          .from('employees')
+          .select('is_online, availability_status')
+          .eq('id', session.userId)
+          .maybeSingle();
+      if (res != null) {
+        state = res['is_online'] == true;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> toggleOnline([bool? targetStatus]) async {
+    final session = _ref.read(authControllerProvider).session;
+    if (session == null) return;
+    final nextStatus = targetStatus ?? !state;
+    state = nextStatus;
+    try {
+      await SupabaseService.client.from('employees').update({
+        'is_online': nextStatus,
+        'availability_status': nextStatus ? 'available' : 'offline',
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', session.userId);
+    } catch (_) {}
+  }
+}
+

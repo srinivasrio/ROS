@@ -30,29 +30,81 @@ class RequestsScreen extends ConsumerWidget {
     final session = authState.session;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.surface,
-        elevation: 0,
-        title: Text(
-          'Requests',
-          style: AppTypography.headingLarge.copyWith(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w800,
+      backgroundColor: const Color(0xFFEEF2F6),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(56),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFEEF2F6),
+            border: Border(
+              bottom: BorderSide(color: Color(0xE6FFFFFF), width: 1),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x33A6B4C8),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  const SizedBox(width: 36),
+                  const Expanded(
+                    child: Text(
+                      'Requests',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: 'Outfit',
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF1E293B),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () {
+                      FeedbackUtils.selectionHaptic();
+                      if (session != null) {
+                        requestsNotifier.loadRequests(restaurantId: session.restaurantId);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(18),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2F6),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 1),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x66A6B4C8),
+                            blurRadius: 5,
+                            offset: Offset(2, 2),
+                          ),
+                          BoxShadow(
+                            color: Color(0xF2FFFFFF),
+                            blurRadius: 5,
+                            offset: Offset(-2, -2),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(LucideIcons.rotateCw, size: 15, color: Color(0xFF475569)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-        actions: [
-          IconButton(
-            onPressed: () {
-              FeedbackUtils.selectionHaptic();
-              if (session != null) {
-                requestsNotifier.loadRequests(restaurantId: session.restaurantId);
-              }
-            },
-            icon: const Icon(LucideIcons.rotateCw, size: 20, color: AppColors.primary),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: SafeArea(
         child: requestsState.isLoading && visibleRequests.isEmpty
@@ -79,7 +131,7 @@ class RequestsScreen extends ConsumerWidget {
                     color: AppColors.primary,
                     backgroundColor: AppColors.surfaceContainer,
                     child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
                       physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                       itemCount: visibleRequests.length,
                       itemBuilder: (context, index) {
@@ -89,19 +141,22 @@ class RequestsScreen extends ConsumerWidget {
                           margin: const EdgeInsets.only(bottom: 14),
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(18),
+                            color: const Color(0xFFEEF2F6),
+                            borderRadius: BorderRadius.circular(22),
                             border: Border.all(
-                              color: req.isPending ? AppColors.primary : AppColors.border,
+                              color: req.isPending ? const Color(0x8CFF6B35) : Colors.white.withValues(alpha: 0.85),
                               width: req.isPending ? 1.5 : 1,
                             ),
-                            boxShadow: [
+                            boxShadow: const [
                               BoxShadow(
-                                color: req.isPending
-                                    ? AppColors.primary.withValues(alpha: 0.12)
-                                    : Colors.black.withValues(alpha: 0.04),
-                                blurRadius: 10,
-                                offset: const Offset(0, 3),
+                                color: Color(0x61A6B4C8),
+                                blurRadius: 8,
+                                offset: Offset(3.5, 3.5),
+                              ),
+                              BoxShadow(
+                                color: Color(0xF2FFFFFF),
+                                blurRadius: 8,
+                                offset: Offset(-3.5, -3.5),
                               ),
                             ],
                           ),
@@ -113,12 +168,28 @@ class RequestsScreen extends ConsumerWidget {
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   // Service Image
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Container(
-                                      width: 48,
-                                      height: 48,
-                                      color: AppColors.surfaceContainerHigh,
+                                  Container(
+                                    width: 48,
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEEF2F6),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 1),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Color(0x66A6B4C8),
+                                          blurRadius: 3,
+                                          offset: Offset(1.5, 1.5),
+                                        ),
+                                        BoxShadow(
+                                          color: Color(0xE6FFFFFF),
+                                          blurRadius: 3,
+                                          offset: Offset(-1.5, -1.5),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
                                       child: AppNetworkImage(
                                         imageUrl: req.imageUrl,
                                         name: req.serviceLabel ?? req.formattedTitle,
@@ -408,6 +479,38 @@ class RequestsScreen extends ConsumerWidget {
                                           final waiterId = session?.userId ?? session?.employeeId ?? '5b3a8b19-8682-4194-bd28-9a1886f4da67';
                                           requestsNotifier.acceptRequest(req.id, waiterId);
                                         },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    InkWell(
+                                      onTap: () async {
+                                        FeedbackUtils.lightHaptic();
+                                        await requestsNotifier.completeRequest(req.id);
+                                      },
+                                      borderRadius: BorderRadius.circular(14),
+                                      child: Container(
+                                        width: 52,
+                                        height: 52,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEEF2F6),
+                                          borderRadius: BorderRadius.circular(14),
+                                          border: Border.all(color: Colors.white.withValues(alpha: 0.85), width: 1),
+                                          boxShadow: const [
+                                            BoxShadow(
+                                              color: Color(0x59A6B4C8),
+                                              blurRadius: 6,
+                                              offset: Offset(2.5, 2.5),
+                                            ),
+                                            BoxShadow(
+                                              color: Color(0xF2FFFFFF),
+                                              blurRadius: 6,
+                                              offset: Offset(-2.5, -2.5),
+                                            ),
+                                          ],
+                                        ),
+                                        child: const Center(
+                                          child: Icon(LucideIcons.x, size: 18, color: Color(0xFF64748B)),
+                                        ),
                                       ),
                                     ),
                                   ] else if (req.isAccepted) ...[

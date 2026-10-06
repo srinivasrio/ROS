@@ -10,18 +10,37 @@ class AuthRepository {
           ? cleanMobile.substring(cleanMobile.length - 10) 
           : cleanMobile;
 
-      debugPrint('[AuthRepository] Querying RPC get_employee_by_mobile for: $searchMobile');
+      List<dynamic> employees = [];
+      if (searchMobile.length >= 10) {
+        debugPrint('[AuthRepository] Querying RPC get_employee_by_mobile for: $searchMobile');
+        try {
+          final response = await SupabaseService.client.rpc(
+            'get_employee_by_mobile',
+            params: {'phone_input': searchMobile},
+          );
+          if (response is List) {
+            employees = response;
+          }
+        } catch (e) {
+          debugPrint('[AuthRepository] RPC error: $e');
+        }
+      }
 
-      // 1. Query secure RPC function
-      final response = await SupabaseService.client.rpc(
-        'get_employee_by_mobile',
-        params: {'phone_input': searchMobile},
-      );
-
-      final List<dynamic> employees = response as List<dynamic>;
+      // Fallback: search by employee_id or mobile directly in employees table
+      if (employees.isEmpty) {
+        final trimmed = mobile.trim();
+        final direct = await SupabaseService.client
+            .from('employees')
+            .select()
+            .or('employee_id.eq.$trimmed,id.eq.$trimmed,mobile.ilike.%$trimmed%')
+            .limit(5);
+        if (direct is List && direct.isNotEmpty) {
+          employees = direct;
+        }
+      }
 
       if (employees.isEmpty) {
-        throw Exception('No employee account found with mobile $searchMobile. Please check the number or contact your manager.');
+        throw Exception('No employee account found with mobile or employee ID "$mobile". Please check the number or contact your manager.');
       }
 
       // 2. Select valid active waiter / employee (prioritizing 202603180001)

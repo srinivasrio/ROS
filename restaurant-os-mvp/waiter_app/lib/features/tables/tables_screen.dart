@@ -300,212 +300,406 @@ class _TablesScreenState extends ConsumerState<TablesScreen> {
     final preparingCount = allTables.where(tableHasPreparingItems).length;
     final emptyCount = allTables.where((t) => t.isAvailable || t.isOnHold).length;
 
+    final isOnline = ref.watch(waiterOnlineStatusProvider);
     final isSelectionMode = _selectedTableIds.isNotEmpty;
 
+    // Filter categories
+    final myTables = <TableModel>[];
+    final readyTables = <TableModel>[];
+    final prepTables = <TableModel>[];
+    final availTables = <TableModel>[];
+    final otherTables = <TableModel>[];
+
+    final currentUserId = session?.userId;
+    for (final t in allTables) {
+      final isMine = currentUserId != null && (t.assignedWaiterId == currentUserId || t.coWaiterIds.contains(currentUserId));
+      final hasReady = tableHasReadyItems(t);
+      final hasPrep = tableHasPreparingItems(t);
+      final isAvail = t.isAvailable || t.status.toLowerCase() == 'empty' || t.status.toLowerCase() == 'free';
+
+      if (isMine) {
+        myTables.add(t);
+      } else if (isAvail) {
+        availTables.add(t);
+      } else {
+        otherTables.add(t);
+      }
+
+      if (hasReady) {
+        readyTables.add(t);
+      } else if (hasPrep) {
+        prepTables.add(t);
+      }
+    }
+
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: isSelectionMode ? AppColors.primaryContainer : AppColors.surface,
-        elevation: 0,
-        leading: isSelectionMode
-            ? IconButton(
-                icon: const Icon(Icons.close_rounded, color: AppColors.primary),
-                onPressed: _clearSelection,
-              )
-            : Container(
-                margin: const EdgeInsets.only(left: 16),
-                child: const Center(
-                  child: Icon(
-                    Icons.restaurant_rounded,
-                    color: AppColors.primary,
-                    size: 24,
-                  ),
-                ),
-              ),
-        title: isSelectionMode
-            ? Text(
-                '${_selectedTableIds.length} Table${_selectedTableIds.length > 1 ? 's' : ''} Selected',
-                style: AppTypography.headingMedium.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w800,
-                ),
-              )
-            : Text(
-                session?.restaurantName ?? 'Dine in One',
-                style: AppTypography.headingLarge.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                ),
-              ),
-        actions: [
-          if (isSelectionMode) ...[
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _selectedTableIds.addAll(allTables.map((t) => t.id));
-                });
-              },
-              child: const Text(
-                'Select All',
-                style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800),
-              ),
+      backgroundColor: const Color(0xFFEEF2F6),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(56),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFEEF2F6),
+            border: const Border(
+              bottom: BorderSide(color: Color(0xB3FFFFFF), width: 1),
             ),
-          ] else ...[
-            _AreasButton(
-              areas: tablesState.areas,
-              selectedAreaId: tablesState.selectedAreaId,
-              onAreaSelected: (areaId) {
-                ref.read(tablesControllerProvider.notifier).selectArea(areaId);
-              },
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x38A6B4C8),
+                blurRadius: 14,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: isSelectionMode
+                  ? Row(
+                      children: [
+                        InkWell(
+                          onTap: _clearSelection,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEEF2F6),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.7), width: 1),
+                              boxShadow: const [
+                                BoxShadow(color: Color(0x66A6B4C8), offset: Offset(2.5, 2.5), blurRadius: 6),
+                                BoxShadow(color: Color(0xF2FFFFFF), offset: Offset(-2.5, -2.5), blurRadius: 6),
+                              ],
+                            ),
+                            child: const Center(
+                              child: Icon(LucideIcons.x, size: 18, color: Color(0xFFFF6B35)),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            '${_selectedTableIds.length} Table${_selectedTableIds.length > 1 ? 's' : ''} Selected',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontFamily: 'Outfit',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFFFF6B35),
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _selectedTableIds.addAll(allTables.map((t) => t.id));
+                            });
+                          },
+                          style: TextButton.styleFrom(
+                            backgroundColor: const Color(0xFFEEF2F6),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text(
+                            'Select All',
+                            style: TextStyle(
+                              color: Color(0xFFFF6B35),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        // Left: Store tile matching Web
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF2F6),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.7), width: 1),
+                            boxShadow: const [
+                              BoxShadow(color: Color(0x66A6B4C8), offset: Offset(2.5, 2.5), blurRadius: 6),
+                              BoxShadow(color: Color(0xF2FFFFFF), offset: Offset(-2.5, -2.5), blurRadius: 6),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(LucideIcons.store, size: 18, color: Color(0xFFFF6B35)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+
+                        // Center: Restaurant Title
+                        Expanded(
+                          child: Text(
+                            session?.restaurantName ?? 'Dine in One',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontFamily: 'Outfit',
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF1E293B),
+                              letterSpacing: -0.3,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+
+                        // Right: Areas dropdown
+                        _AreasButton(
+                          areas: tablesState.areas,
+                          selectedAreaId: tablesState.selectedAreaId,
+                          onAreaSelected: (areaId) {
+                            ref.read(tablesControllerProvider.notifier).selectArea(areaId);
+                          },
+                        ),
+                      ],
+                    ),
             ),
-            const SizedBox(width: 8),
-          ],
-        ],
+          ),
+        ),
       ),
       body: Stack(
         children: [
           RefreshIndicator(
-            color: AppColors.primary,
-            backgroundColor: AppColors.surfaceContainer,
+            color: const Color(0xFFFF6B35),
+            backgroundColor: Colors.white,
             onRefresh: () async {
               final restaurantId = session?.restaurantId ?? '202603180001';
               await ref.read(tablesControllerProvider.notifier).loadTables(restaurantId);
             },
-            child: Column(
-              children: [
-                // Top Status Filter Buttons (All, Ready, Preparing, Available, Empty)
-                Container(
-                  height: 46,
-                  margin: const EdgeInsets.fromLTRB(0, 6, 0, 4),
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    children: [
-                      _buildStatusFilterChip(
-                        keyId: 'ALL',
-                        label: 'All',
-                        count: allTables.length,
-                        activeColor: AppColors.primary,
-                        isSelected: tablesState.selectedStatusFilter == 'ALL',
-                        onTap: () => tablesNotifier.selectStatusFilter('ALL'),
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+              slivers: [
+                // 1. Offline guidance banner matching Web
+                if (!isOnline)
+                  SliverToBoxAdapter(
+                    child: Container(
+                      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF2F6),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFFDE68A), width: 1),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x33F59E0B), blurRadius: 6, offset: Offset(0, 2)),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      _buildStatusFilterChip(
-                        keyId: 'READY',
-                        label: 'Ready',
-                        count: readyCount,
-                        activeColor: const Color(0xFF8B5CF6), // Electric Purple / Need Bill
-                        isSelected: tablesState.selectedStatusFilter == 'READY',
-                        onTap: () => tablesNotifier.selectStatusFilter('READY'),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFF59E0B),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(color: Color(0x99F59E0B), blurRadius: 6, spreadRadius: 1),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'You are Offline. Turn online to take tables.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF78350F),
+                                ),
+                              ),
+                            ],
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFD97706),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              elevation: 0,
+                            ),
+                            onPressed: () => ref.read(waiterOnlineStatusProvider.notifier).toggleOnline(true),
+                            child: const Text('Go Online', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      _buildStatusFilterChip(
-                        keyId: 'PREPARING',
-                        label: 'Preparing',
-                        count: preparingCount,
-                        activeColor: const Color(0xFFF59E0B), // Amber Gold
-                        isSelected: tablesState.selectedStatusFilter == 'PREPARING',
-                        onTap: () => tablesNotifier.selectStatusFilter('PREPARING'),
+                    ),
+                  ),
+
+                // 2. Status filter chips matching Web: ALL, PREPARING, READY, AVAILABLE
+                SliverToBoxAdapter(
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Color(0x33CBD5E1), width: 1),
                       ),
-                      const SizedBox(width: 8),
-                      _buildStatusFilterChip(
-                        keyId: 'AVAILABLE',
-                        label: 'Available',
-                        count: emptyCount > 0 ? emptyCount : allTables.where((t) => t.isAvailable).length,
-                        activeColor: const Color(0xFF10B981), // Emerald Green
-                        isSelected: tablesState.selectedStatusFilter == 'AVAILABLE',
-                        onTap: () => tablesNotifier.selectStatusFilter('AVAILABLE'),
+                    ),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: Row(
+                        children: [
+                          _buildStatusFilterChip(
+                            keyId: 'ALL',
+                            label: 'All',
+                            count: allTables.length,
+                            activeColor: const Color(0xFFFF6B35),
+                            isLightText: false,
+                            isSelected: tablesState.selectedStatusFilter == 'ALL',
+                            onTap: () => tablesNotifier.selectStatusFilter('ALL'),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildStatusFilterChip(
+                            keyId: 'PREPARING',
+                            label: 'Preparing',
+                            count: prepTables.length,
+                            activeColor: const Color(0xFFFFDE63),
+                            isLightText: true,
+                            isSelected: tablesState.selectedStatusFilter == 'PREPARING',
+                            onTap: () => tablesNotifier.selectStatusFilter('PREPARING'),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildStatusFilterChip(
+                            keyId: 'READY',
+                            label: 'Ready',
+                            count: readyTables.length,
+                            activeColor: const Color(0xFF8F87F1),
+                            isLightText: false,
+                            isSelected: tablesState.selectedStatusFilter == 'READY',
+                            onTap: () => tablesNotifier.selectStatusFilter('READY'),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildStatusFilterChip(
+                            keyId: 'AVAILABLE',
+                            label: 'Available',
+                            count: availTables.length,
+                            activeColor: const Color(0xFFABE7B2),
+                            isLightText: true,
+                            isSelected: tablesState.selectedStatusFilter == 'AVAILABLE',
+                            onTap: () => tablesNotifier.selectStatusFilter('AVAILABLE'),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      _buildStatusFilterChip(
-                        keyId: 'EMPTY',
-                        label: 'Empty',
-                        count: allTables.where((t) => t.status.toLowerCase() == 'empty' || t.status.toLowerCase() == 'free').length,
-                        activeColor: const Color(0xFF0284C7), // Sky Blue
-                        isSelected: tablesState.selectedStatusFilter == 'EMPTY',
-                        onTap: () => tablesNotifier.selectStatusFilter('EMPTY'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
 
-
-
-                const Divider(color: AppColors.border, height: 1),
-
-                // Tables Grid
-                Expanded(
-                  child: Builder(
-                    builder: (context) {
-                      if (tablesState.isLoading && tablesState.allTables.isEmpty) {
-                        return const Center(
-                          child: GridSkeleton(itemCount: 6),
-                        );
-                      }
-
-                      if (tablesState.errorMessage != null && tablesState.allTables.isEmpty) {
-                        return Center(
-                          child: EmptyStateView(
-                            title: 'Unable to Load Tables',
-                            subtitle: tablesState.errorMessage!,
-                            icon: LucideIcons.alertCircle,
-                            actionLabel: 'Retry',
-                            onAction: () {
-                              final restaurantId = session?.restaurantId ?? '202603180001';
-                              ref.read(tablesControllerProvider.notifier).loadTables(restaurantId);
-                            },
-                          ),
-                        );
-                      }
-
-                      final tables = filteredTables;
-
-                      if (tables.isEmpty) {
-                        return const Center(
-                          child: EmptyStateView(
-                            title: 'No Tables in this Filter',
-                            subtitle: 'Change the status filter or area to view tables.',
-                            icon: LucideIcons.layoutGrid,
-                          ),
-                        );
-                      }
-
-                      return GridView.builder(
-                        padding: EdgeInsets.fromLTRB(16, 12, 16, isSelectionMode ? 110 : 20),
-                        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 14,
-                          mainAxisSpacing: 14,
-                          childAspectRatio: 0.82,
-                        ),
-                        itemCount: tables.length,
-                        itemBuilder: (context, index) {
-                          final table = tables[index];
-                          final isSelected = _selectedTableIds.contains(table.id);
-
-                          return TableCard(
-                            table: table,
-                            isSelected: isSelected,
-                            onTap: () {
-                              if (isSelectionMode) {
-                                _toggleTableSelection(table.id);
-                              } else {
-                                _openTableDetails(table);
-                              }
-                            },
-                            onLongPress: () {
-                              FeedbackUtils.heavyHaptic();
-                              _toggleTableSelection(table.id);
-                            },
-                          );
+                // 3. Main Content: Sections (when ALL) or Filtered Grid
+                if (tablesState.isLoading && allTables.isEmpty)
+                  const SliverFillRemaining(
+                    child: Center(child: GridSkeleton(itemCount: 6)),
+                  )
+                else if (tablesState.errorMessage != null && allTables.isEmpty)
+                  SliverFillRemaining(
+                    child: Center(
+                      child: EmptyStateView(
+                        title: 'Unable to Load Tables',
+                        subtitle: tablesState.errorMessage!,
+                        icon: LucideIcons.alertCircle,
+                        actionLabel: 'Retry',
+                        onAction: () {
+                          final restaurantId = session?.restaurantId ?? '202603180001';
+                          ref.read(tablesControllerProvider.notifier).loadTables(restaurantId);
                         },
-                      );
+                      ),
+                    ),
+                  )
+                else if (tablesState.selectedStatusFilter == 'ALL') ...[
+                  // ── Section 1: My Tables ──
+                  if (myTables.isNotEmpty) ...[
+                    _buildSectionHeader(
+                      title: 'My Tables',
+                      count: myTables.length,
+                      icon: LucideIcons.userCheck,
+                      iconColor: const Color(0xFFFF6B35),
+                      badgeBg: const Color(0xFF8CA9FF),
+                      badgeFg: const Color(0xFF0F172A),
+                    ),
+                    _buildTableSliverGrid(myTables, isSelectionMode),
+                  ],
+
+                  // ── Section 2: Ready to Serve ──
+                  if (readyTables.isNotEmpty) ...[
+                    _buildSectionHeader(
+                      title: 'Ready to Serve',
+                      count: readyTables.length,
+                      icon: LucideIcons.chefHat,
+                      iconColor: const Color(0xFF7E22CE),
+                      badgeBg: const Color(0xFF8F87F1),
+                      badgeFg: Colors.white,
+                    ),
+                    _buildTableSliverGrid(readyTables, isSelectionMode),
+                  ],
+
+                  // ── Section 3: In Kitchen / Preparing ──
+                  if (prepTables.isNotEmpty) ...[
+                    _buildSectionHeader(
+                      title: 'In Kitchen / Preparing',
+                      count: prepTables.length,
+                      icon: LucideIcons.utensils,
+                      iconColor: const Color(0xFFB45309),
+                      badgeBg: const Color(0xFFFFDE63),
+                      badgeFg: const Color(0xFF0F172A),
+                    ),
+                    _buildTableSliverGrid(prepTables, isSelectionMode),
+                  ],
+
+                  // ── Section 4: Available Tables ──
+                  if (availTables.isNotEmpty) ...[
+                    _buildSectionHeader(
+                      title: 'Available Tables',
+                      count: availTables.length,
+                      icon: LucideIcons.sparkles,
+                      iconColor: const Color(0xFF059669),
+                      badgeBg: const Color(0xFFABE7B2),
+                      badgeFg: const Color(0xFF0F172A),
+                    ),
+                    _buildTableSliverGrid(availTables, isSelectionMode),
+                  ],
+
+                  // ── Section 5: Other Assigned Tables ──
+                  if (otherTables.isNotEmpty) ...[
+                    _buildSectionHeader(
+                      title: 'Other Assigned Tables',
+                      count: otherTables.length,
+                      icon: LucideIcons.users,
+                      iconColor: const Color(0xFF64748B),
+                      badgeBg: const Color(0xFFCBD5E1),
+                      badgeFg: const Color(0xFF334155),
+                    ),
+                    _buildTableSliverGrid(otherTables, isSelectionMode),
+                  ],
+
+                  const SliverPadding(padding: EdgeInsets.only(bottom: 120)),
+                ] else ...[
+                  // Single filter grid (PREPARING, READY, AVAILABLE)
+                  Builder(
+                    builder: (context) {
+                      final filtered = filteredTables;
+                      if (filtered.isEmpty) {
+                        return const SliverFillRemaining(
+                          child: Center(
+                            child: EmptyStateView(
+                              title: 'No Tables Found',
+                              subtitle: 'No tables found in this filter.',
+                              icon: LucideIcons.layoutGrid,
+                            ),
+                          ),
+                        );
+                      }
+                      return _buildTableSliverGrid(filtered, isSelectionMode);
                     },
                   ),
-                ),
+                  const SliverPadding(padding: EdgeInsets.only(bottom: 120)),
+                ],
               ],
             ),
           ),
@@ -622,14 +816,121 @@ class _TablesScreenState extends ConsumerState<TablesScreen> {
     );
   }
 
+  Widget _buildSectionHeader({
+    required String title,
+    required int count,
+    required IconData icon,
+    required Color iconColor,
+    required Color badgeBg,
+    required Color badgeFg,
+  }) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEF2F6),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.7), width: 1),
+                boxShadow: const [
+                  BoxShadow(color: Color(0x66A6B4C8), offset: Offset(2.5, 2.5), blurRadius: 6),
+                  BoxShadow(color: Color(0xF2FFFFFF), offset: Offset(-2.5, -2.5), blurRadius: 6),
+                ],
+              ),
+              child: Center(
+                child: Icon(icon, size: 16, color: iconColor),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              title,
+              style: const TextStyle(
+                fontFamily: 'Outfit',
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF1E293B),
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: badgeBg,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(color: badgeBg.withValues(alpha: 0.35), blurRadius: 4, offset: const Offset(0, 1)),
+                ],
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w900,
+                  color: badgeFg,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTableSliverGrid(List<TableModel> tables, bool isSelectionMode) {
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1 / 1.05,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final table = tables[index];
+            final isSelected = _selectedTableIds.contains(table.id);
+
+            return TableCard(
+              table: table,
+              isSelected: isSelected,
+              isSelecting: isSelectionMode,
+              onTap: () {
+                if (isSelectionMode) {
+                  _toggleTableSelection(table.id);
+                } else {
+                  _openTableDetails(table);
+                }
+              },
+              onLongPress: () {
+                FeedbackUtils.heavyHaptic();
+                _toggleTableSelection(table.id);
+              },
+            );
+          },
+          childCount: tables.length,
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatusFilterChip({
     required String keyId,
     required String label,
     required int count,
     required Color activeColor,
+    required bool isLightText,
     required bool isSelected,
     required VoidCallback onTap,
   }) {
+    final fgColor = isSelected ? (isLightText ? const Color(0xFF0F172A) : Colors.white) : const Color(0xFF334155);
+    final dotColor = isSelected ? (isLightText ? const Color(0xFF0F172A) : Colors.white) : activeColor;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -639,56 +940,79 @@ class _TablesScreenState extends ConsumerState<TablesScreen> {
         },
         borderRadius: BorderRadius.circular(20),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
-            color: isSelected ? activeColor : AppColors.surface,
+            color: isSelected ? activeColor : const Color(0xFFEEF2F6),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isSelected ? activeColor : AppColors.border,
-              width: 1.2,
+              color: isSelected ? Colors.black.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.7),
+              width: isSelected ? 1.5 : 1,
             ),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: activeColor.withValues(alpha: 0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+                      color: activeColor.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
                     ),
                   ]
-                : null,
+                : const [
+                    BoxShadow(
+                      color: Color(0x59A6B4C8),
+                      offset: Offset(3, 3),
+                      blurRadius: 7,
+                    ),
+                    BoxShadow(
+                      color: Color(0xF2FFFFFF),
+                      offset: Offset(-3, -3),
+                      blurRadius: 7,
+                    ),
+                  ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                label,
-                style: AppTypography.labelLarge.copyWith(
-                  color: isSelected ? Colors.white : AppColors.textPrimary,
-                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                  fontSize: 12.5,
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: dotColor,
+                  shape: BoxShape.circle,
+                  boxShadow: isSelected
+                      ? null
+                      : [
+                          BoxShadow(color: activeColor.withValues(alpha: 0.8), blurRadius: 5),
+                        ],
                 ),
               ),
-              if (count > 0) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? Colors.white.withValues(alpha: 0.25)
-                        : AppColors.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '$count',
-                    style: TextStyle(
-                      color: isSelected ? Colors.white : AppColors.textSecondary,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                    ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: fgColor,
+                  fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? (isLightText ? Colors.black.withValues(alpha: 0.12) : Colors.white.withValues(alpha: 0.25))
+                      : const Color(0x8CCBD5E1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: fgColor,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-              ],
+              ),
             ],
           ),
         ),
