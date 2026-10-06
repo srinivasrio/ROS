@@ -52,4 +52,14 @@ post_install do |installer|
       end
     end
   end
+  # Ensure PODS_CONFIGURATION_BUILD_DIR is in FRAMEWORK_SEARCH_PATHS so Pods_Runner.framework is found
+  Dir.glob("Pods/Target Support Files/Pods-Runner/Pods-Runner.*.xcconfig").each do |xcconfig|
+    if File.exist?(xcconfig)
+      content = File.read(xcconfig)
+      unless content.include?('${PODS_CONFIGURATION_BUILD_DIR}"')
+        content = content.gsub('FRAMEWORK_SEARCH_PATHS = $(inherited)', 'FRAMEWORK_SEARCH_PATHS = $(inherited) "${PODS_CONFIGURATION_BUILD_DIR}"')
+        File.write(xcconfig, content)
+      end
+    end
+  end
 end
