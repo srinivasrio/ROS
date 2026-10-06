@@ -56,6 +56,7 @@ class AuthRepository {
         restaurantName: 'Minerva',
         restaurantSlug: restaurantId,
         avatarUrl: avatarUrl,
+        branchId: employee['branch_id']?.toString(),
         permissions: const [
           'view_tables',
           'create_orders',
