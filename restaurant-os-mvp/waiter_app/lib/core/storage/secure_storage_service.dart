@@ -13,6 +13,7 @@ class SessionData {
   final String restaurantSlug;
   final List<String> permissions;
   final String? avatarUrl;
+  final String? branchId;
 
   SessionData({
     required this.userId,
@@ -25,6 +26,7 @@ class SessionData {
     required this.restaurantSlug,
     required this.permissions,
     this.avatarUrl,
+    this.branchId,
   });
 
   SessionData copyWith({
@@ -38,6 +40,7 @@ class SessionData {
     String? restaurantSlug,
     List<String>? permissions,
     String? avatarUrl,
+    String? branchId,
   }) {
     return SessionData(
       userId: userId ?? this.userId,
@@ -50,6 +53,7 @@ class SessionData {
       restaurantSlug: restaurantSlug ?? this.restaurantSlug,
       permissions: permissions ?? this.permissions,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      branchId: branchId ?? this.branchId,
     );
   }
 
@@ -65,6 +69,7 @@ class SessionData {
       restaurantSlug: json['restaurantSlug'] ?? json['slug'] ?? '',
       permissions: permissions,
       avatarUrl: json['avatarUrl'] ?? json['avatar_url'],
+      branchId: json['branchId'] ?? json['branch_id'],
     );
   }
 
@@ -80,6 +85,7 @@ class SessionData {
       'restaurantSlug': restaurantSlug,
       'permissions': permissions,
       'avatarUrl': avatarUrl,
+      'branchId': branchId,
     };
   }
 }
