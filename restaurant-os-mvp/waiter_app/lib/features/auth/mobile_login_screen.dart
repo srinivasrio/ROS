@@ -16,28 +16,32 @@ class MobileLoginScreen extends ConsumerStatefulWidget {
 }
 
 class _MobileLoginScreenState extends ConsumerState<MobileLoginScreen> {
-  final TextEditingController _mobileController = TextEditingController();
+  final TextEditingController _identifierController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  String? _inlineError;
 
   @override
   void dispose() {
-    _mobileController.dispose();
+    _identifierController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
   Future<void> _handleLogin() async {
-    final mobile = _mobileController.text.trim();
-    if (mobile.length != 10) {
-      FeedbackUtils.showToast(
-        context,
-        message: 'Please enter your 10-digit mobile number',
-        isError: true,
-      );
+    final identifier = _identifierController.text.trim();
+    if (identifier.isEmpty) {
+      FeedbackUtils.heavyHaptic();
+      setState(() {
+        _inlineError = 'Please enter your mobile number or employee ID';
+      });
       return;
     }
 
-    final success = await ref.read(authControllerProvider.notifier).loginWithMobile(mobile);
+    setState(() {
+      _inlineError = null;
+    });
+
+    final success = await ref.read(authControllerProvider.notifier).loginWithMobile(identifier);
     if (!mounted) return;
 
     if (success) {
@@ -47,8 +51,11 @@ class _MobileLoginScreenState extends ConsumerState<MobileLoginScreen> {
         (route) => false,
       );
     } else {
-      final error = ref.read(authControllerProvider).errorMessage ?? 'Login failed. Please check your mobile number.';
-      FeedbackUtils.showToast(context, message: error, isError: true);
+      FeedbackUtils.heavyHaptic();
+      final err = ref.read(authControllerProvider).errorMessage ?? 'Sign-in failed. Please check your credentials.';
+      setState(() {
+        _inlineError = err;
+      });
     }
   }
 
@@ -58,168 +65,249 @@ class _MobileLoginScreenState extends ConsumerState<MobileLoginScreen> {
     final isLoading = authState.status == AuthStatus.loading;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: const Color(0xFFF8FAFC), // w-canvas
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 20),
-
-              // Logo Box
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.3),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.restaurant_menu_rounded,
-                  size: 32,
-                  color: AppColors.onPrimary,
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              Text(
-                'Waiter Sign In',
-                style: AppTypography.displayMedium.copyWith(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Enter your registered staff mobile number to access your shift.',
-                style: AppTypography.bodyMedium.copyWith(color: AppColors.textSecondary),
-              ),
-
-              const SizedBox(height: 40),
-
-              // Mobile Input
-              Text(
-                'STAFF MOBILE NUMBER',
-                style: AppTypography.labelSmall.copyWith(
-                  color: AppColors.textSecondary,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              Container(
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainer,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.border, width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          right: BorderSide(color: AppColors.border, width: 1.5),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 380),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Logo tile matching Web: size-16 rounded-[20px] bg-w-brand
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B35), // w-brand
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x4DFF6B35),
+                          blurRadius: 20,
+                          offset: Offset(0, 8),
                         ),
+                      ],
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        LucideIcons.utensilsCrossed,
+                        size: 32,
+                        color: Colors.white,
                       ),
-                      child: Row(
-                        children: [
-                          const Text('🇮🇳', style: TextStyle(fontSize: 18)),
-                          const SizedBox(width: 8),
-                          Text(
-                            '+91',
-                            style: AppTypography.headingSmall.copyWith(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w800,
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Header title
+                  const Text(
+                    'Waiter Sign In',
+                    style: TextStyle(
+                      fontFamily: 'Outfit',
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0F172A), // w-ink
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Enter your registered staff mobile number or employee ID to access your shift.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF475569), // w-ink-soft
+                      height: 1.45,
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Input label
+                  const Text(
+                    'STAFF MOBILE NUMBER OR EMPLOYEE ID',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                      color: Color(0xFF475569), // w-ink-soft
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Input box matching Web
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: _inlineError != null
+                            ? const Color(0xFFEF4444)
+                            : (_focusNode.hasFocus ? const Color(0xFFFF6B35) : const Color(0xFFE2E8F0)),
+                        width: 1.5,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x0F0F172A),
+                          blurRadius: 10,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        // Left user icon divider
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: const BoxDecoration(
+                            border: Border(
+                              right: BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: TextField(
-                        controller: _mobileController,
-                        focusNode: _focusNode,
-                        keyboardType: TextInputType.phone,
-                        maxLength: 10,
-                        style: AppTypography.headingSmall.copyWith(
-                          color: AppColors.textPrimary,
-                          letterSpacing: 1.5,
-                          fontWeight: FontWeight.w800,
-                        ),
-                        decoration: InputDecoration(
-                          counterText: '',
-                          hintText: '82470 05501',
-                          hintStyle: AppTypography.headingSmall.copyWith(
-                            color: AppColors.textMuted,
-                            letterSpacing: 1.5,
+                          child: const Icon(
+                            LucideIcons.user,
+                            size: 18,
+                            color: Color(0xFF475569),
                           ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 18),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          fillColor: Colors.transparent,
                         ),
-                        onSubmitted: (_) => _handleLogin(),
+
+                        // Text Field
+                        Expanded(
+                          child: TextField(
+                            controller: _identifierController,
+                            focusNode: _focusNode,
+                            autofocus: false,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _handleLogin(),
+                            onChanged: (_) {
+                              if (_inlineError != null) {
+                                setState(() {
+                                  _inlineError = null;
+                                });
+                              }
+                            },
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0F172A),
+                            ),
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. 9876543210 or EMP-0001',
+                              hintStyle: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.normal,
+                                color: Color(0xFF94A3B8), // w-muted
+                              ),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Inline error if any
+                  if (_inlineError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _inlineError!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFEF4444), // w-alert
                       ),
                     ),
                   ],
-                ),
-              ),
 
-              const SizedBox(height: 32),
+                  const SizedBox(height: 24),
 
-              AppButton(
-                label: 'Enter Waiter Panel',
-                icon: LucideIcons.arrowRight,
-                isLoading: isLoading,
-                onPressed: isLoading ? null : _handleLogin,
-              ),
-
-              const SizedBox(height: 48),
-
-              // Quick Hint Banner
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceContainer,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.border, width: 1),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(LucideIcons.shieldCheck, size: 20, color: AppColors.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Direct Staff Sign In: Active waiters can sign in directly using their 10-digit registered staff mobile number.',
-                        style: AppTypography.bodySmall.copyWith(
-                          color: AppColors.textSecondary,
-                          height: 1.4,
+                  // CTA Button matching Web
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B35), // w-brand
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
                         ),
                       ),
+                      onPressed: isLoading ? null : _handleLogin,
+                      child: isLoading
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'Enter Waiter Panel',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                SizedBox(width: 8),
+                                Icon(LucideIcons.arrowRight, size: 18),
+                              ],
+                            ),
                     ),
-                  ],
-                ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Info banner matching Web: ShieldCheck + text
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(LucideIcons.shieldCheck, size: 20, color: Color(0xFFFF6B35)),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'Instant Staff Access: ',
+                                  style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                                ),
+                                TextSpan(
+                                  text: 'Enter your mobile number or employee ID to sign in. No password required.',
+                                  style: TextStyle(color: Color(0xFF475569)),
+                                ),
+                              ],
+                            ),
+                            style: TextStyle(fontSize: 12, height: 1.45),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
