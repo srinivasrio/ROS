@@ -7,9 +7,9 @@ class AppConfig {
   static const String supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY3N5Z3BwaHdkdWJuYW53and6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMjUyMTIsImV4cCI6MjA4NTgwMTIxMn0.uQyoWluprn9Gr-ypserxqF9WM_85MWUMAO7Uch1jN14';
 
   // Backend API URL for authentication & backend commands
-  // Works for Web and for Physical Android Device (with adb reverse tcp:3000 tcp:3000)
-  static const String baseApiUrl = 'http://localhost:3000';
-  static const String fallbackApiUrl = 'http://localhost:3000';
+  // Works across local Wi-Fi for wireless iPhone and Android devices
+  static const String baseApiUrl = 'http://192.168.1.12:3000';
+  static const String fallbackApiUrl = 'http://192.168.1.12:3000';
 
   // Currency & Formatting
   static const String currencySymbol = '₹';
