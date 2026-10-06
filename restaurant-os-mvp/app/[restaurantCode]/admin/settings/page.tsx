@@ -9,7 +9,6 @@ import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
-import RestaurantLocationPicker from '@/components/admin/RestaurantLocationPicker';
 
 export default function Settings() {
     const { restaurantId, loading: restaurantLoading } = useRestaurantId();
@@ -292,11 +291,6 @@ export default function Settings() {
                     <p className="text-xs text-neutral-500">
                         💡 Example: 5% GST → 2.5% CGST + 2.5% SGST | 18% GST → 9% CGST + 9% SGST
                     </p>
-                </section>
-
-                {/* Location & Ordering Modes Section */}
-                <section className="space-y-4 pt-6 border-t border-neutral-100">
-                    <RestaurantLocationPicker restaurantCode={activeResId} />
                 </section>
 
                 {/* Actions */}

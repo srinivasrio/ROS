@@ -240,6 +240,32 @@ export async function POST(
 
             let authUserId: string | null = null;
             if (cleanAdminEmail) {
+                const { data: ownerConflict } = await supabaseAdmin
+                    .from('employees')
+                    .select('id, role')
+                    .ilike('email', cleanAdminEmail)
+                    .in('role', ['owner', 'restaurant_owner'])
+                    .maybeSingle();
+
+                if (ownerConflict) {
+                    return NextResponse.json({ 
+                        error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.' 
+                    }, { status: 409 });
+                }
+
+                const { data: legacyOwner } = await supabaseAdmin
+                    .from('users')
+                    .select('id, role')
+                    .ilike('email', cleanAdminEmail)
+                    .in('role', ['owner', 'restaurant_owner'])
+                    .maybeSingle();
+
+                if (legacyOwner) {
+                    return NextResponse.json({ 
+                        error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.' 
+                    }, { status: 409 });
+                }
+
                 try {
                     const tempPass = adminPassword || `Admin@${Math.floor(100000 + Math.random() * 900000)}`;
                     const { data: authUser } = await supabaseAdmin.auth.admin.createUser({
@@ -721,12 +747,16 @@ export async function PATCH(
             const locationBranchId = locBranch?.id || null;
 
             if (targetAdminId) {
-                const { data: ea } = await supabaseAdmin.from('employees').select('*').eq('id', targetAdminId).maybeSingle();
+                const { data: ea } = await supabaseAdmin.from('employees').select('*').eq('id', targetAdminId).in('role', ['restaurant_admin', 'admin']).maybeSingle();
                 existingAdmin = ea;
             } else if (adminEmail) {
-                const { data: ea } = await supabaseAdmin.from('employees').select('*').ilike('email', adminEmail.toLowerCase().trim()).maybeSingle();
+                const { data: ea } = await supabaseAdmin.from('employees').select('*').ilike('email', adminEmail.toLowerCase().trim()).in('role', ['restaurant_admin', 'admin']).maybeSingle();
                 existingAdmin = ea;
                 if (existingAdmin) targetAdminId = existingAdmin.id;
+            }
+
+            if (existingAdmin && ['owner', 'restaurant_owner'].includes(String(existingAdmin.role || '').toLowerCase())) {
+                existingAdmin = null;
             }
 
             if (existingAdmin) {
@@ -740,7 +770,36 @@ export async function PATCH(
                     empUpdates.branch_id = locationBranchId;
                 }
                 if (adminName?.trim()) empUpdates.name = adminName.trim();
-                if (adminEmail?.trim()) empUpdates.email = adminEmail.toLowerCase().trim();
+                if (adminEmail?.trim()) {
+                    const cleanEmail = adminEmail.toLowerCase().trim();
+                    const { data: ownerConflict } = await supabaseAdmin
+                        .from('employees')
+                        .select('id, role')
+                        .ilike('email', cleanEmail)
+                        .in('role', ['owner', 'restaurant_owner'])
+                        .maybeSingle();
+
+                    if (ownerConflict) {
+                        return NextResponse.json({ 
+                            error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.' 
+                        }, { status: 409 });
+                    }
+
+                    const { data: legacyOwner } = await supabaseAdmin
+                        .from('users')
+                        .select('id, role')
+                        .ilike('email', cleanEmail)
+                        .in('role', ['owner', 'restaurant_owner'])
+                        .maybeSingle();
+
+                    if (legacyOwner) {
+                        return NextResponse.json({ 
+                            error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.' 
+                        }, { status: 409 });
+                    }
+
+                    empUpdates.email = cleanEmail;
+                }
                 if (adminMobile?.trim()) empUpdates.mobile = adminMobile.replace(/[^0-9]/g, '').slice(-10);
                 if (adminPin?.trim()) {
                     empUpdates.pin = await hashPin(adminPin.trim());
@@ -785,10 +844,36 @@ export async function PATCH(
                 });
 
                 return NextResponse.json({ success: true, message: 'Restaurant Admin credentials updated.' });
-            } else {
                 // Create new admin
                 const cleanAdminName = (adminName || 'Restaurant Admin').trim();
                 const cleanAdminEmail = adminEmail ? adminEmail.toLowerCase().trim() : null;
+                if (cleanAdminEmail) {
+                    const { data: ownerConflict } = await supabaseAdmin
+                        .from('employees')
+                        .select('id, role')
+                        .ilike('email', cleanAdminEmail)
+                        .in('role', ['owner', 'restaurant_owner'])
+                        .maybeSingle();
+
+                    if (ownerConflict) {
+                        return NextResponse.json({ 
+                            error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.' 
+                        }, { status: 409 });
+                    }
+
+                    const { data: legacyOwner } = await supabaseAdmin
+                        .from('users')
+                        .select('id, role')
+                        .ilike('email', cleanAdminEmail)
+                        .in('role', ['owner', 'restaurant_owner'])
+                        .maybeSingle();
+
+                    if (legacyOwner) {
+                        return NextResponse.json({ 
+                            error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.' 
+                        }, { status: 409 });
+                    }
+                }
                 const cleanAdminMobile = adminMobile ? adminMobile.replace(/[^0-9]/g, '').slice(-10) : null;
                 const rawPin = adminPin?.trim() || null;
                 const hashedPin = rawPin ? await hashPin(rawPin) : null;

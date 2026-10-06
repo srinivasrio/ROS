@@ -39,9 +39,31 @@ export async function POST(request: Request) {
         // Check if an employee record already exists with this email or mobile
         const { data: existingByEmail } = await supabaseAdmin
             .from('employees')
-            .select('id, email, mobile, is_deleted, status, session_version')
+            .select('id, email, mobile, role, is_deleted, status, session_version')
             .ilike('email', cleanEmail)
             .maybeSingle();
+
+        // Check separation: If email exists as Restaurant Admin, prevent creating or assigning it as Owner
+        if (existingByEmail) {
+            const existingRole = (existingByEmail.role || '').toLowerCase();
+            if (['restaurant_admin', 'admin', 'branch_admin'].includes(existingRole)) {
+                return NextResponse.json({ 
+                    error: 'This email is already registered as a Restaurant Admin and cannot be used for an Owner account.' 
+                }, { status: 409 });
+            }
+        }
+
+        const { data: legacyConflict } = await supabaseAdmin
+            .from('users')
+            .select('id, role')
+            .ilike('email', cleanEmail)
+            .maybeSingle();
+
+        if (legacyConflict && ['admin', 'restaurant_admin', 'branch_admin'].includes((legacyConflict.role || '').toLowerCase())) {
+            return NextResponse.json({ 
+                error: 'This email is already registered as a Restaurant Admin and cannot be used for an Owner account.' 
+            }, { status: 409 });
+        }
 
         const { data: existingByPhone } = await supabaseAdmin
             .from('employees')
@@ -52,7 +74,7 @@ export async function POST(request: Request) {
         // If an active (non-deleted) account exists with email, block duplicate
         if (existingByEmail && !existingByEmail.is_deleted) {
             return NextResponse.json({ 
-                error: 'An account with this email address is already registered and active. Please sign in.' 
+                error: 'An account with this email address is already registered and active. Please sign in to the Owner Portal.' 
             }, { status: 409 });
         }
 
@@ -79,7 +101,7 @@ export async function POST(request: Request) {
                     name: name.trim(),
                     email: cleanEmail,
                     mobile: cleanPhone,
-                    role: 'restaurant_admin',
+                    role: 'owner',
                     employee_id: employeeId,
                     status: 'pending',
                     approval_status: 'pending',
@@ -116,7 +138,7 @@ export async function POST(request: Request) {
                     phone: cleanPhone,
                     employee_id: employeeId,
                     password_hash: passwordHash,
-                    role: 'ADMIN',
+                    role: 'OWNER',
                     status: 'inactive',
                     restaurant_id: null
                 });
@@ -133,7 +155,7 @@ export async function POST(request: Request) {
                     name: name.trim(),
                     email: cleanEmail,
                     mobile: cleanPhone,
-                    role: 'restaurant_admin',
+                    role: 'owner',
                     employee_id: employeeId,
                     status: 'pending',
                     approval_status: 'pending',
@@ -173,7 +195,7 @@ export async function POST(request: Request) {
                     phone: cleanPhone,
                     employee_id: employeeId,
                     password_hash: passwordHash,
-                    role: 'ADMIN',
+                    role: 'OWNER',
                     status: 'inactive',
                     restaurant_id: null
                 });
@@ -185,7 +207,7 @@ export async function POST(request: Request) {
             sessionId,
             userId,
             name: name.trim(),
-            role: 'restaurant_admin',
+            role: 'owner',
             sessionVersion: 1,
             email: cleanEmail,
             mobile: cleanPhone,

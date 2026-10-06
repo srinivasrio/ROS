@@ -381,6 +381,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen>
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      extendBody: true,
       body: IndexedStack(
         index: _currentIndex,
         children: _screens,

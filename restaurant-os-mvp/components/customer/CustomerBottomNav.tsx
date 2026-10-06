@@ -214,15 +214,21 @@ export function CustomerBottomNav({ restaurantCode: propRestaurantCode, tableNum
             }}
         >
             <div 
-                className={`pointer-events-auto rounded-[28px] flex items-center justify-around transition-all duration-300 ease-out ${
+                className={`pointer-events-auto relative rounded-full flex items-center justify-around backdrop-blur-2xl backdrop-saturate-150 transition-all duration-300 ease-out ${
                     isMinimized ? 'py-1 px-1.5' : 'p-1.5'
                 }`}
                 style={{
-                    backgroundColor: '#EEF2F6',
-                    border: '1px solid rgba(255, 255, 255, 0.85)',
-                    boxShadow: '0 -4px 16px rgba(166, 180, 200, 0.38), 0 4px 12px rgba(166, 180, 200, 0.25)',
+                    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(243, 246, 251, 0.6) 50%, rgba(255, 255, 255, 0.74) 100%)',
+                    border: '1px solid rgba(255, 255, 255, 0.75)',
+                    boxShadow: '0 16px 38px -6px rgba(15, 23, 42, 0.15), 0 4px 12px -2px rgba(15, 23, 42, 0.08), inset 0 1.5px 1.5px rgba(255, 255, 255, 0.95), inset 0 -1.5px 2px rgba(200, 210, 225, 0.25)',
                 }}
             >
+                {/* Micro specular liquid refraction gleam across top edge */}
+                <div
+                    aria-hidden="true"
+                    className="absolute inset-x-8 top-0 h-[1px] bg-gradient-to-r from-transparent via-white to-transparent pointer-events-none opacity-90 rounded-full"
+                />
+
                 {navItems.map((item) => {
                     const active = item.active;
                     const Icon = item.icon;
@@ -237,20 +243,21 @@ export function CustomerBottomNav({ restaurantCode: propRestaurantCode, tableNum
                                     return;
                                 }
                             }}
-                            className={`relative flex flex-col items-center justify-center rounded-2xl transition-all duration-200 ease-out active:scale-95 cursor-pointer select-none ${
+                            className={`relative flex flex-col items-center justify-center rounded-full transition-all duration-200 ease-out active:scale-95 cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-orange-500/40 ${
                                 isMinimized ? 'py-1.5 px-3 sm:px-3.5' : 'py-2 px-3.5 sm:px-4'
                             }`}
                         >
-                            {/* Smooth Travel Animated Orange Background Pill */}
+                            {/* Smooth Travel Animated Orange Capsule Pill */}
                             {active && (
                                 <motion.div
                                     layoutId="activeCustomerBottomNavPill"
-                                    className="absolute inset-0 bg-gradient-to-b from-orange-400 to-orange-500 rounded-2xl shadow-lg shadow-orange-500/30"
+                                    className="absolute inset-0.5 rounded-full"
                                     style={{
-                                        border: '1px solid rgba(255, 255, 255, 0.4)',
-                                        boxShadow: '0 4px 14px -1px rgba(249, 115, 22, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.4)',
+                                        background: 'linear-gradient(135deg, #FF6B00 0%, #FF8533 100%)',
+                                        boxShadow: '0 4px 16px -1px rgba(249, 115, 22, 0.5), 0 2px 6px 0 rgba(249, 115, 22, 0.3), inset 0 1px 1.5px rgba(255, 255, 255, 0.45), inset 0 -1px 2px rgba(194, 65, 12, 0.3)',
+                                        border: '1px solid rgba(255, 255, 255, 0.35)',
                                     }}
-                                    transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                                    transition={{ type: "spring", stiffness: 440, damping: 32, mass: 0.75 }}
                                 />
                             )}
 
@@ -261,7 +268,7 @@ export function CustomerBottomNav({ restaurantCode: propRestaurantCode, tableNum
                                         y: active ? -1 : 0
                                     }}
                                     transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                                    className={active ? 'text-white' : 'text-slate-500'}
+                                    className={active ? 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]' : 'text-slate-500'}
                                 >
                                     <Icon size={isMinimized ? 18 : 20} strokeWidth={active ? 2.5 : 2} />
                                 </motion.div>
@@ -269,7 +276,7 @@ export function CustomerBottomNav({ restaurantCode: propRestaurantCode, tableNum
                                 <span className={`tracking-tight transition-all duration-200 ${
                                     isMinimized ? 'text-[9px]' : 'text-[10px]'
                                 } ${
-                                    active ? 'text-white font-black drop-shadow-xs' : 'text-slate-600 font-semibold'
+                                    active ? 'text-white font-black drop-shadow-[0_1px_1.5px_rgba(0,0,0,0.2)]' : 'text-slate-600 font-semibold'
                                 }`}>
                                     {item.label}
                                 </span>

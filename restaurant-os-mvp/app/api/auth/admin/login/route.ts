@@ -144,6 +144,33 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Invalid admin credentials' }, { status: 401 });
         }
 
+        // Strict Separation Check on candidate accounts
+        if (!isOwnerPanel) {
+            const hasAdminCandidate = candidateUsers.some(c => 
+                ['admin', 'restaurant_admin', 'branch_admin', 'manager', 'super_admin'].includes(String(c.role || '').toLowerCase())
+            );
+            const isOwnerOnly = candidateUsers.every(c => 
+                ['owner', 'restaurant_owner'].includes(String(c.role || '').toLowerCase())
+            );
+            if (isOwnerOnly && !hasAdminCandidate) {
+                return NextResponse.json({
+                    error: 'This email is registered as a Restaurant Owner and cannot access the Restaurant Admin panel. Please sign in via the Owner Portal at /login/owner.'
+                }, { status: 403 });
+            }
+        } else {
+            const hasOwnerCandidate = candidateUsers.some(c => 
+                ['owner', 'restaurant_owner', 'super_admin'].includes(String(c.role || '').toLowerCase())
+            );
+            const isAdminOnly = candidateUsers.every(c => 
+                ['admin', 'restaurant_admin', 'branch_admin', 'manager'].includes(String(c.role || '').toLowerCase())
+            );
+            if (isAdminOnly && !hasOwnerCandidate) {
+                return NextResponse.json({
+                    error: 'This email is registered as a Restaurant Admin and cannot access the Owner Portal. Please sign in via the Restaurant Admin panel.'
+                }, { status: 403 });
+            }
+        }
+
         // If multiple candidates found (e.g. same mobile number used across restaurants/staff),
         // resolve candidate by checking password verification
         let adminUser: any = null;
@@ -262,31 +289,18 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        // 4. ROLE-BASED ACCESS CONTROL (Admin only)
+        // 4. ROLE-BASED ACCESS CONTROL (Separation between Owner and Restaurant Admin)
         const rawRole = String(adminUser.role || '').toLowerCase().trim();
-        const isAdminRole = ['admin', 'restaurant_admin', 'owner', 'restaurant_owner'].includes(rawRole) ||
-            rawRole === 'super_admin';
 
-        if (!isAdminRole) {
-            await recordAuthAuditLog({
-                restaurantId: adminUser.restaurant_id,
-                userId: adminUser.id,
-                employeeId: adminUser.employee_id,
-                action: 'privilege_escalation_attempt',
-                ip,
-                device,
-                browser,
-                details: { attempted_panel: 'admin', actual_role: rawRole }
-            });
-            return NextResponse.json({
-                error: 'Access Denied: You are not authorized to access the Admin Panel.'
-            }, { status: 403 });
-        }
-
-        // Owner panel privilege check
         if (isOwnerPanel) {
+            if (['restaurant_admin', 'admin', 'branch_admin'].includes(rawRole)) {
+                return NextResponse.json({
+                    error: 'This email is registered as a Restaurant Admin and cannot access the Owner Portal. Please sign in via the Restaurant Admin panel.'
+                }, { status: 403 });
+            }
+
             const isSuper = (adminUser.role || '').toUpperCase() === 'SUPER_ADMIN';
-            let isOwner = isSuper;
+            let isOwner = isSuper || ['owner', 'restaurant_owner'].includes(rawRole);
             if (!isOwner && adminUser.restaurant_id) {
                 const { data: isOwnerRest } = await supabaseAdmin
                     .from('restaurants')
@@ -309,13 +323,34 @@ export async function POST(req: NextRequest) {
                     if (!adminUser.restaurant_id) adminUser.restaurant_id = isOwnerRu.restaurant_id;
                 }
             }
-            if (!isOwner) {
-                const rawRole = String(adminUser.role || '').toLowerCase();
-                if (['owner', 'restaurant_owner'].includes(rawRole)) isOwner = true;
-            }
+
             if (!isOwner) {
                 return NextResponse.json({
                     error: 'Access Denied: You do not have owner privileges. Please sign in via the Restaurant Admin portal.'
+                }, { status: 403 });
+            }
+        } else {
+            // Restaurant Admin Panel
+            if (['owner', 'restaurant_owner'].includes(rawRole)) {
+                return NextResponse.json({
+                    error: 'This email is registered as a Restaurant Owner and cannot access the Restaurant Admin panel. Please sign in via the Owner Portal at /login/owner.'
+                }, { status: 403 });
+            }
+
+            const isAllowedAdminRole = ['admin', 'restaurant_admin', 'branch_admin', 'manager', 'super_admin'].includes(rawRole);
+            if (!isAllowedAdminRole) {
+                await recordAuthAuditLog({
+                    restaurantId: adminUser.restaurant_id,
+                    userId: adminUser.id,
+                    employeeId: adminUser.employee_id,
+                    action: 'privilege_escalation_attempt',
+                    ip,
+                    device,
+                    browser,
+                    details: { attempted_panel: 'admin', actual_role: rawRole }
+                });
+                return NextResponse.json({
+                    error: 'Access Denied: You are not authorized to access the Admin Panel.'
                 }, { status: 403 });
             }
         }
@@ -517,7 +552,9 @@ export async function POST(req: NextRequest) {
 
         // Set secure cookies
         response.cookies.set('dine_auth_token', token, cookieOpts);
-        response.cookies.set('dine_auth_token_admin', token, cookieOpts);
+        if (!isOwnerPanel) {
+            response.cookies.set('dine_auth_token_admin', token, cookieOpts);
+        }
         if (rid) {
             response.cookies.set('dine_restaurant_id', rid, cookieOpts);
         }
@@ -527,7 +564,9 @@ export async function POST(req: NextRequest) {
         if (rid) {
             const cleanRid = String(rid).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
             response.cookies.set(`dine_auth_token_${cleanRid}`, token, cookieOpts);
-            response.cookies.set(`dine_auth_token_${cleanRid}_admin`, token, cookieOpts);
+            if (!isOwnerPanel) {
+                response.cookies.set(`dine_auth_token_${cleanRid}_admin`, token, cookieOpts);
+            }
             if (assignedBranchId) {
                 response.cookies.set(`dine_branch_id_${cleanRid}`, assignedBranchId, cookieOpts);
             }

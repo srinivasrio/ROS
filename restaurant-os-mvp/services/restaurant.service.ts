@@ -212,6 +212,41 @@ export const RestaurantService = {
 
         const sanitizedUpdate = sanitizeMetaInfo(mergedMeta);
 
+        // 1. Try server-side admin API endpoint first
+        if (typeof window !== 'undefined') {
+            try {
+                const { getDineToken, syncClientSession } = await import('@/lib/supabase');
+                let token = getDineToken('admin');
+                if (!token) {
+                    token = await syncClientSession('admin', restaurantId);
+                }
+
+                const headers: Record<string, string> = {
+                    'Content-Type': 'application/json'
+                };
+                if (token) {
+                    headers['x-dine-token'] = token;
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const res = await fetch('/api/admin/profile', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        restaurantId,
+                        metaInfo: sanitizedUpdate
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data?.success) return;
+                }
+            } catch (apiErr) {
+                console.warn('[RestaurantService] Admin profile API unavailable for meta, falling back to direct Supabase write:', apiErr);
+            }
+        }
+
         const supabase = createClient();
         const { error } = await supabase
             .from('restaurant_profile')
@@ -219,7 +254,7 @@ export const RestaurantService = {
 
         if (error) {
             console.error('Failed to update meta info', error);
-            throw new Error('Failed to update restaurant meta information');
+            throw new Error(error.message || 'Failed to update restaurant meta information');
         }
     },
 
@@ -325,9 +360,60 @@ export const RestaurantService = {
      * Updates restaurant basic info.
      */
     updateRestaurantInfo: async (restaurantId: string, info: RestaurantInfo): Promise<void> => {
-        const supabase = createClient();
         const actualId = (await RestaurantService.resolveRestaurantId(restaurantId)) || restaurantId;
 
+        // 1. Try server-side admin API endpoint first (secure, reliably syncs restaurants + restaurant_profile)
+        if (typeof window !== 'undefined') {
+            try {
+                const { getDineToken, syncClientSession } = await import('@/lib/supabase');
+                let token = getDineToken('admin');
+                if (!token) {
+                    token = await syncClientSession('admin', actualId);
+                }
+
+                const headers: Record<string, string> = {
+                    'Content-Type': 'application/json'
+                };
+                if (token) {
+                    headers['x-dine-token'] = token;
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const res = await fetch('/api/admin/profile', {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        restaurantId: actualId,
+                        info
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data?.success) {
+                        try {
+                            const { clearCache } = await import('./homepage-builder.service');
+                            clearCache(`homepage-full-${actualId}`);
+                            clearCache(`homepage-full-${restaurantId}`);
+                        } catch (e) {}
+                        return;
+                    }
+                } else {
+                    const errData = await res.json().catch(() => null);
+                    if (errData?.error && res.status !== 404) {
+                        throw new Error(errData.error);
+                    }
+                }
+            } catch (apiErr: any) {
+                if (apiErr?.message && !apiErr.message.includes('fetch') && !apiErr.message.includes('Failed to fetch')) {
+                    throw apiErr;
+                }
+                console.warn('[RestaurantService] Admin profile API unavailable, falling back to direct Supabase write:', apiErr);
+            }
+        }
+
+        // 2. Direct Supabase client fallback
+        const supabase = createClient();
         const { error } = await supabase
             .from('restaurant_profile')
             .upsert({ 
@@ -338,7 +424,7 @@ export const RestaurantService = {
 
         if (error) {
             console.error('Failed to update restaurant info', error);
-            throw new Error('Failed to update restaurant information');
+            throw new Error(error.message || 'Failed to update restaurant information');
         }
 
         // Also sync logo_url, name, and GST to restaurants table for universal access

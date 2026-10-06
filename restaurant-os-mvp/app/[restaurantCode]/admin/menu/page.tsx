@@ -3456,13 +3456,6 @@ export default function MenuManagement() {
                                                 </button>
                                             )}
                                         </div>
-                                        <input
-                                            type="text"
-                                            value={specialFormImageUrl}
-                                            onChange={(e) => setSpecialFormImageUrl(e.target.value)}
-                                            placeholder="Or paste image URL directly..."
-                                            className="w-full px-3 py-1.5 text-xs border border-neutral-200 rounded-lg text-neutral-900"
-                                        />
                                     </div>
                                 </div>
                             </div>

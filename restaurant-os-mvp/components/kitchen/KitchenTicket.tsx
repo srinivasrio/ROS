@@ -166,9 +166,17 @@ export default function KitchenTicket({
                     )}
 
                     {order.waiter_name && (
-                        <span className="text-[9px] font-bold text-violet-800 bg-violet-50 border border-violet-200/80 px-1.5 py-0.5 rounded-md flex items-center gap-1 shrink-0">
-                            <User size={9} className="text-violet-500" />
-                            <span className="truncate max-w-[80px]">{order.waiter_name}</span>
+                        <span className="text-[9px] font-bold text-violet-800 bg-violet-50 border border-violet-200/80 px-1.5 py-0.5 rounded-md flex items-center gap-1.5 shrink-0">
+                            {order.waiter_avatar ? (
+                                <img
+                                    src={order.waiter_avatar}
+                                    alt={order.waiter_name}
+                                    className="size-3.5 rounded-full object-cover shrink-0 border border-violet-200"
+                                />
+                            ) : (
+                                <User size={9} className="text-violet-500" />
+                            )}
+                            <span className="truncate max-w-[85px]">{order.waiter_name}</span>
                         </span>
                     )}
 

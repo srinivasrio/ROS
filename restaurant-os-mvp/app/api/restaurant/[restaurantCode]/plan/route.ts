@@ -18,7 +18,7 @@ export async function GET(
         let resolvedId = cleanCode;
         const { data: directRest } = await supabaseAdmin
             .from('restaurants')
-            .select('id, name, status, subscription_plan')
+            .select('id, name, status, subscription_plan, logo_url')
             .eq('id', cleanCode)
             .maybeSingle();
 
@@ -35,7 +35,7 @@ export async function GET(
                 resolvedId = bySlug.restaurant_id;
                 const { data: byResolved } = await supabaseAdmin
                     .from('restaurants')
-                    .select('id, name, status, subscription_plan')
+                    .select('id, name, status, subscription_plan, logo_url')
                     .eq('id', resolvedId)
                     .maybeSingle();
                 restaurantData = byResolved;
@@ -50,8 +50,8 @@ export async function GET(
             .maybeSingle();
 
         const profileInfo = (profile?.restaurant_info as any) || {};
-        const name = restaurantData?.name || profileInfo.name || profile?.name || 'Restaurant OS';
-        const logoUrl = profileInfo.logo_url || null;
+        const name = restaurantData?.name || profileInfo.name || profile?.name || '';
+        const logoUrl = profileInfo.logo_url || (restaurantData as any)?.logo_url || null;
 
         // 3. Centrally resolve real-time feature entitlements from subscription & database
         const url = new URL(request.url);

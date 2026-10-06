@@ -105,6 +105,18 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // Enforce Account Separation: Restaurant Admins cannot log in via Owner Portal
+        const candidateRole = String(userData.role || '').toLowerCase();
+        if (['restaurant_admin', 'admin', 'branch_admin'].includes(candidateRole)) {
+            return NextResponse.json(
+                {
+                    error: 'This email is registered as a Restaurant Admin and cannot access the Owner Portal. Please sign in via the Restaurant Admin panel at /login/admin.',
+                    code: 'RESTAURANT_ADMIN_NOT_ALLOWED_HERE'
+                },
+                { status: 403 }
+            );
+        }
+
         // 4. Look up security credentials in auth table
         const { data: authRecord } = await supabaseAdmin
             .from('auth')
@@ -295,7 +307,7 @@ export async function POST(req: NextRequest) {
 
         const sessionId = crypto.randomUUID();
         const sessionVersion = userData.session_version || 1;
-        const role = (userData.role || 'restaurant_admin').toLowerCase();
+        const role = (userData.role || 'owner').toLowerCase();
 
         const token = await signJwt({
             sessionId,
@@ -363,13 +375,11 @@ export async function POST(req: NextRequest) {
 
         // Set secure HTTP-only cookies
         response.cookies.set('dine_auth_token', token, cookieOpts);
-        response.cookies.set('dine_auth_token_admin', token, cookieOpts);
 
         if (userData.restaurant_id) {
             response.cookies.set('dine_restaurant_id', userData.restaurant_id, cookieOpts);
             const cleanRid = String(userData.restaurant_id).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
             response.cookies.set(`dine_auth_token_${cleanRid}`, token, cookieOpts);
-            response.cookies.set(`dine_auth_token_${cleanRid}_admin`, token, cookieOpts);
         }
 
         if (userData.branch_id) {

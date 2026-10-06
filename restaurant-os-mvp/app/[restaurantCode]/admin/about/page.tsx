@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RestaurantService, MetaInfo, RestaurantInfo } from '@/services/restaurant.service';
 import { toast } from 'sonner';
-import { Settings2 as LucideSettings2, Plus as LucidePlus, Trash2 as LucideTrash2, Check as LucideCheck, Info as LucideInfo, Edit2 as LucideEdit2, X as LucideX, Upload as LucideUpload, Image as LucideImage } from 'lucide-react';
+import { Settings2 as LucideSettings2, Plus as LucidePlus, Trash2 as LucideTrash2, Check as LucideCheck, Edit2 as LucideEdit2, X as LucideX, Upload as LucideUpload, Image as LucideImage } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRestaurantId } from '@/hooks/useRestaurantId';
 import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
@@ -93,7 +93,11 @@ export default function AdminAboutPage() {
     }, [restaurantId, restaurantCode, metaInfo]);
 
     useEffect(() => {
-        if (!restaurantLoading && (restaurantId || restaurantCode)) {
+        const targetId = restaurantId || restaurantCode;
+        if (!restaurantLoading && targetId) {
+            import('@/lib/supabase').then(({ syncClientSession }) => {
+                syncClientSession('admin', targetId);
+            }).catch(() => {});
             loadData();
         }
     }, [restaurantId, restaurantCode, restaurantLoading, loadData]);
@@ -102,7 +106,8 @@ export default function AdminAboutPage() {
 
     const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file || !restaurantId) return;
+        const targetId = restaurantId || restaurantCode;
+        if (!file || !targetId) return;
 
         if (file.size > 5 * 1024 * 1024) {
             toast.error('Logo image size should be less than 5MB');
@@ -112,26 +117,24 @@ export default function AdminAboutPage() {
         setUploadingLogo(true);
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('restaurantId', restaurantId);
+        formData.append('restaurantId', targetId);
         formData.append('type', 'branding');
 
         try {
             const res = await fetch('/api/upload', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.url) {
-                const updatedInfo = { ...restaurantInfo, logo_url: data.url } as RestaurantInfo;
-                setRestaurantInfo(updatedInfo);
-                await RestaurantService.updateRestaurantInfo(restaurantId, updatedInfo);
-                setCache(`about-${restaurantId}`, { metaInfo, restaurantInfo: updatedInfo });
-                toast.success('Restaurant logo updated successfully!');
+                setRestaurantInfo(prev => prev ? { ...prev, logo_url: data.url } : prev);
+                toast.success('Logo uploaded to preview. Click "Save Profile" to apply changes.');
             } else {
                 toast.error(data.error || 'Failed to upload logo');
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('Logo upload error:', err);
-            toast.error('Failed to upload logo');
+            toast.error(err.message || 'Failed to upload logo');
         } finally {
             setUploadingLogo(false);
+            e.target.value = '';
         }
     };
 
@@ -140,14 +143,14 @@ export default function AdminAboutPage() {
         if (!targetId || !restaurantInfo) return;
         setSavingInfo(true);
         try {
-            await RestaurantService.updateRestaurantInfo(restaurantId || targetId, restaurantInfo);
+            await RestaurantService.updateRestaurantInfo(targetId, restaurantInfo);
             const payload = { metaInfo, restaurantInfo };
             setCache(`about-${targetId}`, payload);
-            if (restaurantId) setCache(`about-${restaurantId}`, payload);
+            if (restaurantId && restaurantId !== targetId) setCache(`about-${restaurantId}`, payload);
             toast.success('Restaurant information saved!');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to save restaurant info:', error);
-            toast.error('Failed to save restaurant information');
+            toast.error(error.message || 'Failed to save restaurant information');
         }
         setSavingInfo(false);
     };
@@ -157,11 +160,11 @@ export default function AdminAboutPage() {
         if (!targetId) return;
         setSaving(true);
         try {
-            await RestaurantService.updateMetaInfo(restaurantId || targetId, updatedMeta);
+            await RestaurantService.updateMetaInfo(targetId, updatedMeta);
             setMetaInfo(updatedMeta);
             const payload = { metaInfo: updatedMeta, restaurantInfo };
             setCache(`about-${targetId}`, payload);
-            if (restaurantId) setCache(`about-${restaurantId}`, payload);
+            if (restaurantId && restaurantId !== targetId) setCache(`about-${restaurantId}`, payload);
             toast.success("Profile updated strictly");
         } catch (error) {
             console.error("Failed to save:", error);
@@ -468,34 +471,12 @@ export default function AdminAboutPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar min-h-0 pb-8 space-y-8 text-black">
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex gap-3">
-                    <LucideInfo className="text-blue-500 shrink-0 mt-0.5" size={20} />
-                    <p className="text-sm text-blue-900 font-medium">
-                        This information defines your restaurant's public profile and capabilities.
-                        <strong> This data is used to inform customers about your venue's facilities and policies on the menu and info pages.</strong>
-                    </p>
-                </div>
-
                 {/* Restaurant Information Section */}
                 {restaurantInfo && (
                     <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                        <div className="flex items-center justify-between mb-5">
-                            <div>
-                                <h3 className="text-lg font-black text-black">Restaurant Information</h3>
-                                <p className="text-xs text-black font-medium mt-1">Basic details about your restaurant displayed to customers on the menu and info pages.</p>
-                            </div>
-                            <button
-                                onClick={handleSaveInfo}
-                                disabled={savingInfo}
-                                className="px-4 py-2 bg-black text-white rounded-xl text-sm font-semibold hover:bg-neutral-800 transition-colors disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {savingInfo ? (
-                                    <div className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                                ) : (
-                                    <LucideCheck size={16} />
-                                )}
-                                Save Info
-                            </button>
+                        <div className="mb-5">
+                            <h3 className="text-lg font-black text-black">Restaurant Information</h3>
+                            <p className="text-xs text-black font-medium mt-1">Basic details about your restaurant displayed to customers on the menu and info pages.</p>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -558,14 +539,9 @@ export default function AdminAboutPage() {
                                             {restaurantInfo.logo_url && (
                                                 <button
                                                     type="button"
-                                                    onClick={async () => {
-                                                        const updated = { ...restaurantInfo, logo_url: '' } as RestaurantInfo;
-                                                        setRestaurantInfo(updated);
-                                                        if (restaurantId) {
-                                                            await RestaurantService.updateRestaurantInfo(restaurantId, updated);
-                                                            setCache(`about-${restaurantId}`, { metaInfo, restaurantInfo: updated });
-                                                            toast.success('Restaurant logo removed');
-                                                        }
+                                                    onClick={() => {
+                                                        setRestaurantInfo(prev => prev ? { ...prev, logo_url: '' } : prev);
+                                                        toast.info('Logo removed from preview. Click "Save Profile" to apply changes.');
                                                     }}
                                                     className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold transition-colors"
                                                 >
@@ -573,17 +549,6 @@ export default function AdminAboutPage() {
                                                     <span>Remove Logo</span>
                                                 </button>
                                             )}
-                                        </div>
-
-                                        {/* Optional direct URL input */}
-                                        <div className="mt-2.5 flex items-center gap-2">
-                                            <input
-                                                type="url"
-                                                value={restaurantInfo.logo_url || ''}
-                                                onChange={e => setRestaurantInfo(prev => prev ? { ...prev, logo_url: e.target.value } : prev)}
-                                                placeholder="Or paste Logo image URL (https://...)"
-                                                className="w-full max-w-md px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
-                                            />
                                         </div>
                                     </div>
                                 </div>
@@ -771,15 +736,6 @@ export default function AdminAboutPage() {
                                         className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-semibold text-black mb-1">Payment QR Code Image URL</label>
-                                    <input
-                                        value={restaurantInfo.payment_qr_url || ''}
-                                        onChange={e => setRestaurantInfo({ ...restaurantInfo, payment_qr_url: e.target.value })}
-                                        placeholder="https://.../payment-qr.png"
-                                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                    />
-                                </div>
                             </div>
 
                             {/* Upload / Preview Card */}
@@ -816,7 +772,7 @@ export default function AdminAboutPage() {
                                                         const data = await res.json();
                                                         if (data.url) {
                                                             setRestaurantInfo(prev => prev ? { ...prev, payment_qr_url: data.url } : prev);
-                                                            toast.success('Payment QR uploaded! Remember to click "Save Info".');
+                                                            toast.success('Payment QR uploaded! Remember to click "Save Profile".');
                                                         } else {
                                                             toast.error(data.error || 'Failed to upload QR');
                                                         }

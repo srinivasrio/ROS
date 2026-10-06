@@ -507,27 +507,19 @@ export default function AdminSpecialsPage() {
                                 {/* Image URL / Upload */}
                                 <div>
                                     <label className="block text-sm font-semibold text-black mb-1.5">Special Image</label>
-                                    <div className="flex gap-2 mb-2">
-                                        <div className="flex-1">
-                                            <input
-                                                value={imageUrl}
-                                                onChange={(e) => setImageUrl(e.target.value)}
-                                                placeholder="Paste image URL (optional)"
-                                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                            />
-                                        </div>
+                                    <div className="flex items-center gap-3 mb-2">
                                         <button
                                             type="button"
                                             onClick={() => fileInputRef.current?.click()}
                                             disabled={isUploading}
-                                            className="px-4 py-2 bg-white border border-gray-200 text-black rounded-xl hover:bg-gray-50 transition-all flex items-center gap-2 font-bold text-sm disabled:opacity-50"
+                                            className="px-4 py-2.5 bg-gray-50 border border-gray-200 text-black rounded-xl hover:bg-gray-100 transition-all flex items-center gap-2 font-bold text-sm disabled:opacity-50"
                                         >
                                             {isUploading ? (
                                                 <LucideLoader2 className="w-4 h-4 animate-spin" />
                                             ) : (
                                                 <LucideUpload className="w-4 h-4" />
                                             )}
-                                            Upload
+                                            Upload Image
                                         </button>
                                         <input
                                             type="file"

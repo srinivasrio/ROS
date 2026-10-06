@@ -75,30 +75,31 @@ export function isRoleAuthorizedForPanel(rawRole: string | null | undefined, pan
         return true;
     }
 
-    const isAdmin = ['admin', 'restaurant_admin', 'owner', 'restaurant_owner', 'manager'].includes(role);
+    const isRestaurantAdmin = ['admin', 'restaurant_admin', 'branch_admin', 'manager'].includes(role);
+    const isOwner = ['owner', 'restaurant_owner'].includes(role);
 
     switch (panel) {
         case 'admin':
-            return isAdmin;
+            return isRestaurantAdmin;
 
         case 'waiter':
-            return role === 'waiter' || role === 'supervisor' || isAdmin;
+            return role === 'waiter' || role === 'supervisor' || isRestaurantAdmin;
 
         case 'kds':
-            return ['kitchen', 'chef', 'supervisor'].includes(role) || isAdmin;
+            return ['kitchen', 'chef', 'supervisor'].includes(role) || isRestaurantAdmin;
 
         case 'delivery':
-            return ['delivery_boy', 'delivery'].includes(role) || isAdmin;
+            return ['delivery_boy', 'delivery'].includes(role) || isRestaurantAdmin;
 
         case 'employee':
             // Any recognized active employee role can access the general employee portal
-            return ['waiter', 'chef', 'kitchen', 'supervisor', 'delivery_boy', 'delivery', 'cleaner', 'captain', 'manager'].includes(role) || isAdmin;
+            return ['waiter', 'chef', 'kitchen', 'supervisor', 'delivery_boy', 'delivery', 'cleaner', 'captain', 'manager'].includes(role) || isRestaurantAdmin;
 
         case 'superadmin':
             return role === 'super_admin' || role === 'superadmin';
 
         case 'owner':
-            return ['owner', 'restaurant_owner'].includes(role) || role === 'super_admin' || role === 'superadmin';
+            return isOwner;
 
         default:
             return false;

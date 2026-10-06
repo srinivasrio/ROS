@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // Clean White / Light Canvas & Surfaces
-  static const Color background = Color(0xFFF8FAFC); // Clean crisp slate-50
-  static const Color surface = Color(0xFFFFFFFF);    // Pure white
+  // Clean Soft Ceramic / Neumorphic Canvas & Surfaces (Matching Web App #EEF2F6)
+  static const Color background = Color(0xFFEEF2F6); // Clean ceramic slate #EEF2F6
+  static const Color surface = Color(0xFFEEF2F6);    // Neumorphic canvas base
   static const Color surfaceContainerLow = Color(0xFFF8FAFC);
   static const Color surfaceContainer = Color(0xFFFFFFFF);
   static const Color surfaceContainerHigh = Color(0xFFF1F5F9);
@@ -11,12 +11,12 @@ class AppColors {
   static const Color surfaceBright = Color(0xFFFFFFFF);
   static const Color surfaceMuted = Color(0xFFF1F5F9);
 
-  // Primary Brand (Vibrant Coral Flame)
-  static const Color primary = Color(0xFFFF6B35);
-  static const Color primaryAccent = Color(0xFFFF7A45);
-  static const Color primaryLight = Color(0xFFFFEDE4);
+  // Primary Brand (Vibrant Flame Orange #FF6B00 -> #FF8533)
+  static const Color primary = Color(0xFFFF6B00);
+  static const Color primaryAccent = Color(0xFFFF8533);
+  static const Color primaryLight = Color(0xFFFFF0E6);
   static const Color onPrimary = Color(0xFFFFFFFF);
-  static const Color primaryContainer = Color(0xFFFFEDE4);
+  static const Color primaryContainer = Color(0xFFFFF0E6);
   static const Color onPrimaryContainer = Color(0xFF9A3412);
 
   // Secondary & Neutral Variants
