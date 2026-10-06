@@ -384,12 +384,36 @@ export async function POST(request: Request) {
         const initialApproval = approvalStatus ? approvalStatus.toLowerCase() : (initialStatus === 'active' ? 'approved' : 'pending');
         const rawPassword = password.trim();
 
-        // 1. Check if user already exists in employees
+        // 1. Check if user already exists in employees or users as Restaurant Admin
         const { data: existingEmp } = await supabaseAdmin
             .from('employees')
-            .select('id, email')
-            .eq('email', cleanEmail)
+            .select('id, email, role')
+            .ilike('email', cleanEmail)
             .maybeSingle();
+
+        if (existingEmp) {
+            const empRole = (existingEmp.role || '').toLowerCase();
+            if (['restaurant_admin', 'admin', 'branch_admin'].includes(empRole)) {
+                return NextResponse.json({ 
+                    error: 'This email is already registered as a Restaurant Admin and cannot be assigned as an Owner.' 
+                }, { status: 409 });
+            }
+        }
+
+        const { data: existingUser } = await supabaseAdmin
+            .from('users')
+            .select('id, email, role')
+            .ilike('email', cleanEmail)
+            .maybeSingle();
+
+        if (existingUser) {
+            const userRole = (existingUser.role || '').toLowerCase();
+            if (['restaurant_admin', 'admin', 'branch_admin'].includes(userRole)) {
+                return NextResponse.json({ 
+                    error: 'This email is already registered as a Restaurant Admin and cannot be assigned as an Owner.' 
+                }, { status: 409 });
+            }
+        }
 
         let userId: string;
 

@@ -419,11 +419,14 @@ Admin Login URL: ${origin}/admin/login
     const handleEdit = (branch: any) => {
         setEditingBranch(branch);
         const existingAdmin = admins.find(a => 
-            a.restaurant_id === (branch.restaurant_id || branch.id) ||
-            a.branch_id === (branch.restaurant_id || branch.id) ||
-            a.branch_id === branch.branch_id ||
-            a.id === branch.adminId
-        ) || (branch.is_main_branch || branches.length === 1 ? admins.find(a => !a.restaurant_id && !a.branch_id) : null);
+            ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) &&
+            (
+                a.restaurant_id === (branch.restaurant_id || branch.id) ||
+                a.branch_id === (branch.restaurant_id || branch.id) ||
+                a.branch_id === branch.branch_id ||
+                (branch.adminId && a.id === branch.adminId)
+            )
+        ) || (branch.is_main_branch || branches.length === 1 ? admins.find(a => ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) && !a.restaurant_id && !a.branch_id) : null);
 
         setFormData({
             name: branch.name || '',
@@ -435,12 +438,12 @@ Admin Login URL: ${origin}/admin/login
             paymentMethod: 'UPI',
             paymentReference: '',
             assignAdmin: true,
-            adminId: existingAdmin?.id || branch.adminId || '',
-            adminName: existingAdmin?.name || branch.adminName || '',
-            adminEmail: existingAdmin?.email || branch.adminEmail || '',
-            adminMobile: existingAdmin?.mobile || branch.adminMobile || '',
-            adminPassword: existingAdmin?.adminPassword || branch.adminPassword || '',
-            adminPin: existingAdmin?.adminPin || branch.adminPin || existingAdmin?.pin || '1234'
+            adminId: existingAdmin?.id || '',
+            adminName: existingAdmin?.name || (branch.adminName && branch.adminName !== branch.name ? branch.adminName : ''),
+            adminEmail: existingAdmin?.email || (branch.adminEmail && branch.adminEmail !== branch.email ? branch.adminEmail : ''),
+            adminMobile: existingAdmin?.mobile || '',
+            adminPassword: '',
+            adminPin: existingAdmin?.pin ? '' : '1234'
         });
         setShowAddModal(true);
     };
@@ -754,15 +757,18 @@ Admin Login URL: ${origin}/admin/login
                     {filtered.map((branch, i) => {
                         const isActive = (branch.status || '').toLowerCase() === 'active';
                         const assignedAdmin = admins.find(a => 
-                            a.restaurant_id === (branch.restaurant_id || branch.id) ||
-                            a.branch_id === (branch.restaurant_id || branch.id) ||
-                            a.branch_id === branch.branch_id ||
-                            a.id === branch.adminId
-                        ) || (branch.is_main_branch || branches.length === 1 ? admins.find(a => !a.restaurant_id && !a.branch_id) : null);
-                        const adminName = assignedAdmin?.name || branch.adminName || 'Admin';
-                        const adminEmail = assignedAdmin?.email || branch.adminEmail || '';
-                        const adminMobile = assignedAdmin?.mobile || branch.adminMobile || '';
-                        const hasAdmin = Boolean(assignedAdmin?.email || assignedAdmin?.mobile || branch.adminEmail || branch.adminMobile || branch.adminId);
+                            ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) &&
+                            (
+                                a.restaurant_id === (branch.restaurant_id || branch.id) ||
+                                a.branch_id === (branch.restaurant_id || branch.id) ||
+                                a.branch_id === branch.branch_id ||
+                                (branch.adminId && a.id === branch.adminId)
+                            )
+                        ) || (branch.is_main_branch || branches.length === 1 ? admins.find(a => ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) && !a.restaurant_id && !a.branch_id) : null);
+                        const adminName = assignedAdmin?.name || (branch.adminName && branch.adminName !== branch.name ? branch.adminName : 'Admin');
+                        const adminEmail = assignedAdmin?.email || (branch.adminEmail && branch.adminEmail !== branch.email ? branch.adminEmail : '');
+                        const adminMobile = assignedAdmin?.mobile || (branch.adminMobile && branch.adminMobile !== branch.phone ? branch.adminMobile : '');
+                        const hasAdmin = Boolean(assignedAdmin?.email || assignedAdmin?.mobile || (branch.adminEmail && branch.adminEmail !== branch.email) || (branch.adminMobile && branch.adminMobile !== branch.phone));
 
                         return (
                             <motion.div
@@ -992,14 +998,17 @@ Admin Login URL: ${origin}/admin/login
                 {credentialsModalBranch && (() => {
                     const branch = credentialsModalBranch;
                     const assignedAdmin = admins.find(a => 
-                        a.restaurant_id === (branch.restaurant_id || branch.id) ||
-                        a.branch_id === (branch.restaurant_id || branch.id) ||
-                        a.branch_id === branch.branch_id ||
-                        a.id === branch.adminId
-                    ) || (branch.is_main_branch || branches.length === 1 ? admins.find(a => !a.restaurant_id && !a.branch_id) : null);
-                    const adminName = assignedAdmin?.name || branch.adminName || 'Admin';
-                    const adminEmail = assignedAdmin?.email || branch.adminEmail || '';
-                    const adminMobile = assignedAdmin?.mobile || branch.adminMobile || '';
+                        ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) &&
+                        (
+                            a.restaurant_id === (branch.restaurant_id || branch.id) ||
+                            a.branch_id === (branch.restaurant_id || branch.id) ||
+                            a.branch_id === branch.branch_id ||
+                            (branch.adminId && a.id === branch.adminId)
+                        )
+                    ) || (branch.is_main_branch || branches.length === 1 ? admins.find(a => ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) && !a.restaurant_id && !a.branch_id) : null);
+                    const adminName = assignedAdmin?.name || (branch.adminName && branch.adminName !== branch.name ? branch.adminName : 'Admin');
+                    const adminEmail = assignedAdmin?.email || (branch.adminEmail && branch.adminEmail !== branch.email ? branch.adminEmail : '');
+                    const adminMobile = assignedAdmin?.mobile || (branch.adminMobile && branch.adminMobile !== branch.phone ? branch.adminMobile : '');
                     const adminPassword = assignedAdmin?.adminPassword || branch.adminPassword || '';
                     const adminPin = assignedAdmin?.adminPin || branch.adminPin || assignedAdmin?.pin || '';
                     const isPasswordShown = revealedPasswords[branch.id];

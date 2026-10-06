@@ -127,9 +127,62 @@ export default function WaiterDashboard() {
         return () => window.removeEventListener('focus', checkPendingCart);
     }, [restaurantId, params?.restaurantCode, detailsTable]);
 
-    /* ── Current waiter ──────────────────────────────────────── */
+    /* ── Current waiter & live status synchronization ──────────────── */
+    const syncWaiterStatus = useCallback(async () => {
+        if (!restaurantId || !staffMobile) return;
+        const cleanMobile = staffMobile.replace(/[^0-9]/g, '').slice(-10);
+
+        try {
+            // 1. Fetch live status from /api/waiter/status
+            const statusUrl = `/api/waiter/status?mobile=${encodeURIComponent(cleanMobile)}&restaurantId=${encodeURIComponent(restaurantId)}`;
+            const res = await fetch(statusUrl);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success) {
+                    setWaiterRecord((prev: any) => {
+                        const updated = {
+                            ...(prev || {}),
+                            ...(data.waiter || {}),
+                            is_online: Boolean(data.is_online),
+                            availability_status: data.availability_status || (data.is_online ? 'available' : 'offline'),
+                            status: data.account_status || prev?.status || 'active'
+                        };
+                        try {
+                            if (cleanMobile) localStorage.setItem(`waiterSession_${cleanMobile}`, JSON.stringify(updated));
+                            localStorage.setItem('waiterSession', JSON.stringify(updated));
+                        } catch (_) {}
+                        return updated;
+                    });
+                }
+            }
+        } catch (_) {}
+
+        try {
+            // 2. Fetch full staff record from OrderService
+            const rec = await OrderService.getStaffByMobile(staffMobile, restaurantId);
+            if (rec) {
+                setWaiterRecord((prev: any) => {
+                    const merged = {
+                        ...(prev || {}),
+                        ...rec,
+                        is_online: rec.is_online !== undefined ? Boolean(rec.is_online) : (prev?.is_online ?? true),
+                        availability_status: rec.availability_status || prev?.availability_status || (rec.is_online ? 'available' : 'offline'),
+                        status: rec.status || prev?.status || 'active'
+                    };
+                    if (cachedDashboard) cachedDashboard.waiterRecord = merged;
+                    try {
+                        if (cleanMobile) localStorage.setItem(`waiterSession_${cleanMobile}`, JSON.stringify(merged));
+                        localStorage.setItem('waiterSession', JSON.stringify(merged));
+                    } catch (_) {}
+                    return merged;
+                });
+            }
+        } catch (e) {
+            console.error('Error syncing staff record:', e);
+        }
+    }, [restaurantId, staffMobile]);
+
     useEffect(() => {
-        let active = true;
         try {
             const cleanMobile = staffMobile ? staffMobile.replace(/[^0-9]/g, '').slice(-10) : '';
             const cachedStaff = cleanMobile ? localStorage.getItem(`waiterSession_${cleanMobile}`) : null;
@@ -147,16 +200,67 @@ export default function WaiterDashboard() {
             }
         } catch (_) { }
 
-        if (restaurantId && staffMobile) {
-            OrderService.getStaffByMobile(staffMobile, restaurantId).then((rec) => {
-                if (active && rec) {
-                    setWaiterRecord(rec);
-                    if (cachedDashboard) cachedDashboard.waiterRecord = rec;
+        syncWaiterStatus();
+
+        // Re-sync on tab focus or when status is updated in profile
+        const handleStatusRefresh = () => {
+            syncWaiterStatus();
+        };
+        window.addEventListener('focus', handleStatusRefresh);
+        window.addEventListener('storage', handleStatusRefresh);
+        window.addEventListener('waiter-status-changed', handleStatusRefresh);
+
+        return () => {
+            window.removeEventListener('focus', handleStatusRefresh);
+            window.removeEventListener('storage', handleStatusRefresh);
+            window.removeEventListener('waiter-status-changed', handleStatusRefresh);
+        };
+    }, [restaurantId, staffMobile, syncWaiterStatus]);
+
+    // Realtime subscription for live employee status updates (e.g. online/offline)
+    useEffect(() => {
+        if (!restaurantId) return;
+        const cleanMobile = staffMobile ? staffMobile.replace(/[^0-9]/g, '').slice(-10) : '';
+        const channel = supabase
+            .channel(`waiter-status-live-${restaurantId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'employees',
+                    filter: `restaurant_id=eq.${restaurantId}`
+                },
+                (payload) => {
+                    const newRow = payload.new as any;
+                    if (!newRow) return;
+                    const rowMobile = String(newRow.mobile || '').replace(/[^0-9]/g, '').slice(-10);
+                    const matchesId = waiterRecord?.id && String(newRow.id) === String(waiterRecord.id);
+                    const matchesMobile = cleanMobile && rowMobile === cleanMobile;
+                    if (matchesId || matchesMobile) {
+                        setWaiterRecord((prev: any) => {
+                            const updated = {
+                                ...(prev || {}),
+                                ...newRow,
+                                is_online: Boolean(newRow.is_online),
+                                availability_status: newRow.availability_status || (newRow.is_online ? 'available' : 'offline'),
+                                status: newRow.status || prev?.status || 'active'
+                            };
+                            try {
+                                if (cleanMobile) localStorage.setItem(`waiterSession_${cleanMobile}`, JSON.stringify(updated));
+                                localStorage.setItem('waiterSession', JSON.stringify(updated));
+                            } catch (_) {}
+                            return updated;
+                        });
+                    }
                 }
-            }).catch(console.error);
-        }
-        return () => { active = false; };
-    }, [restaurantId, staffMobile]);
+            )
+            .subscribe();
+
+        return () => {
+            channel.unsubscribe();
+        };
+    }, [restaurantId, staffMobile, waiterRecord?.id]);
 
     const isAccountActive = useMemo(() => {
         if (!waiterRecord) return true; // Default to true while pending/loading to prevent false warning flash
@@ -166,9 +270,10 @@ export default function WaiterDashboard() {
 
     const isOnline = useMemo(() => {
         if (!waiterRecord) return false;
-        const online = Boolean(waiterRecord.is_online);
         const avail = (waiterRecord.availability_status || '').toLowerCase();
-        return online && !['offline', 'break'].includes(avail);
+        if (avail === 'offline' || avail === 'break') return false;
+        if (waiterRecord.is_online === true || ['available', 'busy', 'online'].includes(avail)) return true;
+        return Boolean(waiterRecord.is_online);
     }, [waiterRecord]);
 
     const [togglingOnline, setTogglingOnline] = useState(false);
@@ -178,16 +283,43 @@ export default function WaiterDashboard() {
         try {
             const newOnline = !isOnline;
             const newAvail = newOnline ? 'available' : 'offline';
-            const { error } = await supabase
-                .from('restaurant_staff')
-                .update({
-                    is_online: newOnline,
-                    availability_status: newAvail,
-                    last_active_at: new Date().toISOString()
-                })
-                .eq('id', waiterRecord.id);
 
-            if (error) throw error;
+            let apiSuccess = false;
+            try {
+                const res = await fetch('/api/waiter/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        isOnline: newOnline,
+                        waiterId: waiterRecord.id,
+                        mobile: staffMobile,
+                        restaurantId: restaurantId
+                    })
+                });
+                const resData = await res.json().catch(() => ({}));
+                if (res.ok && resData.success) {
+                    apiSuccess = true;
+                } else if (!res.ok && resData.error) {
+                    throw new Error(resData.error);
+                }
+            } catch (apiErr: any) {
+                if (apiErr.message && !apiErr.message.includes('fetch') && !apiErr.message.includes('Failed to fetch')) {
+                    throw apiErr;
+                }
+            }
+
+            if (!apiSuccess) {
+                const { error } = await supabase
+                    .from('employees')
+                    .update({
+                        is_online: newOnline,
+                        availability_status: newAvail,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', waiterRecord.id);
+
+                if (error) throw error;
+            }
 
             const updated = {
                 ...waiterRecord,
@@ -199,6 +331,7 @@ export default function WaiterDashboard() {
                 const cleanMobile = staffMobile ? staffMobile.replace(/[^0-9]/g, '').slice(-10) : '';
                 if (cleanMobile) localStorage.setItem(`waiterSession_${cleanMobile}`, JSON.stringify(updated));
                 localStorage.setItem('waiterSession', JSON.stringify(updated));
+                window.dispatchEvent(new CustomEvent('waiter-status-changed', { detail: { isOnline: newOnline, availability_status: newAvail } }));
             } catch (_) { }
             toast.success(newOnline ? 'You are now Online' : 'You are now Offline');
         } catch (e: any) {

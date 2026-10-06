@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { LayoutDashboard as LucideLayoutDashboard, Utensils as LucideUtensils, Table as LucideTable, FileText as LucideFileText, Users as LucideUsers, Settings as LucideSettings, ShieldCheck as LucideShield, LogOut as LucideLogOut, UserCheck as LucideUserCheck, Ticket as LucideTicket, BarChart as LucideBarChart, ChevronDown as LucideChevronDown, Plus as LucidePlus, Home as LucideHome, CreditCard as LucideCreditCard, ArrowLeftRight as LucideArrowLeftRight, Box as LucideBox, ClipboardList as LucideClipboardList, HandHelping as LucideHandHelping, Info as LucideInfo, Truck as LucideTruck, ShoppingBag as LucideShoppingBag, Lock as LucideLock } from 'lucide-react';
+import { LayoutDashboard as LucideLayoutDashboard, Utensils as LucideUtensils, Table as LucideTable, FileText as LucideFileText, Users as LucideUsers, Settings as LucideSettings, LogOut as LucideLogOut, UserCheck as LucideUserCheck, Ticket as LucideTicket, BarChart as LucideBarChart, ChevronDown as LucideChevronDown, Plus as LucidePlus, Home as LucideHome, CreditCard as LucideCreditCard, ArrowLeftRight as LucideArrowLeftRight, Box as LucideBox, ClipboardList as LucideClipboardList, HandHelping as LucideHandHelping, Info as LucideInfo, Truck as LucideTruck, ShoppingBag as LucideShoppingBag, Lock as LucideLock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname, useRouter, useParams } from 'next/navigation';
@@ -51,11 +51,11 @@ export default function AdminLayout({
         { href: `/${restaurantCode}/admin/staff`, icon: LucideUserCheck, label: 'Staff and payroll', sectionKey: 'staff' },
         { href: `/${restaurantCode}/admin/offers`, icon: LucideTicket, label: 'Coupons and Offers', sectionKey: 'offers' },
         { href: `/${restaurantCode}/admin/settings`, icon: LucideSettings, label: 'Settings', sectionKey: 'settings' },
-        { href: `/${restaurantCode}/admin/security`, icon: LucideShield, label: 'Security Center', sectionKey: 'security' },
+
     ];
 
     const [plan, setPlan] = useState<string>('Standard');
-    const [restaurantName, setRestaurantName] = useState<string>('Restaurant OS');
+    const [restaurantName, setRestaurantName] = useState<string>('');
     const [logoUrl, setLogoUrl] = useState<string | null>(null);
     const [logoError, setLogoError] = useState(false);
     const [features, setFeatures] = useState<Record<string, boolean>>({});
@@ -77,7 +77,7 @@ export default function AdminLayout({
         // Check if cached brand exists in L1 memory or rehydrated from storage
         const cached = getCached<{ name: string; logoUrl: string | null; subscriptionPlan: string; features?: Record<string, boolean> }>(brandKey);
         if (cached) {
-            if (cached.name) setRestaurantName(cached.name);
+            if (cached.name && cached.name !== 'Restaurant OS') setRestaurantName(cached.name);
             if (cached.logoUrl !== undefined) {
                 setLogoUrl(cached.logoUrl);
                 setLogoError(false);
@@ -90,7 +90,7 @@ export default function AdminLayout({
         fetch(`/api/restaurant/${restaurantCode}/plan`)
             .then(res => res.json())
             .then(data => {
-                if (data.name) setRestaurantName(data.name);
+                if (data.name && data.name !== 'Restaurant OS') setRestaurantName(data.name);
                 if (data.logoUrl !== undefined) {
                     setLogoUrl(data.logoUrl);
                     setLogoError(false);
@@ -101,12 +101,14 @@ export default function AdminLayout({
                 if (data.features) {
                     setFeatures(data.features);
                 }
-                setCache(brandKey, {
-                    name: data.name || 'Restaurant OS',
-                    logoUrl: data.logoUrl || null,
-                    subscriptionPlan: data.subscriptionPlan || 'Standard',
-                    features: data.features || {}
-                });
+                if (data.name && data.name !== 'Restaurant OS') {
+                    setCache(brandKey, {
+                        name: data.name,
+                        logoUrl: data.logoUrl || null,
+                        subscriptionPlan: data.subscriptionPlan || 'Standard',
+                        features: data.features || {}
+                    });
+                }
             })
             .catch(() => {});
 
@@ -154,39 +156,47 @@ export default function AdminLayout({
                     {/* Brand Logo Header */}
                     <div className="p-6 pb-2">
                         <div className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-zinc-800/50 rounded-2xl border border-neutral-200/60 dark:border-zinc-700/40 transition-all shadow-sm">
-                            <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center bg-white text-neutral-800 shadow-sm font-black border border-neutral-200/60">
+                            <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center bg-neutral-100 dark:bg-zinc-800 text-neutral-800 dark:text-neutral-200 shadow-sm font-black border border-neutral-200/60">
                                 {logoUrl && !logoError ? (
                                     <img
                                         src={logoUrl}
-                                        alt={restaurantName}
+                                        alt={restaurantName || 'Restaurant Logo'}
                                         className="w-full h-full object-cover"
                                         onError={() => setLogoError(true)}
                                     />
-                                ) : (
+                                ) : restaurantName ? (
                                     <span 
                                         suppressHydrationWarning
-                                        className="text-base font-black tracking-wider uppercase"
+                                        className="text-base font-black tracking-wider uppercase text-neutral-800 dark:text-neutral-200"
                                     >
-                                        {(restaurantName || 'R').charAt(0).toUpperCase()}
+                                        {restaurantName.charAt(0).toUpperCase()}
                                     </span>
+                                ) : (
+                                    <div className="w-full h-full bg-neutral-200/70 dark:bg-zinc-700/50 animate-pulse" />
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <h2 
-                                    suppressHydrationWarning
-                                    title={restaurantName}
-                                    className="text-sm font-black tracking-tight text-neutral-900 dark:text-white truncate"
-                                >
-                                    {restaurantName}
-                                </h2>
+                                {restaurantName ? (
+                                    <h2 
+                                        suppressHydrationWarning
+                                        title={restaurantName}
+                                        className="text-sm font-black tracking-tight text-neutral-900 dark:text-white truncate"
+                                    >
+                                        {restaurantName}
+                                    </h2>
+                                ) : (
+                                    <div className="h-4 w-32 bg-neutral-200/70 dark:bg-zinc-700/50 rounded animate-pulse mb-1" />
+                                )}
                                 <div className="flex items-center justify-between mt-0.5 gap-2">
                                     <p className="text-[10px] text-neutral-400 font-bold tracking-widest uppercase">Admin</p>
-                                    <span 
-                                        suppressHydrationWarning
-                                        className="px-1.5 py-0.5 rounded bg-orange-500/10 border border-orange-500/20 text-[9px] font-black uppercase text-orange-500 tracking-wider flex-shrink-0"
-                                    >
-                                        {plan}
-                                    </span>
+                                    {plan && (
+                                        <span 
+                                            suppressHydrationWarning
+                                            className="px-1.5 py-0.5 rounded bg-orange-500/10 border border-orange-500/20 text-[9px] font-black uppercase text-orange-500 tracking-wider flex-shrink-0"
+                                        >
+                                            {plan}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         </div>

@@ -268,29 +268,48 @@ export const OrderService = {
         const actualRestaurantId = await this.resolveRestaurantId(restaurantId);
         if (!actualRestaurantId) return null;
 
-        const { data, error } = await (supabase
-            .from('staff')
-            .select('id, name, mobile, role, restaurant_id, branch_id') as any)
-            .eq('mobile', mobile)
-            .eq('restaurant_id', actualRestaurantId);
+        const cleanMobile = String(mobile || '').replace(/[^0-9]/g, '').slice(-10);
 
-        if (error) {
-            console.error('Error fetching staff by mobile:', error);
-            throw error;
+        // 1. Query employees base table with complete status & online attributes
+        let query = (supabase
+            .from('employees')
+            .select('id, name, mobile, role, restaurant_id, branch_id, status, is_online, availability_status, employee_id, avatar_url, active_tables_count, active_orders_count') as any)
+            .eq('restaurant_id', actualRestaurantId)
+            .eq('is_deleted', false);
+
+        if (cleanMobile) {
+            query = query.ilike('mobile', `%${cleanMobile}%`);
+        } else {
+            query = query.eq('mobile', mobile);
         }
 
-        const staffList = (data as any[]) || [];
+        const { data, error } = await query;
+        let staffList: any[] = (data as any[]) || [];
+
+        // 2. Fallback to staff view if employees query encounters an error or empty result
+        if (error || staffList.length === 0) {
+            let fallbackQuery = (supabase
+                .from('staff')
+                .select('id, name, mobile, role, restaurant_id, branch_id, status, is_online, availability_status, employee_id, avatar_url') as any)
+                .eq('restaurant_id', actualRestaurantId);
+
+            if (cleanMobile) {
+                fallbackQuery = fallbackQuery.ilike('mobile', `%${cleanMobile}%`);
+            } else {
+                fallbackQuery = fallbackQuery.eq('mobile', mobile);
+            }
+
+            const { data: fallbackData } = await fallbackQuery;
+            staffList = (fallbackData as any[]) || [];
+        }
+
         if (staffList.length === 0) {
             return null;
         }
 
         // If multiple exist, prioritize the one with 'waiter' role since this is mainly used in waiter contexts
         const waiterStaff = staffList.find((s: any) => s.role?.toLowerCase() === 'waiter');
-        if (waiterStaff) {
-            return waiterStaff;
-        }
-
-        return staffList[0];
+        return waiterStaff || staffList[0];
     },
 
     /**
@@ -1480,7 +1499,7 @@ export const OrderService = {
             const actualId = await this.resolveRestaurantId(restaurantId);
             const { data, error } = await supabase
                 .from('restaurant_areas')
-                .select('id, name, restaurant_id, branch_id, display_order, created_at, updated_at')
+                .select('id, name, restaurant_id, display_order, created_at, updated_at')
                 .eq('restaurant_id', actualId)
                 .order('display_order', { ascending: true })
                 .order('created_at', { ascending: true });

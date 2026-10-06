@@ -415,8 +415,10 @@ export async function middleware(request: NextRequest) {
         // Map roles for checking (robust normalization across casing and persona aliases)
         const rawRole = String(user.role || '').toLowerCase().trim();
         let mappedRole = rawRole;
-        if (['admin', 'restaurant_admin', 'owner', 'restaurant_owner', 'manager'].includes(rawRole)) {
+        if (['admin', 'restaurant_admin', 'manager', 'branch_admin'].includes(rawRole)) {
             mappedRole = 'restaurant_admin';
+        } else if (['owner', 'restaurant_owner'].includes(rawRole)) {
+            mappedRole = 'owner';
         } else if (['waiter'].includes(rawRole)) {
             mappedRole = 'waiter';
         } else if (['chef', 'kitchen'].includes(rawRole)) {
@@ -814,11 +816,11 @@ export async function middleware(request: NextRequest) {
                     }
                 }
 
-                // Helper: Is user an authorized restaurant admin / owner
+                // Helper: Is user an authorized restaurant admin
                 const isAdminAuthorized = mappedRole === 'restaurant_admin' || 
-                    ['admin', 'restaurant_admin', 'owner', 'restaurant_owner'].includes(rawRole);
+                    ['admin', 'restaurant_admin', 'branch_admin', 'manager'].includes(rawRole);
 
-                // 2. Role validation for Admin panel: restaurant_admin / owner only (CHANGED PANEL)
+                // 2. Role validation for Admin panel: restaurant_admin only
                 if (panel === 'admin' && !isAdminAuthorized) {
                     console.warn(`[Security Block] User ${user.userId} with role ${mappedRole} attempted to access Admin panel`);
                     return NextResponse.redirect(new URL('/access-denied?reason=unauthorized_panel', request.url));

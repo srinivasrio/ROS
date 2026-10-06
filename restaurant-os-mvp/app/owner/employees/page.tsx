@@ -25,6 +25,7 @@ interface Employee {
     branch_internal_id?: string;
     branch_name?: string;
     profile_image_url?: string;
+    avatar_url?: string;
     created_at?: string;
     branch_access?: string[];
 }
@@ -365,8 +366,16 @@ export default function EmployeesPage() {
                                         >
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-100 to-violet-100 dark:from-indigo-950/30 dark:to-violet-950/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-sm font-black flex-shrink-0 group-hover:scale-105 transition-transform">
-                                                        {emp.name.charAt(0).toUpperCase()}
+                                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-100 to-violet-100 dark:from-indigo-950/30 dark:to-violet-950/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-sm font-black flex-shrink-0 group-hover:scale-105 transition-transform overflow-hidden border border-slate-200/60 dark:border-zinc-800">
+                                                        {(emp.avatar_url || emp.profile_image_url) ? (
+                                                            <img
+                                                                src={emp.avatar_url || emp.profile_image_url}
+                                                                alt={emp.name}
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            emp.name.charAt(0).toUpperCase()
+                                                        )}
                                                     </div>
                                                     <div>
                                                         <p className="text-xs font-bold text-neutral-800 dark:text-white">{emp.name}</p>

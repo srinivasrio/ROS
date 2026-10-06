@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
                 .select('id, name, email, mobile, role, restaurant_id, branch_id, pin, status, approval_status')
                 .in('restaurant_id', restaurantIds)
                 .in('role', ['restaurant_admin', 'admin'])
+                .neq('id', auth.userId)
                 .eq('is_deleted', false)
             : Promise.resolve({ data: [], error: null }),
         supabaseAdmin
@@ -97,7 +98,11 @@ export async function GET(request: NextRequest) {
     const formattedBranches = displayRestaurants.map((r, idx) => {
         const primaryBranch = branches.find(b => b.restaurant_id === r.id && b.is_main_branch) ||
                               branches.find(b => b.restaurant_id === r.id) || null;
-        const admin = admins.find(a => a.restaurant_id === r.id) || null;
+        const admin = admins.find(a => 
+            a.restaurant_id === r.id && 
+            ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) && 
+            a.id !== auth.userId
+        ) || null;
         const isMain = hasAnyMain ? Boolean(r.is_main_branch) : idx === 0;
 
         return {
@@ -187,11 +192,13 @@ export async function GET(request: NextRequest) {
     });
 
     // Format admins with branch_id = restaurant_id so UI easily pairs each admin to its restaurant
-    const formattedAdmins = admins.map(a => ({
-        ...a,
-        branch_id: a.restaurant_id,
-        hasPin: Boolean(a.pin)
-    }));
+    const formattedAdmins = admins
+        .filter(a => ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) && a.id !== auth.userId)
+        .map(a => ({
+            ...a,
+            branch_id: a.restaurant_id,
+            hasPin: Boolean(a.pin)
+        }));
 
     return NextResponse.json({
         branches: formattedBranches,
@@ -688,25 +695,29 @@ export async function PUT(request: NextRequest) {
         }
         let existingAdmin: any = null;
 
-        // 1. Look up by adminId if provided
-        if (adminId) {
+        // 1. Look up by adminId if provided (strictly exclude owner account)
+        if (adminId && adminId !== auth.userId) {
             const { data: byId } = await supabaseAdmin
                 .from('employees')
                 .select('*')
                 .eq('id', adminId)
+                .in('role', ['restaurant_admin', 'admin'])
+                .neq('id', auth.userId)
+                .eq('is_deleted', false)
                 .maybeSingle();
             if (byId && (byId.restaurant_id === targetRestaurantId || !byId.restaurant_id || restaurantIds.includes(byId.restaurant_id))) {
                 existingAdmin = byId;
             }
         }
 
-        // 2. Look up existing admin for this restaurant
+        // 2. Look up existing admin for this restaurant (strictly exclude owner account)
         if (!existingAdmin && targetRestaurantId) {
             const { data: byRest } = await supabaseAdmin
                 .from('employees')
                 .select('*')
                 .eq('restaurant_id', targetRestaurantId)
                 .in('role', ['restaurant_admin', 'admin'])
+                .neq('id', auth.userId)
                 .eq('is_deleted', false)
                 .order('created_at', { ascending: false })
                 .limit(1)
@@ -716,11 +727,48 @@ export async function PUT(request: NextRequest) {
 
         // 3. Look up by email if provided
         const cleanEmail = adminEmail ? adminEmail.toLowerCase().trim() : null;
+        if (cleanEmail) {
+            if (auth.email && cleanEmail === auth.email.toLowerCase().trim()) {
+                return NextResponse.json({
+                    error: 'You cannot assign your own Restaurant Owner email as a Restaurant Admin. Please provide a distinct email address for the admin.'
+                }, { status: 409 });
+            }
+
+            const { data: ownerConflict } = await supabaseAdmin
+                .from('employees')
+                .select('id, role')
+                .ilike('email', cleanEmail)
+                .in('role', ['owner', 'restaurant_owner'])
+                .maybeSingle();
+
+            if (ownerConflict) {
+                return NextResponse.json({
+                    error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.'
+                }, { status: 409 });
+            }
+
+            const { data: legacyOwner } = await supabaseAdmin
+                .from('users')
+                .select('id, role')
+                .ilike('email', cleanEmail)
+                .in('role', ['owner', 'restaurant_owner'])
+                .maybeSingle();
+
+            if (legacyOwner) {
+                return NextResponse.json({
+                    error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.'
+                }, { status: 409 });
+            }
+        }
+
         if (!existingAdmin && cleanEmail) {
             const { data: byEmail } = await supabaseAdmin
                 .from('employees')
                 .select('*')
                 .ilike('email', cleanEmail)
+                .in('role', ['restaurant_admin', 'admin'])
+                .neq('id', auth.userId)
+                .eq('is_deleted', false)
                 .maybeSingle();
             if (byEmail) {
                 if (byEmail.restaurant_id === targetRestaurantId || !byEmail.restaurant_id || restaurantIds.includes(byEmail.restaurant_id)) {
@@ -733,16 +781,28 @@ export async function PUT(request: NextRequest) {
             }
         }
 
-        // 4. Look up by mobile if provided
+        // 4. Look up by mobile if provided (STRICTLY filter to restaurant_admin/admin, NEVER owner!)
         const cleanMobile = adminMobile ? adminMobile.replace(/[^0-9]/g, '').slice(-10) : null;
         if (!existingAdmin && cleanMobile && cleanMobile.length >= 10) {
             const { data: byMobile } = await supabaseAdmin
                 .from('employees')
                 .select('*')
                 .eq('mobile', cleanMobile)
+                .in('role', ['restaurant_admin', 'admin'])
+                .neq('id', auth.userId)
+                .eq('is_deleted', false)
                 .maybeSingle();
             if (byMobile && (byMobile.restaurant_id === targetRestaurantId || !byMobile.restaurant_id || restaurantIds.includes(byMobile.restaurant_id))) {
                 existingAdmin = byMobile;
+            }
+        }
+
+        // ABSOLUTE SAFEGUARD: If existingAdmin matches an Owner record or auth.userId, reset to null
+        if (existingAdmin) {
+            const isOwner = ['owner', 'restaurant_owner'].includes(String(existingAdmin.role || '').toLowerCase()) || existingAdmin.id === auth.userId;
+            if (isOwner) {
+                console.warn('[PUT /branches] existingAdmin matched Owner record. Resetting to null to prevent modifying Owner account.');
+                existingAdmin = null;
             }
         }
 
@@ -872,6 +932,11 @@ export async function PUT(request: NextRequest) {
                     .ilike('email', cleanEmail)
                     .maybeSingle();
                 if (empByEmail) {
+                    if (['owner', 'restaurant_owner'].includes((empByEmail.role || '').toLowerCase()) || empByEmail.id === auth.userId) {
+                        return NextResponse.json({
+                            error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin.'
+                        }, { status: 409 });
+                    }
                     if (!empByEmail.restaurant_id || restaurantIds.includes(empByEmail.restaurant_id)) {
                         candidateAdmin = empByEmail;
                     } else {

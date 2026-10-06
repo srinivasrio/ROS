@@ -10,7 +10,8 @@ import {
     Loader2 as LucideLoader2, Ticket as LucideTicket, Check as LucideCheck, X as LucideX,
     Bike as LucideBike, Phone as LucidePhone, MapPin as LucideMapPin,
     ShoppingBag as LucideShoppingBag, Package as LucidePackage,
-    Navigation as LucideNavigation, ExternalLink as LucideExternalLink
+    Navigation as LucideNavigation, ExternalLink as LucideExternalLink,
+    UserCheck as LucideUserCheck
 } from 'lucide-react';
 import { OfferService } from '@/services/offers.service';
 import { toast } from 'sonner';
@@ -548,6 +549,44 @@ export default function OrderStatusPage() {
                             )}
                             <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/60 text-xs text-amber-900 font-medium">
                                 💡 Please present your Order # at the restaurant pickup counter when status shows <strong>Pickup Ready</strong>.
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Dine-In Waiter Service Card */}
+                {!isDelivery && !isTakeaway && (order?.waiter_name || order?.waiter_avatar || (order as any)?.staff?.name) && (
+                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-orange-100 relative overflow-hidden">
+                        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-orange-600">
+                                <LucideUserCheck size={16} />
+                                <span>Assigned Server</span>
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">
+                                Table Service
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between pt-3">
+                            <div className="flex items-center gap-3">
+                                <div className="relative size-12 rounded-full bg-orange-50 border-2 border-orange-200 overflow-hidden flex-shrink-0 flex items-center justify-center font-black text-base text-orange-600 shadow-sm">
+                                    {(order?.waiter_avatar || (order as any)?.staff?.avatar_url) ? (
+                                        <img
+                                            src={order?.waiter_avatar || (order as any)?.staff?.avatar_url}
+                                            alt={order?.waiter_name || 'Waiter'}
+                                            className="w-full h-full object-cover"
+                                        />
+                                    ) : (
+                                        <span>{(order?.waiter_name || (order as any)?.staff?.name || 'W').charAt(0).toUpperCase()}</span>
+                                    )}
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-black text-neutral-900 leading-tight">
+                                        {order?.waiter_name || (order as any)?.staff?.name || 'Table Captain'}
+                                    </h4>
+                                    <p className="text-xs text-neutral-500 font-medium mt-0.5">
+                                        Attending Table {tableNumber}
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>

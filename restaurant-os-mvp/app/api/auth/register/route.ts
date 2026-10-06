@@ -129,19 +129,28 @@ export async function POST(request: Request) {
             );
         }
 
-        // 2. Check whether the email is already registered and verified
+        // 2. Check whether the email is already registered as Restaurant Admin or Owner
         const { data: existingUser } = await supabaseAdmin
             .from('employees')
-            .select('id, email, email_verified, is_deleted, status')
+            .select('id, email, role, email_verified, is_deleted, status')
             .ilike('email', email)
             .eq('is_deleted', false)
             .maybeSingle();
 
-        if (existingUser && existingUser.email_verified) {
-            return NextResponse.json(
-                { error: 'An account with this email address is already registered. Please login.' },
-                { status: 409 }
-            );
+        if (existingUser) {
+            const existingRole = (existingUser.role || '').toLowerCase();
+            if (['restaurant_admin', 'admin', 'branch_admin'].includes(existingRole)) {
+                return NextResponse.json(
+                    { error: 'This email is already registered as a Restaurant Admin and cannot be used for an Owner account.' },
+                    { status: 409 }
+                );
+            }
+            if (existingUser.email_verified) {
+                return NextResponse.json(
+                    { error: 'An account with this email address is already registered. Please sign in to the Owner Portal.' },
+                    { status: 409 }
+                );
+            }
         }
 
         // 3. Hash password with Argon2id
@@ -151,21 +160,29 @@ export async function POST(request: Request) {
         // Check if a soft-deleted or unverified stale record exists
         const { data: staleUser } = await supabaseAdmin
             .from('employees')
-            .select('id')
+            .select('id, role')
             .ilike('email', email)
             .maybeSingle();
 
         let userId: string;
 
         if (staleUser) {
+            const staleRole = (staleUser.role || '').toLowerCase();
+            if (['restaurant_admin', 'admin', 'branch_admin'].includes(staleRole)) {
+                return NextResponse.json(
+                    { error: 'This email is already registered as a Restaurant Admin and cannot be used for an Owner account.' },
+                    { status: 409 }
+                );
+            }
+
             userId = staleUser.id;
-            await supabaseAdmin
+            const { error: updateErr } = await supabaseAdmin
                 .from('employees')
                 .update({
                     name: fullName,
                     email,
                     mobile: phone,
-                    role: 'restaurant_admin',
+                    role: 'owner',
                     employee_id: employeeId,
                     status: 'pending',
                     approval_status: 'pending_verification',
@@ -174,6 +191,11 @@ export async function POST(request: Request) {
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', userId);
+
+            if (updateErr) {
+                console.error('[Registration API] Failed to update stale record:', updateErr);
+                return NextResponse.json({ error: updateErr.message || 'Failed to update account record' }, { status: 409 });
+            }
 
             await supabaseAdmin
                 .from('auth')
@@ -194,7 +216,7 @@ export async function POST(request: Request) {
                     name: fullName,
                     email,
                     mobile: phone,
-                    role: 'restaurant_admin',
+                    role: 'owner',
                     employee_id: employeeId,
                     status: 'pending',
                     approval_status: 'pending_verification',
@@ -204,7 +226,7 @@ export async function POST(request: Request) {
 
             if (empErr) {
                 console.error('[Registration API] Failed to create employee record:', empErr);
-                return NextResponse.json({ error: 'Failed to create account record' }, { status: 500 });
+                return NextResponse.json({ error: empErr.message || 'Failed to create account record' }, { status: 409 });
             }
 
             const { error: authErr } = await supabaseAdmin

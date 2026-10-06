@@ -141,7 +141,56 @@ export async function POST(request: NextRequest) {
 
         const cleanMobile = mobile?.trim().replace(/[^0-9]/g, '').slice(-10) || null;
         const cleanEmail = email?.trim().toLowerCase() || null;
+        const cleanRole = (role || 'waiter').toLowerCase().trim();
         const hashedPin = pin?.trim() ? await hashPin(pin.trim()) : null;
+
+        if (['owner', 'restaurant_owner'].includes(cleanRole)) {
+            return NextResponse.json({ 
+                error: 'Cannot create an Owner account from the employee management panel.' 
+            }, { status: 400 });
+        }
+
+        if (cleanEmail) {
+            // Check if email is already registered as an Owner
+            const { data: ownerConflict } = await supabaseAdmin
+                .from('employees')
+                .select('id, role')
+                .ilike('email', cleanEmail)
+                .in('role', ['owner', 'restaurant_owner'])
+                .maybeSingle();
+
+            if (ownerConflict) {
+                return NextResponse.json({ 
+                    error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin or staff member.' 
+                }, { status: 409 });
+            }
+
+            const { data: legacyOwner } = await supabaseAdmin
+                .from('users')
+                .select('id, role')
+                .ilike('email', cleanEmail)
+                .in('role', ['owner', 'restaurant_owner'])
+                .maybeSingle();
+
+            if (legacyOwner) {
+                return NextResponse.json({ 
+                    error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin or staff member.' 
+                }, { status: 409 });
+            }
+
+            const { data: existingEmpWithEmail } = await supabaseAdmin
+                .from('employees')
+                .select('id, email, is_deleted')
+                .ilike('email', cleanEmail)
+                .eq('is_deleted', false)
+                .maybeSingle();
+
+            if (existingEmpWithEmail) {
+                return NextResponse.json({ 
+                    error: 'An employee with this email address already exists. Please use a unique email address.' 
+                }, { status: 409 });
+            }
+        }
 
         const { data: newEmp, error: insertErr } = await supabaseAdmin
             .from('employees')
@@ -150,7 +199,7 @@ export async function POST(request: NextRequest) {
                 name: name.trim(),
                 mobile: cleanMobile,
                 email: cleanEmail,
-                role: (role || 'waiter').toLowerCase(),
+                role: cleanRole,
                 branch_id: resolvedBranchFk || null,
                 employee_code: employee_code?.trim() || `EMP-${Date.now().toString().slice(-4)}`,
                 profile_image_url: profile_image_url || null,
@@ -357,8 +406,8 @@ export async function PUT(request: NextRequest) {
             return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
         }
 
-        if (existing.restaurant_id && !allIds.includes(existing.restaurant_id)) {
-            return NextResponse.json({ error: 'Access denied: Employee belongs to another restaurant' }, { status: 403 });
+        if (['owner', 'restaurant_owner'].includes(String(existing.role || '').toLowerCase())) {
+            return NextResponse.json({ error: 'Cannot modify Owner accounts from employee management.' }, { status: 403 });
         }
 
         const targetRestaurantId = existing.restaurant_id || auth.restaurantId;
@@ -368,13 +417,52 @@ export async function PUT(request: NextRequest) {
             restaurant_id: targetRestaurantId
         };
         if (name?.trim()) updates.name = name.trim();
-        if (email !== undefined) updates.email = email ? email.toLowerCase().trim() : null;
+        if (email !== undefined) {
+            const cleanEmail = email ? email.toLowerCase().trim() : null;
+            if (cleanEmail) {
+                // Check if this email belongs to an Owner
+                const { data: ownerConflict } = await supabaseAdmin
+                    .from('employees')
+                    .select('id, role')
+                    .ilike('email', cleanEmail)
+                    .neq('id', id)
+                    .in('role', ['owner', 'restaurant_owner'])
+                    .maybeSingle();
+
+                if (ownerConflict) {
+                    return NextResponse.json({ 
+                        error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin or staff member.' 
+                    }, { status: 409 });
+                }
+
+                const { data: legacyOwner } = await supabaseAdmin
+                    .from('users')
+                    .select('id, role')
+                    .ilike('email', cleanEmail)
+                    .neq('id', id)
+                    .in('role', ['owner', 'restaurant_owner'])
+                    .maybeSingle();
+
+                if (legacyOwner) {
+                    return NextResponse.json({ 
+                        error: 'This email is already registered as a Restaurant Owner and cannot be assigned as a Restaurant Admin or staff member.' 
+                    }, { status: 409 });
+                }
+            }
+            updates.email = cleanEmail;
+        }
         if (mobile !== undefined || phone !== undefined) {
             const rawPhone = mobile !== undefined ? mobile : phone;
             updates.mobile = rawPhone ? String(rawPhone).replace(/[^0-9]/g, '').slice(-10) : null;
             updates.phone_normalized = updates.mobile ? normalizeE164Phone(updates.mobile) : null;
         }
-        if (role !== undefined) updates.role = role.toLowerCase().trim();
+        if (role !== undefined) {
+            const cleanRole = role.toLowerCase().trim();
+            if (['owner', 'restaurant_owner'].includes(cleanRole)) {
+                return NextResponse.json({ error: 'Cannot assign Owner role from employee management.' }, { status: 400 });
+            }
+            updates.role = cleanRole;
+        }
         if (monthly_salary !== undefined) updates.monthly_salary = Number(monthly_salary) || 0;
         if (per_day_salary !== undefined) updates.per_day_salary = per_day_salary !== null && per_day_salary !== '' ? Number(per_day_salary) : null;
         if (overtime_per_hour !== undefined) updates.overtime_per_hour = overtime_per_hour !== null && overtime_per_hour !== '' ? Number(overtime_per_hour) : null;
