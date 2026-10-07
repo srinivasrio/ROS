@@ -366,8 +366,8 @@ const HeroSection: React.FC = () => {
           {/* ========================================================= */}
           <div className="lg:col-span-5 flex justify-center items-center">
             
-            {/* Phone Exterior Frame */}
-            <div className="relative w-full max-w-[340px] sm:max-w-[360px] rounded-[44px] p-3 bg-neutral-950 border-[5px] border-neutral-800 shadow-[0_20px_50px_rgba(0,0,0,0.35)] dark:shadow-[0_25px_60px_rgba(0,0,0,0.8)] ring-1 ring-white/10">
+            {/* Phone Exterior Frame (Reduced outer black border size by half) */}
+            <div className="relative w-full max-w-[340px] sm:max-w-[360px] rounded-[38px] p-1.5 bg-neutral-950 border-[2.5px] border-neutral-800 shadow-[0_20px_50px_rgba(0,0,0,0.35)] dark:shadow-[0_25px_60px_rgba(0,0,0,0.8)] ring-1 ring-white/10">
               
               {/* Dynamic Island Pill / Camera */}
               <div className="absolute top-4 left-1/2 -translate-x-1/2 w-24 h-4 bg-neutral-900 rounded-full z-30 flex items-center justify-center">
@@ -721,17 +721,17 @@ const HeroSection: React.FC = () => {
           {/* ========================================================= */}
           <div className="w-full flex items-center justify-between gap-2.5 sm:gap-4 my-3 max-w-[440px] mx-auto">
             
-            {/* LEFT SECTION (70%): Realistic iPhone Mockup */}
+            {/* LEFT SECTION (70%): Realistic iPhone Mockup (Outer border reduced by half) */}
             <div className="w-[68%] sm:w-[70%] flex justify-start items-center">
-              <div className="relative w-full max-w-[215px] sm:max-w-[230px] aspect-[9/18.5] rounded-[34px] sm:rounded-[38px] p-2 sm:p-2.5 bg-neutral-950 border-[3.5px] border-neutral-800 shadow-[0_16px_40px_rgba(0,0,0,0.4)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/10 flex flex-col justify-between overflow-hidden">
+              <div className="relative w-full max-w-[215px] sm:max-w-[230px] aspect-[9/18.5] rounded-[30px] sm:rounded-[32px] p-1 sm:p-1.5 bg-neutral-950 border-[1.5px] sm:border-[2px] border-neutral-800 shadow-[0_16px_40px_rgba(0,0,0,0.4)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/10 flex flex-col justify-between overflow-hidden">
                 
                 {/* Dynamic Island Pill */}
-                <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-16 h-3 bg-neutral-900 rounded-full z-30 flex items-center justify-end pr-1.5">
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-3 bg-neutral-900 rounded-full z-30 flex items-center justify-end pr-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-neutral-800 border border-neutral-700/80" />
                 </div>
 
                 {/* iPhone Inner Screen */}
-                <div className="relative rounded-[26px] sm:rounded-[28px] bg-white dark:bg-neutral-900 overflow-hidden border border-neutral-200/80 dark:border-neutral-800/80 flex flex-col justify-between h-full pt-3.5 pb-2 px-2.5 text-foreground select-none">
+                <div className="relative rounded-[25px] sm:rounded-[27px] bg-white dark:bg-neutral-900 overflow-hidden border border-neutral-200/80 dark:border-neutral-800/80 flex flex-col justify-between h-full pt-3.5 pb-2 px-2.5 text-foreground select-none">
                   
                   {/* Status Bar */}
                   <div className="flex items-center justify-between text-[9px] font-semibold text-neutral-400 mb-1 px-0.5 shrink-0">
