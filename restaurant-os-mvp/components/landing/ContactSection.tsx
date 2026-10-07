@@ -47,19 +47,19 @@ const ContactSection = () => {
           <RevealMotion direction="right" delay={0.15}>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <input required placeholder="Name *" className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-black focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium" />
-                <input required placeholder="Phone *" className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-black focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium" />
+                <input required placeholder="Name *" className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-muted-foreground focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium" />
+                <input required placeholder="Phone *" className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-muted-foreground focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium" />
               </div>
-              <input required placeholder="Restaurant Name *" className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-black focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium" />
-              <input required type="email" placeholder="Email *" className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-black focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium" />
+              <input required placeholder="Restaurant Name *" className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-muted-foreground focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium" />
+              <input required type="email" placeholder="Email *" className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-muted-foreground focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium" />
               <div className="grid grid-cols-2 gap-4">
-                <select className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-black focus:border-[#FF6B6B]/50 outline-none transition-all text-sm appearance-none font-medium">
+                <select className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground focus:border-[#FF6B6B]/50 outline-none transition-all text-sm appearance-none font-medium">
                   <option value="">Plan Interest</option>
-                  <option>Starter</option>
-                  <option>Pro</option>
-                  <option>Enterprise</option>
+                  <option>Standard (₹999/mo)</option>
+                  <option>Growth (₹1,499/mo)</option>
+                  <option>Pro Multi-Branch (₹2,999/mo)</option>
                 </select>
-                <select className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-black focus:border-[#FF6B6B]/50 outline-none transition-all text-sm appearance-none font-medium">
+                <select className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground focus:border-[#FF6B6B]/50 outline-none transition-all text-sm appearance-none font-medium">
                   <option value="">Number of Tables</option>
                   <option>1–10</option>
                   <option>11–25</option>
@@ -67,7 +67,7 @@ const ContactSection = () => {
                   <option>50+</option>
                 </select>
               </div>
-              <textarea placeholder="Message" rows={4} className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-black focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium resize-none" />
+              <textarea placeholder="Message / Specific requirements..." rows={4} className="w-full px-4 py-3 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-foreground placeholder:text-muted-foreground focus:border-[#FF6B6B]/50 focus:shadow-[0_0_20px_rgba(255,107,107,0.15)] outline-none transition-all text-sm font-medium resize-none" />
               <motion.button
                 type="submit"
                 whileHover={{ scale: 1.03, y: -2 }}

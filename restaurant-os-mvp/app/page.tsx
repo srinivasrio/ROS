@@ -2,6 +2,7 @@
 
 import Navbar from "@/components/landing/Navbar";
 import HeroSection from "@/components/landing/HeroSection";
+import MarqueeTicker from "@/components/landing/MarqueeTicker";
 import ProblemSection from "@/components/landing/ProblemSection";
 import SolutionSection from "@/components/landing/SolutionSection";
 import FeaturesGrid from "@/components/landing/FeaturesGrid";
@@ -11,15 +12,17 @@ import FAQSection from "@/components/landing/FAQSection";
 import CTABanner from "@/components/landing/CTABanner";
 import ContactSection from "@/components/landing/ContactSection";
 import Footer from "@/components/landing/Footer";
+import WhatsAppButton from "@/components/landing/WhatsAppButton";
 import { useScrollReveal } from "@/hooks/useScrollReveal";
 
 export default function LandingPage() {
   useScrollReveal();
 
   return (
-    <main className="min-h-screen bg-background selection:bg-[#FF6B6B]/30">
+    <main className="min-h-screen bg-background selection:bg-[#FF6B6B]/30 relative overflow-x-hidden">
       <Navbar />
       <HeroSection />
+      <MarqueeTicker />
       <ProblemSection />
       <SolutionSection />
       <FeaturesGrid />
@@ -29,6 +32,7 @@ export default function LandingPage() {
       <CTABanner />
       <ContactSection />
       <Footer />
+      <WhatsAppButton />
     </main>
   );
 }

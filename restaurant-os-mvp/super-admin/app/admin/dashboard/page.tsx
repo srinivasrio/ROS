@@ -45,8 +45,13 @@ import {
 export default function SuperAdminDashboard() {
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [isMounted, setIsMounted] = useState(false);
     const [timeframe, setTimeframe] = useState<'30d' | '90d' | '1y'>('30d');
     const [chartTab, setChartTab] = useState<'growth' | 'revenue' | 'branches'>('growth');
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
 
     const fetchStats = async () => {
         setLoading(true);
@@ -324,70 +329,74 @@ export default function SuperAdminDashboard() {
 
                     {/* Chart Container */}
                     <div className="h-72 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            {chartTab === 'growth' ? (
-                                <AreaChart data={stats?.growthChart || []}>
-                                    <defs>
-                                        <linearGradient id="colorActive" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.25} />
-                                            <stop offset="95%" stopColor="#4F46E5" stopOpacity={0.0} />
-                                        </linearGradient>
-                                        <linearGradient id="colorNew" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#06B6D4" stopOpacity={0.25} />
-                                            <stop offset="95%" stopColor="#06B6D4" stopOpacity={0.0} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F2F5" />
-                                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
-                                    <YAxis tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
-                                    <Tooltip
-                                        contentStyle={{
-                                            backgroundColor: '#FFFFFF',
-                                            borderRadius: '12px',
-                                            border: '1px solid #E4E7EC',
-                                            boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                                            fontSize: '12px',
-                                        }}
-                                    />
-                                    <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
-                                    <Area type="monotone" dataKey="activeRestaurants" name="Active Restaurants" stroke="#4F46E5" strokeWidth={2.5} fillOpacity={1} fill="url(#colorActive)" />
-                                    <Area type="monotone" dataKey="newRestaurants" name="New Onboardings" stroke="#06B6D4" strokeWidth={2} fillOpacity={1} fill="url(#colorNew)" />
-                                </AreaChart>
-                            ) : chartTab === 'revenue' ? (
-                                <BarChart data={stats?.growthChart || []}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F2F5" />
-                                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
-                                    <YAxis tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
-                                    <Tooltip
-                                        formatter={(val: any) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Platform Revenue']}
-                                        contentStyle={{
-                                            backgroundColor: '#FFFFFF',
-                                            borderRadius: '12px',
-                                            border: '1px solid #E4E7EC',
-                                            boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                                            fontSize: '12px',
-                                        }}
-                                    />
-                                    <Bar dataKey="revenue" name="Total Revenue (₹)" fill="#10B981" radius={[8, 8, 0, 0]} />
-                                </BarChart>
-                            ) : (
-                                <AreaChart data={stats?.growthChart || []}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F2F5" />
-                                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
-                                    <YAxis tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
-                                    <Tooltip
-                                        contentStyle={{
-                                            backgroundColor: '#FFFFFF',
-                                            borderRadius: '12px',
-                                            border: '1px solid #E4E7EC',
-                                            boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                                            fontSize: '12px',
-                                        }}
-                                    />
-                                    <Area type="monotone" dataKey="branches" name="Physical Branches" stroke="#06B6D4" strokeWidth={2.5} fill="#EEF2FF" />
-                                </AreaChart>
-                            )}
-                        </ResponsiveContainer>
+                        {isMounted ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                {chartTab === 'growth' ? (
+                                    <AreaChart data={stats?.growthChart || []}>
+                                        <defs>
+                                            <linearGradient id="colorActive" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.25} />
+                                                <stop offset="95%" stopColor="#4F46E5" stopOpacity={0.0} />
+                                            </linearGradient>
+                                            <linearGradient id="colorNew" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#06B6D4" stopOpacity={0.25} />
+                                                <stop offset="95%" stopColor="#06B6D4" stopOpacity={0.0} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F2F5" />
+                                        <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
+                                        <YAxis tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
+                                        <Tooltip
+                                            contentStyle={{
+                                                backgroundColor: '#FFFFFF',
+                                                borderRadius: '12px',
+                                                border: '1px solid #E4E7EC',
+                                                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                                                fontSize: '12px',
+                                            }}
+                                        />
+                                        <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                                        <Area type="monotone" dataKey="activeRestaurants" name="Active Restaurants" stroke="#4F46E5" strokeWidth={2.5} fillOpacity={1} fill="url(#colorActive)" />
+                                        <Area type="monotone" dataKey="newRestaurants" name="New Onboardings" stroke="#06B6D4" strokeWidth={2} fillOpacity={1} fill="url(#colorNew)" />
+                                    </AreaChart>
+                                ) : chartTab === 'revenue' ? (
+                                    <BarChart data={stats?.growthChart || []}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F2F5" />
+                                        <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
+                                        <YAxis tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
+                                        <Tooltip
+                                            formatter={(val: any) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Platform Revenue']}
+                                            contentStyle={{
+                                                backgroundColor: '#FFFFFF',
+                                                borderRadius: '12px',
+                                                border: '1px solid #E4E7EC',
+                                                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                                                fontSize: '12px',
+                                            }}
+                                        />
+                                        <Bar dataKey="revenue" name="Total Revenue (₹)" fill="#10B981" radius={[8, 8, 0, 0]} />
+                                    </BarChart>
+                                ) : (
+                                    <AreaChart data={stats?.growthChart || []}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F2F5" />
+                                        <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
+                                        <YAxis tick={{ fontSize: 11, fill: '#667085' }} axisLine={false} tickLine={false} />
+                                        <Tooltip
+                                            contentStyle={{
+                                                backgroundColor: '#FFFFFF',
+                                                borderRadius: '12px',
+                                                border: '1px solid #E4E7EC',
+                                                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                                                fontSize: '12px',
+                                            }}
+                                        />
+                                        <Area type="monotone" dataKey="branches" name="Physical Branches" stroke="#06B6D4" strokeWidth={2.5} fill="#EEF2FF" />
+                                    </AreaChart>
+                                )}
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="h-full w-full bg-neutral-50 rounded-xl animate-pulse" />
+                        )}
                     </div>
                 </div>
 
@@ -411,29 +420,33 @@ export default function SuperAdminDashboard() {
 
                         {/* Donut Chart */}
                         <div className="h-52 w-full flex items-center justify-center">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={stats?.subscriptionBreakdown || []}
-                                        innerRadius={60}
-                                        outerRadius={80}
-                                        paddingAngle={4}
-                                        dataKey="value"
-                                    >
-                                        {(stats?.subscriptionBreakdown || []).map((entry: any, index: number) => (
-                                            <Cell key={`cell-${index}`} fill={entry.color} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip
-                                        contentStyle={{
-                                            backgroundColor: '#FFFFFF',
-                                            borderRadius: '10px',
-                                            border: '1px solid #E4E7EC',
-                                            fontSize: '12px',
-                                        }}
-                                    />
-                                </PieChart>
-                            </ResponsiveContainer>
+                            {isMounted ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={stats?.subscriptionBreakdown || []}
+                                            innerRadius={60}
+                                            outerRadius={80}
+                                            paddingAngle={4}
+                                            dataKey="value"
+                                        >
+                                            {(stats?.subscriptionBreakdown || []).map((entry: any, index: number) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip
+                                            contentStyle={{
+                                                backgroundColor: '#FFFFFF',
+                                                borderRadius: '10px',
+                                                border: '1px solid #E4E7EC',
+                                                fontSize: '12px',
+                                            }}
+                                        />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="w-36 h-36 rounded-full border-4 border-dashed border-neutral-200 animate-spin" />
+                            )}
                         </div>
                     </div>
 
