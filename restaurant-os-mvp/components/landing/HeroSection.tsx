@@ -16,19 +16,12 @@ const HeroSection = () => {
 
       <div className="relative z-10 max-w-4xl mx-auto px-6 text-center">
         <motion.h1
-          initial={{ opacity: 1 }}
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-tight mb-6 gradient-text-coral" 
         >
-          {"The Smartest Decision for Your Restaurant".split("").map((char, i) => (
-            <motion.span
-              key={i}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.01, delay: 0.02 + i * 0.004 }}
-            >
-              {char}
-            </motion.span>
-          ))}
+          The Smartest Decision for Your Restaurant
         </motion.h1>
 
         <motion.p

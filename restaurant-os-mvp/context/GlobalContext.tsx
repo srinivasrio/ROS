@@ -77,7 +77,12 @@ export function GlobalContextProvider({ children }: { children: React.ReactNode 
             if (isInitialLoad.current && !stateRef.current.restaurantId) {
                 setLoading(true);
             }
-            setError(null);
+            // Fast-path: Skip session & database overhead on public pages
+            const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/register';
+            if (isPublicPage) {
+                setLoading(false);
+                return;
+            }
 
             // 1. Identify Panel
             let panel: PanelType | null = null;
