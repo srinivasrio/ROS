@@ -1,5 +1,3 @@
-"use client";
-
 const foodIcons = [
   "/assets/food/pizza.png",
   "/assets/food/coffee.png",

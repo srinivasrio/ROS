@@ -106,6 +106,10 @@ export async function middleware(request: NextRequest) {
     // Only applies to production marketing apex domain (dineinone.com).
     // On localhost, IP addresses, and dedicated subdomains, internal panels and logins remain accessible.
     if (isProductionMarketingApex && !subdomain && !path.startsWith('/api/')) {
+        if (path === '/') {
+            return NextResponse.next();
+        }
+
         if (path === '/login/owner') {
             return NextResponse.redirect(new URL(`https://owner.dineinone.com/login${request.nextUrl.search}`));
         }
