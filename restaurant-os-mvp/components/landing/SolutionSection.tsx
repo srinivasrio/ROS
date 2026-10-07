@@ -12,7 +12,6 @@ import {
   ArrowRight,
   Sparkles,
   CheckCircle2,
-  Zap,
   Repeat
 } from "lucide-react";
 
@@ -183,10 +182,6 @@ const SolutionSection = () => (
         <div className="rounded-3xl border border-border/80 bg-neutral-50/70 dark:bg-neutral-900/50 backdrop-blur-xl p-6 md:p-10 shadow-lg">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 pb-6 border-b border-border/60">
             <div>
-              <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider">
-                <Zap className="w-4 h-4 text-primary" />
-                Live Operational Pipeline
-              </div>
               <h3 className="text-xl md:text-2xl font-black text-foreground mt-1">
                 Zero Friction From Order to Delivery & Settlement
               </h3>
