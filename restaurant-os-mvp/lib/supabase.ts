@@ -1,7 +1,19 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL || 'https://placeholder.supabase.co';
+const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+
+function resolveClientSupabaseUrl(url: string): string {
+    if (typeof window !== 'undefined') {
+        // Prevent browser Mixed Content blocking: on HTTPS pages, ensure Supabase connects over HTTPS
+        if (window.location.protocol === 'https:' && (url.startsWith('http://') || url.includes('72.61.250.231'))) {
+            return 'https://db.dineinone.com';
+        }
+    }
+    return url;
+}
+
+const supabaseUrl = resolveClientSupabaseUrl(rawSupabaseUrl);
 
 let inMemoryToken: string | null = null;
 
@@ -89,15 +101,21 @@ export async function syncClientSession(panel?: string | null, restaurantId?: st
 }
 
 const customFetch: typeof fetch = (url, options = {}) => {
+    let targetUrl = url;
+    if (typeof url === 'string' && typeof window !== 'undefined' && window.location.protocol === 'https:') {
+        if (targetUrl.startsWith('http://72.61.250.231:8010')) {
+            targetUrl = targetUrl.replace('http://72.61.250.231:8010', 'https://db.dineinone.com');
+        }
+    }
     const token = getDineToken();
     if (token) {
         const headers = new Headers(options.headers || {});
         if (!headers.has('x-dine-token')) {
             headers.set('x-dine-token', token);
         }
-        return fetch(url, { ...options, headers });
+        return fetch(targetUrl, { ...options, headers });
     }
-    return fetch(url, options);
+    return fetch(targetUrl, options);
 };
 
 export type AnyDatabase = {
@@ -160,15 +178,11 @@ export function createClient(customHeaders?: Record<string, string>) {
                 },
                 global: {
                     fetch: (url, options = {}) => {
-                        const token = getDineToken();
                         const headers = new Headers(options.headers || {});
-                        if (token && !headers.has('x-dine-token')) {
-                            headers.set('x-dine-token', token);
-                        }
                         for (const [k, v] of Object.entries(customHeaders)) {
                             headers.set(k, v);
                         }
-                        return fetch(url, { ...options, headers });
+                        return customFetch(url, { ...options, headers });
                     }
                 }
             }
@@ -186,15 +200,11 @@ export function createClient(customHeaders?: Record<string, string>) {
                     },
                     global: {
                         fetch: (url, options = {}) => {
-                            const token = getDineToken();
                             const headers = new Headers(options.headers || {});
-                            if (token && !headers.has('x-dine-token')) {
-                                headers.set('x-dine-token', token);
-                            }
                             for (const [k, v] of Object.entries(customHeaders)) {
                                 headers.set(k, v);
                             }
-                            return fetch(url, { ...options, headers });
+                            return customFetch(url, { ...options, headers });
                         }
                     }
                 }
