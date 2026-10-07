@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,9 +8,7 @@ import { useOwner } from '@/context/OwnerContext';
 import {
     LayoutDashboard, Building2, Users, UtensilsCrossed, ShoppingBag,
     Table2, Monitor, UserCircle, BarChart3, CreditCard, Settings,
-    LogOut, ChevronLeft, ChevronRight, ChevronDown, X,
-    Plus, ToggleLeft, ClipboardList, MapPin, Bell, UserPlus,
-    Layers, DollarSign, Shield, FileText, HelpCircle
+    LogOut, ChevronDown, X
 } from 'lucide-react';
 
 interface NavSection {
@@ -63,16 +61,40 @@ export default function OwnerSidebar() {
     const pathname = usePathname();
     const router = useRouter();
     const { 
-        restaurant, sidebarCollapsed, setSidebarCollapsed,
-        mobileSidebarOpen, setMobileSidebarOpen 
+        restaurant, mobileSidebarOpen, setMobileSidebarOpen 
     } = useOwner();
     const [expandedItems, setExpandedItems] = useState<string[]>([]);
+    const [isHovered, setIsHovered] = useState(false);
+    const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    const handleMouseEnter = () => {
+        if (hoverTimerRef.current) {
+            clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = null;
+        }
+        setIsHovered(true);
+    };
+
+    const handleMouseLeave = () => {
+        if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = setTimeout(() => {
+            setIsHovered(false);
+        }, 90);
+    };
+
+    useEffect(() => {
+        return () => {
+            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+        };
+    }, []);
 
     const toggleExpand = (href: string) => {
         setExpandedItems(prev => 
             prev.includes(href) ? prev.filter(h => h !== href) : [...prev, href]
         );
     };
+
+    const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
     const handleSignOut = async () => {
         try {
@@ -84,52 +106,33 @@ export default function OwnerSidebar() {
         }
     };
 
-    const sidebarContent = (
-        <>
-            {/* Brand Header */}
-            <div className={`p-5 ${sidebarCollapsed ? 'px-3' : 'px-5'}`}>
-                <div className={`flex items-center gap-3 ${sidebarCollapsed ? 'justify-center px-2 py-3' : 'px-4 py-3.5'} bg-white dark:bg-zinc-800/50 rounded-2xl border border-neutral-200/60 dark:border-zinc-700/40 shadow-sm transition-all`}>
-                    <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 text-white font-black text-base shadow-md shadow-indigo-500/20">
-                        {restaurant?.logoUrl ? (
-                            <img src={restaurant.logoUrl} alt={restaurant.name} className="w-full h-full object-cover" />
-                        ) : (
-                            <span>{(restaurant?.name || 'R').charAt(0).toUpperCase()}</span>
-                        )}
-                    </div>
-                    {!sidebarCollapsed && (
-                        <motion.div 
-                            initial={{ opacity: 0, x: -10 }} 
-                            animate={{ opacity: 1, x: 0 }} 
-                            className="flex-1 min-w-0"
-                        >
-                            <h2 className="text-sm font-black tracking-tight text-neutral-900 dark:text-white truncate">
-                                {restaurant?.name || 'Restaurant'}
-                            </h2>
-                            <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[10px] text-neutral-400 font-bold tracking-widest uppercase">Owner</span>
-                            </div>
-                        </motion.div>
-                    )}
-                </div>
-            </div>
-
+    const renderSidebarContent = (isExpanded: boolean) => (
+        <div className="w-[272px] flex flex-col h-full overflow-hidden select-none pt-3">
             {/* Navigation */}
-            <nav className={`flex-1 overflow-y-auto premium-scrollbar ${sidebarCollapsed ? 'px-2' : 'px-3'} pb-4 space-y-6`}>
+            <nav className="flex-1 overflow-y-auto premium-scrollbar px-3 pb-4 space-y-3">
                 {NAV_SECTIONS.map((section, sIdx) => (
                     <div key={sIdx} className="space-y-1">
-                        {section.title && !sidebarCollapsed && (
-                            <p className="px-4 mb-2 text-[9px] font-black uppercase tracking-[0.15em] text-neutral-400/80 dark:text-neutral-500/80">
-                                {section.title}
-                            </p>
-                        )}
-                        {section.title && sidebarCollapsed && (
-                            <div className="mx-auto w-5 h-px bg-neutral-200/60 dark:bg-zinc-700/40 mb-2" />
+                        {section.title && (
+                            <div className="pt-2 pb-1 px-1">
+                                <div className={`overflow-hidden transition-all duration-200 ease-out ${
+                                    isExpanded ? 'opacity-100 max-w-[200px]' : 'opacity-0 max-w-0'
+                                }`}>
+                                    <p className="text-[9px] font-black uppercase tracking-[0.15em] text-neutral-400/90 dark:text-neutral-500/90 whitespace-nowrap">
+                                        {section.title}
+                                    </p>
+                                </div>
+                                {!isExpanded && (
+                                    <div className="w-10 flex justify-center my-1.5">
+                                        <div className="w-5 h-px bg-neutral-200/80 dark:bg-zinc-800" />
+                                    </div>
+                                )}
+                            </div>
                         )}
                         {section.items.map((item) => (
                             <SidebarNavItem
                                 key={item.href}
                                 item={item}
-                                collapsed={sidebarCollapsed}
+                                isHovered={isExpanded}
                                 isActive={pathname === item.href || pathname.startsWith(item.href + '/')}
                                 isExpanded={expandedItems.includes(item.href)}
                                 onToggleExpand={() => toggleExpand(item.href)}
@@ -141,42 +144,49 @@ export default function OwnerSidebar() {
                 ))}
             </nav>
 
-            {/* Collapse Toggle + Sign Out */}
-            <div className={`border-t border-neutral-200/40 dark:border-zinc-800/40 ${sidebarCollapsed ? 'p-2' : 'p-4'}`}>
-                {/* Collapse button - desktop only */}
+            {/* Sign Out */}
+            <div className="p-3 border-t border-neutral-200/40 dark:border-zinc-800/40">
                 <button
-                    onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                    className="hidden lg:flex items-center gap-3 w-full px-3 py-2.5 rounded-xl hover:bg-neutral-100/50 dark:hover:bg-zinc-800/50 transition-all text-neutral-500 dark:text-neutral-400 group cursor-pointer mb-1"
+                    onClick={() => setShowSignOutConfirm(true)}
+                    title="Sign Out"
+                    className={`flex items-center h-10 hover:bg-red-50/50 dark:hover:bg-red-950/20 transition-colors text-neutral-600 dark:text-neutral-300 hover:text-red-600 dark:hover:text-red-400 group cursor-pointer shrink-0 ${
+                        !isExpanded ? 'w-10 h-10 justify-center rounded-xl' : 'w-full px-1 justify-start rounded-xl'
+                    }`}
                 >
-                    <div className="w-8 h-8 rounded-lg bg-neutral-100 dark:bg-zinc-800 flex items-center justify-center group-hover:bg-neutral-200 dark:group-hover:bg-zinc-700 transition-colors">
-                        {sidebarCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
-                    </div>
-                    {!sidebarCollapsed && <span className="text-sm font-semibold">Collapse</span>}
-                </button>
-
-                <button
-                    onClick={handleSignOut}
-                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl hover:bg-red-50/50 dark:hover:bg-red-950/20 transition-all text-neutral-600 dark:text-neutral-300 hover:text-red-600 dark:hover:text-red-400 group cursor-pointer"
-                >
-                    <div className="w-8 h-8 rounded-lg bg-neutral-100 dark:bg-zinc-800 flex items-center justify-center group-hover:bg-red-50 dark:group-hover:bg-red-950/30 transition-colors">
+                    <div className="w-8 h-8 flex items-center justify-center shrink-0 rounded-lg bg-neutral-100 dark:bg-zinc-800 group-hover:bg-red-50 dark:group-hover:bg-red-950/30 transition-colors">
                         <LogOut size={15} className="group-hover:text-red-500 transition-colors" />
                     </div>
-                    {!sidebarCollapsed && <span className="text-sm font-semibold transition-colors">Sign Out</span>}
+                    <div className={`ml-2.5 flex-1 min-w-0 text-left transition-all duration-200 ease-out ${
+                        isExpanded ? 'opacity-100 max-w-[170px] translate-x-0' : 'opacity-0 max-w-0 -translate-x-2 pointer-events-none'
+                    }`}>
+                        <span className="text-xs font-semibold whitespace-nowrap">Sign Out</span>
+                    </div>
                 </button>
             </div>
-        </>
+        </div>
     );
 
     return (
         <>
-            {/* Desktop Sidebar */}
-            <motion.aside
-                animate={{ width: sidebarCollapsed ? 80 : 280 }}
-                transition={{ duration: 0.25, ease: [0.2, 0.8, 0.2, 1] }}
-                className="hidden lg:flex flex-col h-screen border-r border-neutral-200/50 dark:border-zinc-800/40 bg-white/70 dark:bg-zinc-900/60 backdrop-blur-xl shadow-[2px_0_20px_rgba(0,0,0,0.015)] z-40 overflow-hidden"
-            >
-                {sidebarContent}
-            </motion.aside>
+            {/* Desktop Sidebar: Fixed 64px layout slot so main section never shifts, with floating overlay on hover */}
+            <div className="hidden lg:block w-[64px] h-screen flex-shrink-0 relative z-40">
+                <motion.aside
+                    initial={false}
+                    animate={{ width: isHovered ? 272 : 64 }}
+                    transition={{
+                        type: "tween",
+                        duration: 0.22,
+                        ease: [0.16, 1, 0.3, 1]
+                    }}
+                    onMouseEnter={handleMouseEnter}
+                    onMouseLeave={handleMouseLeave}
+                    className={`absolute top-0 left-0 h-screen flex flex-col border-r border-neutral-200/50 dark:border-zinc-800/40 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl overflow-hidden select-none will-change-[width] transition-shadow duration-200 ${
+                        isHovered ? 'shadow-[8px_0_30px_rgba(0,0,0,0.12)] dark:shadow-[8px_0_30px_rgba(0,0,0,0.5)]' : 'shadow-[2px_0_10px_rgba(0,0,0,0.02)]'
+                    }`}
+                >
+                    {renderSidebarContent(isHovered)}
+                </motion.aside>
+            </div>
 
             {/* Mobile Sidebar Overlay */}
             <AnimatePresence>
@@ -187,15 +197,15 @@ export default function OwnerSidebar() {
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
                             transition={{ duration: 0.2 }}
-                            className="lg:hidden fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
+                            className="lg:hidden fixed inset-0 bg-black/30 backdrop-blur-xs z-40"
                             onClick={() => setMobileSidebarOpen(false)}
                         />
                         <motion.aside
-                            initial={{ x: -300 }}
+                            initial={{ x: -280 }}
                             animate={{ x: 0 }}
-                            exit={{ x: -300 }}
-                            transition={{ duration: 0.25, ease: [0.2, 0.8, 0.2, 1] }}
-                            className="lg:hidden fixed left-0 top-0 h-screen w-[280px] flex flex-col bg-white dark:bg-zinc-900 shadow-2xl z-50"
+                            exit={{ x: -280 }}
+                            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                            className="lg:hidden fixed left-0 top-0 h-screen w-[260px] flex flex-col bg-white dark:bg-zinc-900 shadow-2xl z-50 overflow-hidden"
                         >
                             {/* Mobile Close Button */}
                             <button
@@ -204,9 +214,53 @@ export default function OwnerSidebar() {
                             >
                                 <X size={16} className="text-neutral-500" />
                             </button>
-                            {sidebarContent}
+                            {renderSidebarContent(true)}
                         </motion.aside>
                     </>
+                )}
+            </AnimatePresence>
+
+            {/* Logout Confirmation Modal */}
+            <AnimatePresence>
+                {showSignOutConfirm && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.15 }}
+                            className="w-full max-w-sm bg-white dark:bg-zinc-900 rounded-3xl p-6 shadow-2xl border border-neutral-200/80 dark:border-zinc-800 text-center space-y-4"
+                        >
+                            <div className="w-12 h-12 rounded-2xl bg-red-50 dark:bg-red-950/40 text-red-500 mx-auto flex items-center justify-center">
+                                <LogOut size={22} />
+                            </div>
+                            <div>
+                                <h3 className="text-base font-black text-neutral-900 dark:text-white">
+                                    Sign Out of Owner Panel?
+                                </h3>
+                                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                                    Are you sure you want to log out? You will need to sign in again to access the restaurant management tools.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3 pt-2">
+                                <button
+                                    onClick={() => setShowSignOutConfirm(false)}
+                                    className="flex-1 py-2.5 rounded-xl border border-neutral-200 dark:border-zinc-700 text-xs font-bold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-zinc-800 transition cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowSignOutConfirm(false);
+                                        handleSignOut();
+                                    }}
+                                    className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/20 transition cursor-pointer"
+                                >
+                                    Yes, Sign Out
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
                 )}
             </AnimatePresence>
         </>
@@ -214,9 +268,9 @@ export default function OwnerSidebar() {
 }
 
 function SidebarNavItem({ 
-    item, collapsed, isActive, isExpanded, onToggleExpand, pathname, onNavigate 
+    item, isHovered, isActive, isExpanded, onToggleExpand, pathname, onNavigate 
 }: { 
-    item: NavItemDef; collapsed: boolean; isActive: boolean; isExpanded: boolean; 
+    item: NavItemDef; isHovered: boolean; isActive: boolean; isExpanded: boolean; 
     onToggleExpand: () => void; pathname: string; onNavigate: () => void;
 }) {
     const Icon = item.icon;
@@ -224,7 +278,7 @@ function SidebarNavItem({
     const router = useRouter();
 
     const handleClick = (e: React.MouseEvent) => {
-        if (hasChildren && !collapsed) {
+        if (hasChildren && isHovered) {
             e.preventDefault();
             onToggleExpand();
         } else {
@@ -232,28 +286,8 @@ function SidebarNavItem({
         }
     };
 
-    if (collapsed) {
-        return (
-            <Link
-                href={item.href}
-                prefetch={true}
-                title={item.label}
-                onClick={onNavigate}
-                className={`
-                    relative flex items-center justify-center w-full py-2.5 rounded-xl transition-all group cursor-pointer
-                    ${isActive
-                        ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/20'
-                        : 'text-neutral-500 dark:text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-neutral-50 dark:hover:bg-zinc-800/50'
-                    }
-                `}
-            >
-                <Icon size={18} strokeWidth={2.3} />
-            </Link>
-        );
-    }
-
     return (
-        <div>
+        <div className="relative">
             <Link
                 href={hasChildren ? '#' : item.href}
                 prefetch={!hasChildren}
@@ -264,77 +298,81 @@ function SidebarNavItem({
                     }
                 }}
                 className={`
-                    relative flex items-center gap-3 w-full px-4 py-2.5 text-sm font-semibold rounded-xl transition-all duration-200 group cursor-pointer
+                    relative flex items-center h-10 transition-all duration-150 group cursor-pointer shrink-0
+                    ${!isHovered ? 'w-10 h-10 justify-center rounded-xl' : 'w-full px-1 rounded-xl justify-start'}
                     ${isActive && !hasChildren
-                        ? 'bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/15'
+                        ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-md shadow-indigo-500/20'
                         : isActive && hasChildren
                         ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20'
-                        : 'text-neutral-600 dark:text-neutral-350 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-neutral-50 dark:hover:bg-zinc-900/40'
+                        : 'text-neutral-600 dark:text-neutral-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-neutral-100/70 dark:hover:bg-zinc-800/50'
                     }
                 `}
             >
-                <Icon
-                    size={18}
-                    strokeWidth={2.3}
-                    className={`transition-transform duration-200 ${
-                        isActive && !hasChildren
-                            ? 'text-white scale-110'
-                            : isActive && hasChildren
-                            ? 'text-indigo-500'
-                            : 'text-neutral-500 dark:text-neutral-400 group-hover:text-indigo-500 dark:group-hover:text-indigo-400'
-                    }`}
-                />
-                <span className="flex-1">{item.label}</span>
-                {item.badge && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-500/10 text-red-500 border border-red-500/20">
-                        {item.badge}
-                    </span>
-                )}
-                {hasChildren && (
-                    <motion.div
-                        animate={{ rotate: isExpanded ? 180 : 0 }}
-                        transition={{ duration: 0.2 }}
-                    >
-                        <ChevronDown size={14} className={isActive ? 'text-indigo-400' : 'text-neutral-400'} />
-                    </motion.div>
-                )}
-                {!isActive && !hasChildren && (
-                    <div className="absolute right-4 w-1.5 h-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                )}
+                {/* Stationary Centered Icon Container */}
+                <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                    <Icon
+                        size={18}
+                        strokeWidth={2.3}
+                        className={`transition-transform duration-150 ${
+                            isActive && !hasChildren
+                                ? 'text-white scale-105'
+                                : isActive && hasChildren
+                                ? 'text-indigo-500'
+                                : 'text-neutral-500 dark:text-neutral-400 group-hover:text-indigo-500 dark:group-hover:text-indigo-400'
+                        }`}
+                    />
+                </div>
+
+                {/* Smooth Label Reveal */}
+                <div className={`
+                    ml-2.5 flex-1 min-w-0 flex items-center justify-between transition-all duration-200 ease-out overflow-hidden
+                    ${isHovered ? 'opacity-100 max-w-[190px] translate-x-0' : 'opacity-0 max-w-0 -translate-x-2 pointer-events-none'}
+                `}>
+                    <span className="text-xs font-semibold whitespace-nowrap truncate">{item.label}</span>
+                    {item.badge && (
+                        <span className="ml-2 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-red-500/10 text-red-500 border border-red-500/20 shrink-0">
+                            {item.badge}
+                        </span>
+                    )}
+                    {hasChildren && (
+                        <ChevronDown 
+                            size={13} 
+                            className={`ml-1.5 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''} ${isActive ? 'text-indigo-400' : 'text-neutral-400'}`} 
+                        />
+                    )}
+                </div>
             </Link>
 
-            {/* Sub-items */}
+            {/* Sub-items (only when expanded & hovered) */}
             <AnimatePresence>
-                {hasChildren && isExpanded && (
+                {hasChildren && isExpanded && isHovered && (
                     <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
-                        className="overflow-hidden"
+                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                        className="overflow-hidden pl-11 pr-2 py-1 space-y-0.5"
                     >
-                        <div className="pl-11 pr-2 py-1 space-y-0.5">
-                            {item.children!.map((child) => {
-                                const isChildActive = pathname === child.href;
-                                return (
-                                    <Link
-                                        key={child.href}
-                                        href={child.href}
-                                        prefetch={true}
-                                        onClick={onNavigate}
-                                        className={`
-                                            block px-3 py-2 text-[13px] font-medium rounded-lg transition-all cursor-pointer
-                                            ${isChildActive
-                                                ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/80 dark:bg-indigo-950/20 font-semibold'
-                                                : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-zinc-800/50'
-                                            }
-                                        `}
-                                    >
-                                        {child.label}
-                                    </Link>
-                                );
-                            })}
-                        </div>
+                        {item.children!.map((child) => {
+                            const isChildActive = pathname === child.href;
+                            return (
+                                <Link
+                                    key={child.href}
+                                    href={child.href}
+                                    prefetch={true}
+                                    onClick={onNavigate}
+                                    className={`
+                                        block px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer truncate
+                                        ${isChildActive
+                                            ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/80 dark:bg-indigo-950/20 font-semibold'
+                                            : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 hover:bg-neutral-100/50 dark:hover:bg-zinc-800/40'
+                                        }
+                                    `}
+                                >
+                                    {child.label}
+                                </Link>
+                            );
+                        })}
                     </motion.div>
                 )}
             </AnimatePresence>

@@ -21,6 +21,7 @@ export interface Employee {
     phone_normalized?: string | null;
     weekly_off: string;
     salary_type: 'monthly' | 'daily';
+    pin?: string | null;
     is_online?: boolean;
     availability_status?: string;
     active_workload?: number;
@@ -104,6 +105,7 @@ function mapDBToEmployee(dbRow: any): Employee {
         phone_normalized: dbRow.phone_normalized || null,
         weekly_off: dbRow.weekly_off || 'sunday',
         salary_type: dbRow.salary_type || 'monthly',
+        pin: dbRow.pin || dbRow.raw_pin || null,
         is_online: Boolean(dbRow.is_online),
         availability_status: dbRow.availability_status || (dbRow.is_online ? 'available' : 'offline'),
         active_workload: Number(dbRow.active_workload) || 0,
@@ -167,13 +169,16 @@ export const PayrollService = {
             `)
             .eq('restaurant_id', rid)
             .eq('is_deleted', false)
+            .not('role', 'in', '("owner","restaurant_owner")')
             .order('name', { ascending: true });
 
         if (error) {
             console.error('Error fetching employees:', error?.message || error);
             return [];
         }
-        return (data || []).map(mapDBToEmployee);
+        return (data || [])
+            .filter((emp: any) => !['owner', 'restaurant_owner'].includes(String(emp.role || '').toLowerCase()))
+            .map(mapDBToEmployee);
     },
 
     async createEmployee(employee: Omit<Employee, 'id'>): Promise<Employee> {
@@ -440,18 +445,21 @@ export const PayrollService = {
 
         const rid = await resolveRestaurantId(restaurantId);
 
-        // 1. Fetch all active employees
+        // 1. Fetch all active employees (excluding restaurant owner)
         const { data: rawEmployees, error: empError } = await supabase
             .from('employees')
             .select('*')
             .eq('restaurant_id', rid)
             .eq('status', 'active')
-            .eq('is_deleted', false);
+            .eq('is_deleted', false)
+            .not('role', 'in', '("owner","restaurant_owner")');
 
         if (empError) throw empError;
         if (!rawEmployees || rawEmployees.length === 0) return;
 
-        const employees = rawEmployees.map(mapDBToEmployee);
+        const employees = rawEmployees
+            .filter((emp: any) => !['owner', 'restaurant_owner'].includes(String(emp.role || '').toLowerCase()))
+            .map(mapDBToEmployee);
 
         // 2. Fetch attendance for this month
         const startDate = `${year}-${String(month).padStart(2, '0')}-01`;

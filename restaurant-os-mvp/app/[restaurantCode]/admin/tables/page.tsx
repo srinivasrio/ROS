@@ -8,6 +8,7 @@ import QRCode from 'react-qr-code';
 import { formatCurrency, getCategoryMenuItemImage } from '@/lib/utils';
 import { isComboItem, parseComboSubItems } from '@/lib/combo-utils';
 import { toast } from 'sonner';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 import { useRestaurantId } from '@/hooks/useRestaurantId';
 import { getCached, setCache, hasFreshCache, adminCacheManager } from '@/lib/data-cache';
@@ -67,7 +68,7 @@ export default function TableManagement() {
     const [isAreaModalOpen, setIsAreaModalOpen] = useState(false);
     const [editAreaId, setEditAreaId] = useState<string | null>(null);
     const [areaName, setAreaName] = useState('');
-    const [areaDisplayOrder, setAreaDisplayOrder] = useState(0);
+    const [areaDisplayOrder, setAreaDisplayOrder] = useState<number | string>('');
     const [isSavingArea, setIsSavingArea] = useState(false);
     const [areaDeleteError, setAreaDeleteError] = useState<string | null>(null);
 
@@ -295,7 +296,12 @@ export default function TableManagement() {
             setSelectedForMerge([]);
             await loadData();
         } catch (error: any) {
-            toast.error(error.message || 'Failed to merge tables.');
+            showWarningPopup({
+                title: 'Table Merge Restriction',
+                message: error?.message || 'Failed to merge tables. Selected tables may already belong to another group or have active conflicts.',
+                type: 'restriction',
+                dismissText: 'Dismiss'
+            });
         } finally {
             setIsMerging(false);
         }
@@ -401,8 +407,12 @@ export default function TableManagement() {
                     toast.success('Table cleared successfully.');
                     loadData();
                 } catch (err: any) {
-                    console.error('Failed to clear table:', err);
-                    toast.error(err?.message || 'Failed to clear table.');
+                    showWarningPopup({
+                        title: 'Cannot Clear Table',
+                        message: err?.message || 'Failed to clear table. Please ensure table orders and billing are resolved.',
+                        type: 'error',
+                        dismissText: 'Dismiss'
+                    });
                     loadData();
                 }
             }
@@ -548,11 +558,11 @@ export default function TableManagement() {
         if (area) {
             setEditAreaId(area.id);
             setAreaName(area.name);
-            setAreaDisplayOrder(area.display_order ?? 0);
+            setAreaDisplayOrder(area.display_order ?? '');
         } else {
             setEditAreaId(null);
             setAreaName('');
-            setAreaDisplayOrder(areas.length * 10);
+            setAreaDisplayOrder(areas.length > 0 ? areas.length * 10 : '');
         }
         setIsAreaModalOpen(true);
     };
@@ -565,11 +575,11 @@ export default function TableManagement() {
             if (editAreaId) {
                 await OrderService.updateArea(editAreaId, targetResId, {
                     name: areaName.trim(),
-                    display_order: areaDisplayOrder
+                    display_order: Number(areaDisplayOrder) || 0
                 });
                 toast.success('Area updated successfully!');
             } else {
-                await OrderService.createArea(targetResId, areaName.trim(), areaDisplayOrder);
+                await OrderService.createArea(targetResId, areaName.trim(), Number(areaDisplayOrder) || 0);
                 toast.success('Area created successfully!');
             }
             adminCacheManager.invalidate(`tables-${activeResId}`);
@@ -1979,8 +1989,9 @@ export default function TableManagement() {
                                     </label>
                                     <input
                                         type="number"
+                                        placeholder="e.g. 1"
                                         value={areaDisplayOrder}
-                                        onChange={(e) => setAreaDisplayOrder(parseInt(e.target.value) || 0)}
+                                        onChange={(e) => setAreaDisplayOrder(e.target.value === '' ? '' : (parseInt(e.target.value) || 0))}
                                         className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl text-black font-bold focus:outline-none focus:ring-2 focus:ring-neutral-900 transition-all"
                                     />
                                 </div>

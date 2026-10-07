@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import QRCode from 'react-qr-code';
 import { toast, Toaster } from 'sonner';
 import { ShieldCheck, Smartphone, CheckCircle2, ArrowRight, Loader2, KeyRound } from 'lucide-react';
+import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
 
 function MfaSetupContent() {
     const searchParams = useSearchParams();
@@ -157,6 +158,7 @@ function MfaSetupContent() {
             <div className="max-w-md w-full relative z-10">
                 {/* Header branding */}
                 <div className="text-center mb-8">
+                    <DineInOneLogo size={64} className="mx-auto mb-4" />
                     <h1 className="text-3xl font-black tracking-tight mb-2 text-slate-900">
                         Dine In <span className="bg-gradient-to-r from-orange-500 to-red-600 bg-clip-text text-transparent">One</span>
                     </h1>

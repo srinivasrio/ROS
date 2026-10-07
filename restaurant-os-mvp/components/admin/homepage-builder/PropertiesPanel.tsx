@@ -649,8 +649,8 @@ function SpecialsContentEditor({ specials, dispatch }: { specials: any[]; dispat
             <div className="flex gap-2">
               <input
                 type="number"
-                value={item.price || 0}
-                onChange={(e) => handleUpdate(item.id, { price: parseFloat(e.target.value) || 0 })}
+                value={item.price === 0 || item.price === undefined || item.price === null ? '' : item.price}
+                onChange={(e) => handleUpdate(item.id, { price: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) })}
                 placeholder="Price (₹)"
                 className="w-1/2 px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 border border-slate-200 font-mono text-slate-900"
               />
@@ -748,15 +748,15 @@ function CombosContentEditor({ combos, dispatch }: { combos: any[]; dispatch: an
             <div className="flex gap-2">
               <input
                 type="number"
-                value={combo.price || 0}
-                onChange={(e) => handleUpdate(combo.id, { price: parseFloat(e.target.value) || 0 })}
+                value={combo.price === 0 || combo.price === undefined || combo.price === null ? '' : combo.price}
+                onChange={(e) => handleUpdate(combo.id, { price: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) })}
                 placeholder="Discounted Price (₹)"
                 className="w-1/2 px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 border border-slate-200 font-mono text-slate-900"
               />
               <input
                 type="number"
-                value={combo.original_price || 0}
-                onChange={(e) => handleUpdate(combo.id, { original_price: parseFloat(e.target.value) || 0 })}
+                value={combo.original_price === 0 || combo.original_price === undefined || combo.original_price === null ? '' : combo.original_price}
+                onChange={(e) => handleUpdate(combo.id, { original_price: e.target.value === '' ? '' : (parseFloat(e.target.value) || 0) })}
                 placeholder="Original Price (₹)"
                 className="w-1/2 px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 border border-slate-200 font-mono text-slate-900"
               />

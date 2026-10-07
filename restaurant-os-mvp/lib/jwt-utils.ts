@@ -173,6 +173,13 @@ export function extractCustomerTokenForRestaurant(
 
 export const ADMIN_ROLES = ['restaurant_admin', 'admin', 'owner', 'restaurant_owner', 'manager', 'super_admin', 'superadmin'];
 
+export function isTokenValidAndFresh(token: string | undefined | null): boolean {
+    if (!token || typeof token !== 'string') return false;
+    const payload = safeDecodePayload(token);
+    if (!payload || !payload.exp) return false;
+    return payload.exp > Math.floor(Date.now() / 1000) + 5;
+}
+
 function safeDecodePayload(token: string): any | null {
     try {
         const parts = token.split('.');
@@ -209,21 +216,52 @@ export function extractTokenForRestaurant(
     // 1. Dedicated role/panel scoped cookies (highest priority to avoid collision)
     if (isOwnerPanel) {
         const ownerCookie = cookiesObj.get('dine_auth_token_owner')?.value
-            || (targetRestaurantCode ? cookiesObj.get(`dine_auth_token_${String(targetRestaurantCode).trim().replace(/[^a-zA-Z0-9_-]/g, '_')}_owner`)?.value : null)
-            || cookiesObj.get('dine_auth_token_admin')?.value
-            || cookiesObj.get('dine_auth_token')?.value;
-        if (ownerCookie) return ownerCookie;
+            || (targetRestaurantCode ? cookiesObj.get(`dine_auth_token_${String(targetRestaurantCode).trim().replace(/[^a-zA-Z0-9_-]/g, '_')}_owner`)?.value : null);
+        if (ownerCookie && isTokenValidAndFresh(ownerCookie)) return ownerCookie;
+
+        // Check dine_auth_token, ensuring it has owner or superadmin privileges
+        const defaultToken = cookiesObj.get('dine_auth_token')?.value;
+        if (defaultToken && isTokenValidAndFresh(defaultToken)) {
+            const p = safeDecodePayload(defaultToken);
+            const role = String(p?.role || '').toLowerCase();
+            if (['owner', 'restaurant_owner', 'super_admin', 'superadmin'].includes(role)) {
+                return defaultToken;
+            }
+        }
+
+        // Check all cookies for an active owner token
+        if (cookiesObj.getAll) {
+            try {
+                const all = cookiesObj.getAll();
+                for (const c of all) {
+                    if (c.name.startsWith('dine_auth_token') && c.value && isTokenValidAndFresh(c.value)) {
+                        const p = safeDecodePayload(c.value);
+                        const role = String(p?.role || '').toLowerCase();
+                        if (['owner', 'restaurant_owner', 'super_admin', 'superadmin'].includes(role)) {
+                            return c.value;
+                        }
+                    }
+                }
+            } catch (_) {}
+        }
+
+        if (defaultToken && isTokenValidAndFresh(defaultToken)) return defaultToken;
+    }
+
+    // Direct check for admin panel token (with or without targetRestaurantCode)
+    if (isAdminPanel) {
+        if (targetRestaurantCode) {
+            const cleanRid = String(targetRestaurantCode).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+            const adminScoped = cookiesObj.get(`dine_auth_token_${cleanRid}_admin`)?.value
+                || cookiesObj.get(`dine_auth_token_${cleanRid.toLowerCase()}_admin`)?.value;
+            if (adminScoped && isTokenValidAndFresh(adminScoped)) return adminScoped;
+        }
+        const adminDefault = cookiesObj.get('dine_auth_token_admin')?.value;
+        if (adminDefault && isTokenValidAndFresh(adminDefault)) return adminDefault;
     }
 
     if (targetRestaurantCode) {
         const cleanRid = String(targetRestaurantCode).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-        
-        if (isAdminPanel || isOwnerPanel) {
-            const adminScoped = cookiesObj.get(`dine_auth_token_${cleanRid}_admin`)?.value
-                || cookiesObj.get(`dine_auth_token_${cleanRid.toLowerCase()}_admin`)?.value
-                || cookiesObj.get(`dine_auth_token_admin`)?.value;
-            if (adminScoped) return adminScoped;
-        }
 
         if (isDeliveryPanel) {
             if (targetStaffIdentifier) {
@@ -509,17 +547,17 @@ export function extractTokenForRestaurant(
             }
         } else if (isAdminPanel) {
             const adminDefault = cookiesObj.get('dine_auth_token_admin')?.value;
-            if (adminDefault) return adminDefault;
+            if (adminDefault && isTokenValidAndFresh(adminDefault)) return adminDefault;
         } else if (isWaiterPanel) {
             const waiterDefault = cookiesObj.get('dine_auth_token_waiter')?.value;
-            if (waiterDefault) return waiterDefault;
+            if (waiterDefault && isTokenValidAndFresh(waiterDefault)) return waiterDefault;
         }
 
         // Fallback: If no panel-matched token was found, return scoped or defaultToken if present
         // so that middleware can inspect the user identity and enforce role authorization
         // (e.g. block unauthorized panel access) or handle session expiry.
-        if (scoped) return scoped;
-        if (defaultToken) return defaultToken;
+        if (scoped && isTokenValidAndFresh(scoped)) return scoped;
+        if (defaultToken && isTokenValidAndFresh(defaultToken)) return defaultToken;
 
         return null;
     }
@@ -527,12 +565,12 @@ export function extractTokenForRestaurant(
     // Default fallback when NO specific restaurant was targeted (e.g. root or un-scoped route)
     if (isAdminPanel) {
         const adminDefault = cookiesObj.get('dine_auth_token_admin')?.value;
-        if (adminDefault) return adminDefault;
+        if (adminDefault && isTokenValidAndFresh(adminDefault)) return adminDefault;
         if (cookiesObj.getAll) {
             try {
                 const all = cookiesObj.getAll();
                 for (const c of all) {
-                    if (c.name.startsWith('dine_auth_token') && c.value) {
+                    if (c.name.startsWith('dine_auth_token') && c.value && isTokenValidAndFresh(c.value)) {
                         const payload = safeDecodePayload(c.value);
                         if (payload && ADMIN_ROLES.includes(String(payload.role || '').toLowerCase())) {
                             return c.value;

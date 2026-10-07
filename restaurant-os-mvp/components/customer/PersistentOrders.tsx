@@ -29,6 +29,7 @@ import { InvoiceComponent } from '@/components/InvoiceComponent';
 import { CustomerCache } from '@/services/homepage-cache.service';
 import { OfferService } from '@/services/offers.service';
 import { toast } from 'sonner';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 // Timeline Component supporting both Dine-in/Takeaway and Delivery lifecycles
 const OrderTimeline = ({ status, orderType }: { status: string; orderType?: string }) => {
@@ -210,7 +211,7 @@ const BillConfirmationModal = ({ isOpen, onClose, onConfirm }: { isOpen: boolean
 export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: string, tableNumber: string }) {
     const pathname = usePathname();
     const router = useRouter();
-    const isVisible = pathname.includes('/customer/myorders/');
+    const isVisible = pathname.includes('/customer/myorders') || pathname.includes('/customer/orders');
     
     // Active vs Previous Orders Tabs
     const [activeTab, setActiveTab] = useState<'active' | 'previous'>('active');
@@ -236,10 +237,14 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
 
     const initialCustId = getLocalCustomerId();
     const initialLastOrder = getLocalLastOrderId();
-    const userCacheScope = initialCustId ? `cust_${initialCustId}` : (initialLastOrder ? `ord_${initialLastOrder}` : 'anonymous');
+    const userCacheScope = initialCustId 
+        ? `cust_${initialCustId}` 
+        : (initialLastOrder 
+            ? `ord_${initialLastOrder}` 
+            : (tableNumber ? `tbl_${tableNumber}` : 'anonymous'));
     const userCacheKey = `${tableNumber}:${userCacheScope}`;
 
-    // Cached Order Lists - only use cache if user has an identity or order on this device
+    // Cached Order Lists - only use cache if user has an identity, order, or table on this device
     const cachedData = userCacheScope !== 'anonymous' 
         ? CustomerCache.get(restaurantId, 'customer_orders', userCacheKey)
         : null;
@@ -311,7 +316,11 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                 if (isMountedRef.current) {
                     setActiveOrders(active);
                     setPreviousOrders(previous);
-                    const currentScope = localCustId ? `cust_${localCustId}` : (localLastOrderId ? `ord_${localLastOrderId}` : 'anonymous');
+                    const currentScope = localCustId 
+                        ? `cust_${localCustId}` 
+                        : (localLastOrderId 
+                            ? `ord_${localLastOrderId}` 
+                            : (tableNumber ? `tbl_${tableNumber}` : 'anonymous'));
                     if (currentScope !== 'anonymous') {
                         CustomerCache.set(restaurantId, 'customer_orders', { active, previous }, `${tableNumber}:${currentScope}`);
                     }
@@ -326,7 +335,7 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                 }
             }
         } catch (err) {
-            console.error('Failed to fetch customer orders:', err);
+            console.warn('Failed to fetch customer orders:', err);
         } finally {
             if (isMountedRef.current) {
                 setLoading(false);
@@ -386,9 +395,14 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
 
         setCouponLoadingOrderId(orderId);
         try {
-            const offer = await OfferService.validateCoupon(couponInput, restaurantId);
+            const offer = await OfferService.validateCoupon(couponInput, restaurantId, targetOrder.order_type);
             if (!offer) {
-                toast.error('Invalid or expired coupon code');
+                showWarningPopup({
+                    title: 'Invalid Coupon',
+                    message: 'The coupon code entered is invalid, inactive, or has expired.',
+                    type: 'coupon',
+                    dismissText: 'Dismiss',
+                });
                 return;
             }
 
@@ -407,9 +421,13 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
             toast.success(`Coupon ${offer.code} applied successfully!`);
             setCouponInputs(prev => ({ ...prev, [orderId]: '' }));
             await fetchOrders();
-        } catch (error) {
-            console.error('Failed to apply coupon', error);
-            toast.error('Failed to apply coupon. Please try again.');
+        } catch (error: any) {
+            showWarningPopup({
+                title: 'Coupon Restriction',
+                message: error?.message || 'Failed to apply coupon. Please check the order requirements.',
+                type: 'coupon',
+                dismissText: 'Dismiss',
+            });
         } finally {
             if (isMountedRef.current) {
                 setCouponLoadingOrderId(null);
@@ -422,9 +440,13 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
             await OrderService.updateOrderCoupon(orderId, restaurantId, '', 0);
             toast.success('Coupon removed');
             await fetchOrders();
-        } catch (error) {
-            console.error('Failed to remove coupon', error);
-            toast.error('Failed to remove coupon');
+        } catch (error: any) {
+            showWarningPopup({
+                title: 'Action Failed',
+                message: 'Failed to remove coupon. Please try again.',
+                type: 'error',
+                dismissText: 'Dismiss',
+            });
         }
     };
 
@@ -439,9 +461,13 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
             await OrderService.setTableAlert(billTargetTable, 'bill_requested', restaurantId);
             if (isMountedRef.current) setShowBillConfirmation(false);
             toast.success("Bill requested successfully! A waiter will assist you shortly.");
-        } catch (e) {
-            console.error(e);
-            toast.error("Failed to request bill.");
+        } catch (e: any) {
+            showWarningPopup({
+                title: 'Service Notice',
+                message: e?.message || 'Failed to request bill. Please call your waiter directly.',
+                type: 'warning',
+                dismissText: 'Dismiss',
+            });
         }
     };
 

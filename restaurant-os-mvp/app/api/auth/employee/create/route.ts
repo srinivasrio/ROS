@@ -62,8 +62,20 @@ export async function POST(request: Request) {
             }
         }
 
-        const validRoles = ['waiter', 'chef', 'supervisor', 'cleaner', 'manager', 'delivery_boy', 'kitchen', 'cashier'];
-        if (!validRoles.includes(role.toLowerCase())) {
+        const callerRole = (auth.user?.role || '').toLowerCase();
+        const isOwnerCaller = ['owner', 'restaurant_owner', 'super_admin', 'superadmin'].includes(callerRole);
+
+        const targetRole = role.toLowerCase().trim();
+        const isAdminRole = ['admin', 'restaurant_admin'].includes(targetRole);
+
+        if (isAdminRole && !isOwnerCaller) {
+            return NextResponse.json({ 
+                error: 'Access Denied: Only restaurant owners can create or assign administrator accounts.' 
+            }, { status: 403 });
+        }
+
+        const validRoles = ['waiter', 'chef', 'supervisor', 'cleaner', 'manager', 'delivery_boy', 'kitchen', 'cashier', 'restaurant_admin', 'admin'];
+        if (!validRoles.includes(targetRole)) {
             return NextResponse.json({ error: `Invalid employee role. Must be one of: ${validRoles.join(', ')}.` }, { status: 400 });
         }
 
@@ -95,7 +107,6 @@ export async function POST(request: Request) {
         const last4 = String(restaurant_id).slice(-4);
         const employeeId = `DIO${last4}${paddedSequence}`;
 
-        const activationToken = crypto.randomBytes(32).toString('hex');
         const newEmployeeUUID = crypto.randomUUID();
 
         // 3. Insert employee profile with secure PIN hash and branch_id
@@ -111,9 +122,10 @@ export async function POST(request: Request) {
                 mobile: mobile ? String(mobile).trim().replace(/[^0-9]/g, '').slice(-10) : null,
                 role: role.toLowerCase(),
                 pin: hashedPin,
+                raw_pin: cleanPin || '1234',
                 status: 'active',
                 approval_status: 'approved',
-                activation_token: activationToken,
+                activation_token: null,
                 is_online: false,
                 is_deleted: false,
                 monthly_salary: Number(monthly_salary) || 0,
@@ -136,7 +148,7 @@ export async function POST(request: Request) {
             .from('auth')
             .upsert({
                 user_id: newEmployeeUUID,
-                password_hash: hashedPin || 'pending_activation'
+                password_hash: hashedPin
             }, { onConflict: 'user_id' });
 
         // 4b. Link into employee_branch_access if branch is assigned
@@ -193,12 +205,9 @@ export async function POST(request: Request) {
             }
         });
 
-        const activationLink = `/activation?token=${activationToken}`;
-
         return NextResponse.json({
             success: true,
-            employee: sanitizeEmployeeProfile(employee),
-            activationLink
+            employee: sanitizeEmployeeProfile(employee)
         });
 
     } catch (error: any) {

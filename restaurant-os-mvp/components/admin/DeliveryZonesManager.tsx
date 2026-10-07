@@ -194,8 +194,8 @@ export default function DeliveryZonesManager({ restaurantCode, onGoToSettings }:
 
     // Form inputs for current zone
     const [formName, setFormName] = useState('');
-    const [formFee, setFormFee] = useState<number>(40);
-    const [formMinOrder, setFormMinOrder] = useState<number>(150);
+    const [formFee, setFormFee] = useState<number | string>('');
+    const [formMinOrder, setFormMinOrder] = useState<number | string>('');
     const [formEnabled, setFormEnabled] = useState(true);
     const [savingZone, setSavingZone] = useState(false);
     const [overlapWarning, setOverlapWarning] = useState<string | null>(null);
@@ -1225,8 +1225,8 @@ export default function DeliveryZonesManager({ restaurantCode, onGoToSettings }:
         setDraftPoints([]);
         draftPointsRef.current = [];
         setFormName(`Zone ${zones.length + 1}`);
-        setFormFee(40);
-        setFormMinOrder(150);
+        setFormFee('');
+        setFormMinOrder('');
         setFormEnabled(true);
         setOverlapWarning(null);
         setRadiusWarning(null);
@@ -1904,8 +1904,9 @@ export default function DeliveryZonesManager({ restaurantCode, onGoToSettings }:
                                                 type="number"
                                                 min="0"
                                                 step="1"
+                                                placeholder="0"
                                                 value={formFee}
-                                                onChange={(e) => setFormFee(Math.max(0, Number(e.target.value)))}
+                                                onChange={(e) => setFormFee(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
                                                 className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-neutral-200 dark:border-zinc-700 bg-neutral-50/50 dark:bg-zinc-800/50 text-neutral-900 dark:text-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                                             />
                                         </div>
@@ -1921,8 +1922,9 @@ export default function DeliveryZonesManager({ restaurantCode, onGoToSettings }:
                                                 type="number"
                                                 min="0"
                                                 step="10"
+                                                placeholder="0"
                                                 value={formMinOrder}
-                                                onChange={(e) => setFormMinOrder(Math.max(0, Number(e.target.value)))}
+                                                onChange={(e) => setFormMinOrder(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))}
                                                 className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-neutral-200 dark:border-zinc-700 bg-neutral-50/50 dark:bg-zinc-800/50 text-neutral-900 dark:text-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                                             />
                                         </div>

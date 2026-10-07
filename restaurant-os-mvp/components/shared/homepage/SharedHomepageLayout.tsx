@@ -520,7 +520,7 @@ export default function SharedHomepageLayout({
               <RestaurantHeader
                 profile={profile}
                 tableNumber={tableNumber}
-                onSearchClick={() => setIsSearchModalOpen(true)}
+                onSearchClick={mode === 'customer' ? undefined : () => setIsSearchModalOpen(true)}
                 onServicesClick={() => setIsServiceModalOpen(true)}
                 cartItemCount={cartContext?.totalItems || 0}
                 onCartClick={() => router.push(`/${restaurantId}/customer/cart/${tableNumber}`)}

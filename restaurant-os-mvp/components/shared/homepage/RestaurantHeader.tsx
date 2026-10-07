@@ -99,7 +99,7 @@ export default function RestaurantHeader({
           )}
 
           {/* Search trigger */}
-          {onSearchClick && (
+          {onSearchClick && mode !== 'customer' && (
             <button
               onClick={onSearchClick}
               aria-label="Search menu"

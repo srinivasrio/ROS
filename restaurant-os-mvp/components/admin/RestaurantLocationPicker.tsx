@@ -82,8 +82,8 @@ export default function RestaurantLocationPicker({
             dine_in_enabled: initialSettings?.dine_in_enabled ?? true,
             takeaway_enabled: initialSettings?.takeaway_enabled ?? true,
             delivery_enabled: initialSettings?.delivery_enabled ?? initialSettings?.enabled ?? false,
-            delivery_fee: initialSettings?.delivery_fee ?? 0,
-            minimum_order_amount: initialSettings?.minimum_order_amount ?? 0,
+            delivery_fee: initialSettings?.delivery_fee ?? '',
+            minimum_order_amount: initialSettings?.minimum_order_amount ?? '',
             estimated_delivery_minutes: initialSettings?.estimated_delivery_minutes ?? 30,
         };
     });
@@ -828,8 +828,8 @@ export default function RestaurantLocationPicker({
                 takeaway_enabled: settings.takeaway_enabled,
                 delivery_enabled: settings.delivery_enabled,
                 enabled: settings.delivery_enabled,
-                delivery_fee: settings.delivery_fee,
-                minimum_order_amount: settings.minimum_order_amount,
+                delivery_fee: Number(settings.delivery_fee) || 0,
+                minimum_order_amount: Number(settings.minimum_order_amount) || 0,
                 estimated_delivery_minutes: settings.estimated_delivery_minutes,
             };
 
@@ -1743,8 +1743,9 @@ export default function RestaurantLocationPicker({
                                 <input
                                     type="number"
                                     min="0"
-                                    value={settings.delivery_fee}
-                                    onChange={e => setSettings(s => ({ ...s, delivery_fee: Number(e.target.value) || 0 }))}
+                                    placeholder="0"
+                                    value={settings.delivery_fee === 0 ? '' : (settings.delivery_fee ?? '')}
+                                    onChange={e => setSettings(s => ({ ...s, delivery_fee: e.target.value === '' ? ('' as any) : (Number(e.target.value) || 0) }))}
                                     className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-700 text-xs font-bold text-neutral-900 dark:text-white"
                                 />
                             </div>
@@ -1756,8 +1757,9 @@ export default function RestaurantLocationPicker({
                                 <input
                                     type="number"
                                     min="0"
-                                    value={settings.minimum_order_amount}
-                                    onChange={e => setSettings(s => ({ ...s, minimum_order_amount: Number(e.target.value) || 0 }))}
+                                    placeholder="0"
+                                    value={settings.minimum_order_amount === 0 ? '' : (settings.minimum_order_amount ?? '')}
+                                    onChange={e => setSettings(s => ({ ...s, minimum_order_amount: e.target.value === '' ? ('' as any) : (Number(e.target.value) || 0) }))}
                                     className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-zinc-700 text-xs font-bold text-neutral-900 dark:text-white"
                                 />
                             </div>

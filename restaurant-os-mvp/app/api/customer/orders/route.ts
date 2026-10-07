@@ -32,6 +32,9 @@ export async function GET(req: NextRequest) {
         }
 
         const tableNumber = searchParams.get('tableNumber');
+        const clientCustomerId = searchParams.get('customerId') || '';
+        const clientLastOrderId = searchParams.get('lastOrderId') || '';
+        const isValidUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
         let physicalTableId: number | null = null;
         if (tableNumber) {
@@ -80,16 +83,19 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // P0-04 IDOR REMEDIATION: Unauthenticated requests or requests with only client-supplied
-        // customerId or lastOrderId without a verified JWT are rejected immediately with 401.
-        if (!authenticatedCustomerId) {
+        // P0-04 IDOR REMEDIATION & Table Guest Scoping:
+        // A request must be scoped to either:
+        // 1) An authenticated customer session (verified JWT), OR
+        // 2) A valid physical table currently active in this restaurant
+        // Requests with arbitrary customer IDs or lastOrderIds without a verified JWT or table context are rejected with 401.
+        if (!authenticatedCustomerId && !physicalTableId) {
             return NextResponse.json(
-                { error: 'Unauthorized: verified customer session required' },
+                { error: 'Unauthorized: verified customer session or active table required' },
                 { status: 401 }
             );
         }
 
-        // 2. Query Orders strictly scoped to authenticated customer and verified tenant
+        // 2. Query Orders strictly scoped to verified tenant and context
         let ordersQuery = supabaseAdmin
             .from('orders')
             .select(`
@@ -113,8 +119,30 @@ export async function GET(req: NextRequest) {
                 created_at,
                 completed_at
             `)
-            .eq('restaurant_id', actualRestaurantId)
-            .eq('customer_id', authenticatedCustomerId);
+            .eq('restaurant_id', actualRestaurantId);
+
+        if (authenticatedCustomerId && physicalTableId) {
+            // Authenticated customer sitting at a table:
+            // Fetch their full order history OR active orders for this table
+            ordersQuery = ordersQuery.or(
+                `customer_id.eq.${authenticatedCustomerId},and(table_id.eq.${physicalTableId},is_completed.eq.false)`
+            );
+        } else if (authenticatedCustomerId) {
+            // Authenticated customer outside of a table:
+            ordersQuery = ordersQuery.eq('customer_id', authenticatedCustomerId);
+        } else if (physicalTableId) {
+            // Guest sitting at a physical table:
+            // Fetch all active orders for this table. If they also have clientLastOrderId on this table, include it.
+            if (clientLastOrderId && isValidUuid(clientLastOrderId)) {
+                ordersQuery = ordersQuery.or(
+                    `and(table_id.eq.${physicalTableId},is_completed.eq.false),and(id.eq.${clientLastOrderId},table_id.eq.${physicalTableId})`
+                );
+            } else {
+                ordersQuery = ordersQuery
+                    .eq('table_id', physicalTableId)
+                    .eq('is_completed', false);
+            }
+        }
 
         const { data: rawOrders, error: ordersErr } = await ordersQuery.order('created_at', { ascending: false });
 
@@ -296,16 +324,28 @@ export async function GET(req: NextRequest) {
 
             const statusLower = (order.status || '').toLowerCase();
             const isCompleted = Boolean(order.is_completed);
+            const isDineIn = order.order_type === 'DINE_IN' || Boolean(order.table_id);
 
-            // Final statuses define Previous Orders:
-            // Completed, Delivered, Picked Up, Cancelled, or Paid
-            const isFinalStatus = 
-                isCompleted ||
-                ['completed', 'delivered', 'picked_up', 'cancelled', 'paid'].includes(statusLower);
+            // Final statuses define Previous Orders vs Active Orders:
+            // For Dine-In/Table orders:
+            // The order remains active on the customer panel throughout their dining experience
+            // (including placed, preparing, ready, served, paid) until either waiter or admin
+            // explicitly clears the table (is_completed = true) or order is cancelled.
+            let isFinalStatus: boolean;
+            if (isDineIn) {
+                isFinalStatus = isCompleted || statusLower === 'cancelled';
+            } else if (order.order_type === 'TAKEAWAY') {
+                isFinalStatus = isCompleted || ['completed', 'picked_up', 'cancelled'].includes(statusLower);
+            } else {
+                // DELIVERY
+                isFinalStatus = isCompleted || ['delivered', 'cancelled'].includes(statusLower);
+            }
 
             if (isFinalStatus) {
-                // Past order history - only show if belonging to this authenticated customer
+                // Past order history - only show if belonging to this authenticated customer or matching clientLastOrderId
                 if (authenticatedCustomerId && order.customer_id === authenticatedCustomerId) {
+                    previousOrders.push(enrichedOrder);
+                } else if (clientLastOrderId && order.id === clientLastOrderId) {
                     previousOrders.push(enrichedOrder);
                 }
             } else {

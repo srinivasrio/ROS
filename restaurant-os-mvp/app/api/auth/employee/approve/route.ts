@@ -113,6 +113,14 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 403 });
         }
 
+        // Prevent modifying or deleting Owner accounts
+        const targetEmpRole = (employee.role || '').toLowerCase();
+        if (['owner', 'restaurant_owner'].includes(targetEmpRole) && !isSuperAdmin) {
+            return NextResponse.json({ 
+                error: 'Protected Account: Restaurant owner accounts cannot be modified, suspended, or deleted.' 
+            }, { status: 403 });
+        }
+
         // 4. Validate Tenant Isolation for non-Super-Admins
         if (!isSuperAdmin) {
             const actorRestaurantId = actor.restaurantId || actor.restaurant_id || dbActorRestaurantId;

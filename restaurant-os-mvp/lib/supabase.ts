@@ -8,12 +8,12 @@ let inMemoryToken: string | null = null;
 function detectCurrentPanel(): string | null {
     if (typeof window === 'undefined') return null;
     const path = window.location.pathname;
+    if (path.startsWith('/owner') || path.includes('/owner')) return 'owner';
     if (path.includes('/admin')) return 'admin';
     if (path.includes('/waiter')) return 'waiter';
     if (path.includes('/kds')) return 'kds';
     if (path.includes('/delivery')) return 'delivery';
     if (path.includes('/employee') || path.includes('/staff')) return 'employee';
-    if (path.startsWith('/owner')) return 'owner';
     if (path.startsWith('/super-admin') || path.startsWith('/superadmin')) return 'superadmin';
     return null;
 }

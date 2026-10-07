@@ -1,13 +1,16 @@
 'use client';
 
-import { useState, useCallback, Suspense } from 'react';
+import { useState, useCallback, Suspense, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-    ShieldCheck, Eye, EyeOff, Loader2, ArrowRight, Lock, Mail, Building2, KeyRound
+    Eye, EyeOff, Loader2, ArrowRight, Lock, Mail, Building2, KeyRound
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { setDineToken } from '@/lib/supabase';
+import { resetSessionExpiryState } from '@/lib/session-manager';
+import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 function AdminLoginInner() {
     const searchParams = useSearchParams();
@@ -26,21 +29,44 @@ function AdminLoginInner() {
         invalid_restaurant: 'Tenant mismatch: You cannot access restaurants you do not manage.'
     };
 
+    useEffect(() => {
+        if (errorParam && errorMessages[errorParam]) {
+            showWarningPopup({
+                title: errorParam === 'session_expired' ? 'Session Expired' : 'Access Restricted',
+                message: errorMessages[errorParam],
+                type: 'warning',
+                dismissText: 'Understand'
+            });
+        }
+    }, [errorParam]);
+
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         const cleanId = identifier.trim();
         const cleanPin = pin.trim();
 
         if (!cleanId) {
-            toast.error('Mobile number or Email is compulsory to login.');
+            showWarningPopup({
+                title: 'Missing Identifier',
+                message: 'Mobile number or Email is compulsory to login.',
+                type: 'warning'
+            });
             return;
         }
         if (!password) {
-            toast.error('Password is compulsory to login.');
+            showWarningPopup({
+                title: 'Missing Password',
+                message: 'Password is compulsory to login.',
+                type: 'warning'
+            });
             return;
         }
         if (!cleanPin) {
-            toast.error('Security PIN (4-6 digits) is compulsory to login.');
+            showWarningPopup({
+                title: 'Missing PIN',
+                message: 'Security PIN (4-6 digits) is compulsory to login.',
+                type: 'warning'
+            });
             return;
         }
 
@@ -61,11 +87,19 @@ function AdminLoginInner() {
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.error || 'Authentication failed');
+                const errMsg = data.error || 'Authentication failed. Please check your credentials.';
+                showWarningPopup({
+                    title: 'Authentication Failed',
+                    message: errMsg,
+                    type: 'error',
+                    dismissText: 'Try Again'
+                });
+                return;
             }
 
             if (data.token) {
-                setDineToken(data.token);
+                setDineToken(data.token, 'admin');
+                resetSessionExpiryState();
             }
             toast.success('Admin authentication successful! Redirecting...');
 
@@ -76,11 +110,17 @@ function AdminLoginInner() {
             window.location.href = redirectUrl;
 
         } catch (err: any) {
-            toast.error(err.message || 'Login failed. Please check your credentials.');
+            const errMsg = err?.message || 'Login failed. Please check your credentials.';
+            showWarningPopup({
+                title: 'Authentication Failed',
+                message: errMsg,
+                type: 'error',
+                dismissText: 'Try Again'
+            });
         } finally {
             setLoading(false);
         }
-    }, [identifier, password, pin]);
+    }, [identifier, password, pin, searchParams]);
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
@@ -89,26 +129,13 @@ function AdminLoginInner() {
             <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none" />
 
             <div className="max-w-md w-full relative z-10">
-                {/* Error banner */}
-                {errorParam && errorMessages[errorParam] && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="mb-6 px-4 py-3.5 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-sm font-semibold text-center shadow-xs"
-                    >
-                        {errorMessages[errorParam]}
-                    </motion.div>
-                )}
-
                 {/* Brand Header */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center mb-8"
                 >
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 shadow-xl shadow-teal-500/20 mb-4 border border-teal-400/20 text-white">
-                        <ShieldCheck size={32} />
-                    </div>
+                    <DineInOneLogo size={64} className="mx-auto mb-4" />
                     <div>
                         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-700 text-xs font-bold uppercase tracking-wider mb-2">
                             <Building2 size={12} />

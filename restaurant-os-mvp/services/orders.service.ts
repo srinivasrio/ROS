@@ -2471,6 +2471,30 @@ export const OrderService = {
     async updateOrderStatus(orderId: string, restaurantId: string, status: OrderStatus, staffId?: string, branchId?: string) {
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
 
+        // In client-side browser environments, use the authoritative server API route for placing/confirming orders
+        // to bypass any PostgREST client schema differences, adblockers, or anon permissions
+        if (typeof window !== 'undefined' && status === 'placed') {
+            try {
+                const apiRes = await fetch('/api/customer/orders/status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderId,
+                        restaurantId: actualRestaurantId || restaurantId,
+                        status: 'placed'
+                    })
+                });
+                if (apiRes.ok) {
+                    const result = await apiRes.json();
+                    if (result.success) {
+                        return { id: orderId, status: 'placed' };
+                    }
+                }
+            } catch (apiErr) {
+                console.warn('[OrderService.updateOrderStatus] Server API confirm failed, falling back to direct DB:', apiErr);
+            }
+        }
+
         // Verify staff authorization if staffId is provided
         if (staffId) {
             const { data: ord } = await supabase
@@ -2547,7 +2571,7 @@ export const OrderService = {
         if (branchId) {
             orderUpdateQuery = orderUpdateQuery.eq('branch_id', branchId);
         } else if (actualRestaurantId) {
-            orderUpdateQuery = orderUpdateQuery.or(`restaurant_id.eq.${actualRestaurantId},branch_id.eq.${actualRestaurantId}`);
+            orderUpdateQuery = orderUpdateQuery.eq('restaurant_id', actualRestaurantId);
         }
 
         const { data: updatedOrder, error } = await orderUpdateQuery
@@ -3380,7 +3404,7 @@ export const OrderService = {
             const cleanCode = String(couponCode).trim().toUpperCase();
             const { data: offerData } = await supabase
                 .from('offers')
-                .select('id, code, discount_type, discount_value, max_discount, status, end_datetime')
+                .select('id, code, discount_type, discount_value, max_discount, status, end_datetime, applicable_order_type')
                 .eq('restaurant_id', actualRestaurantId)
                 .eq('code', cleanCode)
                 .eq('status', 'active')
@@ -3388,7 +3412,10 @@ export const OrderService = {
 
             if (offerData) {
                 const notExpired = !offerData.end_datetime || new Date(offerData.end_datetime) > new Date();
-                if (notExpired) {
+                const matchesOrderType = !offerData.applicable_order_type || 
+                    offerData.applicable_order_type === 'all' || 
+                    offerData.applicable_order_type.toUpperCase() === String(resolvedOrderType).toUpperCase();
+                if (notExpired && matchesOrderType) {
                     if (offerData.discount_type === 'percentage') {
                         let disc = (subtotal * Number(offerData.discount_value)) / 100;
                         if (offerData.max_discount != null) {
@@ -3499,7 +3526,7 @@ export const OrderService = {
         // Verify order exists
         const { data: ord } = await supabase
             .from('orders')
-            .select('id, total_amount, discount_amount, gst_amount, delivery_fee')
+            .select('id, total_amount, discount_amount, gst_amount, delivery_fee, order_type')
             .eq('id', orderId)
             .eq('restaurant_id', actualRestaurantId)
             .maybeSingle();
@@ -3511,7 +3538,7 @@ export const OrderService = {
             const cleanCode = String(couponCode).trim().toUpperCase();
             const { data: offerData } = await supabase
                 .from('offers')
-                .select('id, code, discount_type, discount_value, max_discount, status, end_datetime')
+                .select('id, code, discount_type, discount_value, max_discount, status, end_datetime, applicable_order_type')
                 .eq('restaurant_id', actualRestaurantId)
                 .eq('code', cleanCode)
                 .eq('status', 'active')
@@ -3519,21 +3546,35 @@ export const OrderService = {
 
             if (offerData) {
                 const notExpired = !offerData.end_datetime || new Date(offerData.end_datetime) > new Date();
-                if (notExpired) {
-                    const currentTotal = Number(ord.total_amount || 0);
-                    const prevDisc = Number(ord.discount_amount || 0);
-                    const grossAmount = currentTotal + prevDisc;
-                    if (offerData.discount_type === 'percentage') {
-                        let disc = (grossAmount * Number(offerData.discount_value)) / 100;
-                        if (offerData.max_discount != null) {
-                            disc = Math.min(disc, Number(offerData.max_discount));
-                        }
-                        authoritativeDiscount = disc;
-                    } else {
-                        authoritativeDiscount = Number(offerData.discount_value || 0);
-                    }
-                    authoritativeDiscount = Math.min(authoritativeDiscount, grossAmount);
+                if (!notExpired) {
+                    throw new Error('This coupon has expired');
                 }
+                if (offerData.applicable_order_type && offerData.applicable_order_type !== 'all') {
+                    const normOrderType = String(ord.order_type || 'DINE_IN').toUpperCase();
+                    const applicable = offerData.applicable_order_type.toUpperCase();
+                    if (normOrderType !== applicable) {
+                        const labelMap: Record<string, string> = {
+                            DINE_IN: 'Dine-In',
+                            TAKEAWAY: 'Takeaway',
+                            DELIVERY: 'Delivery',
+                        };
+                        const friendlyLabel = labelMap[applicable] || applicable;
+                        throw new Error(`This coupon is only valid for ${friendlyLabel} orders.`);
+                    }
+                }
+                const currentTotal = Number(ord.total_amount || 0);
+                const prevDisc = Number(ord.discount_amount || 0);
+                const grossAmount = currentTotal + prevDisc;
+                if (offerData.discount_type === 'percentage') {
+                    let disc = (grossAmount * Number(offerData.discount_value)) / 100;
+                    if (offerData.max_discount != null) {
+                        disc = Math.min(disc, Number(offerData.max_discount));
+                    }
+                    authoritativeDiscount = disc;
+                } else {
+                    authoritativeDiscount = Number(offerData.discount_value || 0);
+                }
+                authoritativeDiscount = Math.min(authoritativeDiscount, grossAmount);
             }
         }
 
@@ -4619,7 +4660,7 @@ export const OrderService = {
                 })
                 .eq('merge_group_id', groupId)
                 .eq('restaurant_id', actualRestaurantId)
-                .neq('status', 'paid');
+                .eq('is_completed', false);
 
             if (orderError) console.error('Failed to archive merged order:', orderError);
             
@@ -4655,7 +4696,7 @@ export const OrderService = {
                 })
                 .eq('table_id', actualTableId)
                 .eq('restaurant_id', actualRestaurantId)
-                .neq('status', 'paid');
+                .eq('is_completed', false);
 
             if (orderError) console.error('Failed to archive order:', orderError);
         }

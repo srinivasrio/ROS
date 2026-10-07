@@ -168,15 +168,16 @@ export default function AllCombosPage() {
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: idx * 0.05 }}
-                                    className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm"
+                                    onClick={() => {
+                                        clearComboParam();
+                                        setSelectedCombo(combo);
+                                    }}
+                                    style={{ backgroundColor: '#FFEA6C' }}
+                                    className="rounded-2xl overflow-hidden border border-yellow-300/80 shadow-sm cursor-pointer"
                                 >
                                     {/* Standardized 16:9 Image */}
                                     <div
-                                        className="relative aspect-[16/9] w-full cursor-pointer overflow-hidden"
-                                        onClick={() => {
-                                            clearComboParam();
-                                            setSelectedCombo(combo);
-                                        }}
+                                        className="relative aspect-[16/9] w-full overflow-hidden"
                                     >
                                         <img
                                             src={combo.image_url || '/placeholder-food.jpg'}
@@ -219,14 +220,14 @@ export default function AllCombosPage() {
                                                     const itemPrice = si.menu_item?.price || si.price || 0;
                                                     
                                                     return (
-                                                        <div key={si.id || siIdx} className="flex gap-3 items-center bg-neutral-50/50 p-2 rounded-xl border border-neutral-100/50">
-                                                            <div className="size-12 bg-white rounded-lg flex-shrink-0 overflow-hidden border border-neutral-100">
+                                                        <div key={si.id || siIdx} className="flex gap-3 items-center bg-amber-100/60 p-2 rounded-xl border border-amber-300/50">
+                                                            <div className="size-12 bg-white rounded-lg flex-shrink-0 overflow-hidden border border-amber-200">
                                                                 <img src={itemImage} alt={itemName} className="w-full h-full object-cover" />
                                                             </div>
                                                             <div className="flex-1 min-w-0">
                                                                 <h4 className="font-bold text-black text-xs tracking-tight truncate">{itemName}</h4>
                                                                 <div className="flex items-center gap-2 mt-1">
-                                                                    <span className="text-[10px] font-black text-black bg-white px-1.5 py-0.5 rounded border border-neutral-100">QTY: {si.quantity || 1}</span>
+                                                                    <span className="text-[10px] font-black text-black bg-white px-1.5 py-0.5 rounded border border-amber-200">QTY: {si.quantity || 1}</span>
                                                                     <span className="text-[10px] font-bold text-black">₹{itemPrice} each</span>
                                                                 </div>
                                                             </div>
@@ -237,12 +238,12 @@ export default function AllCombosPage() {
                                         )}
 
                                         {/* Price + Cart Controls */}
-                                        <div className="flex items-center justify-between">
+                                        <div className="flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex flex-col">
                                                 <div className="flex items-end gap-2">
                                                     <span className="text-xl font-black text-orange-600">₹{offerPrice}</span>
                                                     {totalOriginalPrice > offerPrice && (
-                                                        <span className="text-sm font-bold text-slate-400 line-through mb-0.5">₹{totalOriginalPrice}</span>
+                                                        <span className="text-sm font-bold text-slate-600 line-through mb-0.5">₹{totalOriginalPrice}</span>
                                                     )}
                                                 </div>
                                                 {savings > 0 && (

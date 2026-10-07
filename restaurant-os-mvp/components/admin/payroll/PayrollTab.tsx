@@ -572,7 +572,7 @@ export default function PayrollTab({ restaurantId }: PayrollTabProps) {
                                                             <button
                                                                 onClick={() => {
                                                                     setEditingDeductionItem(item);
-                                                                    setDeductionInput(String(item.deductions));
+                                                                    setDeductionInput(item.deductions === 0 ? '' : String(item.deductions));
                                                                 }}
                                                                 className="text-neutral-400 hover:text-black p-0.5 rounded"
                                                                 title="Adjust deduction"
@@ -590,9 +590,10 @@ export default function PayrollTab({ restaurantId }: PayrollTabProps) {
                                                         <input
                                                             type="number"
                                                             min={0}
+                                                            placeholder="0"
                                                             className="w-14 px-1 py-0.5 border border-neutral-200 rounded text-center text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-                                                            value={item.overtime_hours}
-                                                            onChange={e => handleOvertimeChange(item, Number(e.target.value))}
+                                                            value={item.overtime_hours === 0 ? '' : item.overtime_hours}
+                                                            onChange={e => handleOvertimeChange(item, e.target.value === '' ? 0 : Number(e.target.value))}
                                                         />
                                                     )}
                                                 </td>
@@ -659,6 +660,7 @@ export default function PayrollTab({ restaurantId }: PayrollTabProps) {
                                 type="number"
                                 min={0}
                                 step="1"
+                                placeholder="0"
                                 className="w-full px-3 py-2 border border-neutral-200 rounded-lg text-sm font-mono focus:outline-none focus:border-blue-500"
                                 value={deductionInput}
                                 onChange={e => setDeductionInput(e.target.value)}

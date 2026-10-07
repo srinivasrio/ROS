@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams, usePathname } from 'next/navigation';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { toast } from 'sonner';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 import {
     X, Link2, Unlink, Receipt, Trash2, UserPlus, CheckCheck, Flame, Lock,
     Sparkles, PlusCircle, Plus, UserX, Banknote, CreditCard, QrCode, ArrowRightLeft,
@@ -173,7 +174,12 @@ export function TableDetailsSheet({
     const handleOrderPendingItems = () => {
         if (!pendingBrowseCart) return;
         if (!canManage) {
-            toast.error(`Table is assigned to ${assigned || 'another waiter'}. Please request access first.`);
+            showWarningPopup({
+                title: 'Table Access Restriction',
+                message: `Table is assigned to ${assigned || 'another waiter'}. Please request access first.`,
+                type: 'restriction',
+                dismissText: 'Dismiss'
+            });
             return;
         }
         haptic.selection();
@@ -192,7 +198,12 @@ export function TableDetailsSheet({
 
     const goToMenu = () => {
         if (!canManage) {
-            toast.error(`Table is assigned to ${assigned || 'another waiter'}. Please request access first.`);
+            showWarningPopup({
+                title: 'Table Access Restriction',
+                message: `Table is assigned to ${assigned || 'another waiter'}. Please request access first.`,
+                type: 'restriction',
+                dismissText: 'Dismiss'
+            });
             return;
         }
         haptic.selection();
@@ -386,8 +397,12 @@ export function TableDetailsSheet({
             await OrderService.clearTable(targetId, restaurantId, currentWaiter?.id);
             toast.success(`Table ${table.table_number} is now marked Available`);
         } catch (e: any) {
-            console.error(e);
-            toast.error(e?.message || 'Failed to clear table');
+            showWarningPopup({
+                title: 'Cannot Clear Table',
+                message: e?.message || 'Failed to clear table. You may not be assigned to this table or orders are still unsettled.',
+                type: 'error',
+                dismissText: 'Dismiss'
+            });
             onChanged();
         } finally {
             setBusy(false);

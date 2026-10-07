@@ -264,7 +264,15 @@ export default function SharedOfferDetailModal({
                 )}
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-slate-500">Applicability:</span>
-                  <span className="font-black text-emerald-700">Dine-in Order Bills</span>
+                  <span className="font-black text-emerald-700">
+                    {offer.applicable_order_type === 'DINE_IN'
+                      ? 'Dine-In Orders Only'
+                      : offer.applicable_order_type === 'TAKEAWAY'
+                      ? 'Take Away Orders Only'
+                      : offer.applicable_order_type === 'DELIVERY'
+                      ? 'Delivery Orders Only'
+                      : 'All Orders (Dine-in, Takeaway & Delivery)'}
+                  </span>
                 </div>
               </div>
             </div>

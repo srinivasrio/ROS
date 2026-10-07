@@ -25,7 +25,7 @@ export async function getAuthenticatedOwner(request: NextRequest): Promise<Authe
         const authHeader = request.headers.get('authorization') || request.headers.get('Authorization');
         let token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
         if (!token) {
-            token = request.cookies.get('dine_auth_token')?.value || null;
+            token = request.cookies.get('dine_auth_token_owner')?.value || request.cookies.get('dine_auth_token')?.value || null;
         }
 
         if (!token) {

@@ -8,6 +8,8 @@ export interface RestaurantItem {
     branch_id?: string;
     internal_id?: string;
     name: string;
+    logoUrl?: string;
+    logo_url?: string;
     code?: string;
     status: string;
     phone?: string;
@@ -79,7 +81,7 @@ export function OwnerProvider({ children }: { children: React.ReactNode }) {
     const [selectedRestaurantId, setSelectedRestaurantId] = useState<string>('all');
     const [restaurants, setRestaurants] = useState<RestaurantItem[]>([]);
     const [restaurant, setRestaurant] = useState<any>(null);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
     const setSelectedRestaurant = useCallback((restaurantId: string) => {

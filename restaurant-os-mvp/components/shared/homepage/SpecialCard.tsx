@@ -86,7 +86,7 @@ export default function SpecialCard({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onClick={handleCardClick}
-      className={`rounded-2xl sm:rounded-3xl transition-all duration-300 overflow-hidden flex flex-col group ${onClick ? 'cursor-pointer' : ''}`}
+      className={`w-full h-full rounded-2xl sm:rounded-3xl transition-all duration-300 overflow-hidden flex flex-col justify-between group ${onClick ? 'cursor-pointer' : ''}`}
       style={{
         backgroundColor: '#EEF2F6',
         boxShadow: '6px 6px 14px rgba(166, 180, 200, 0.4), -6px -6px 14px rgba(255, 255, 255, 0.95)',
@@ -95,7 +95,7 @@ export default function SpecialCard({
     >
       {/* 16:9 Image with Recessed Well */}
       <div 
-        className="relative aspect-[16/9] w-full overflow-hidden p-1.5"
+        className="relative aspect-[16/9] w-full shrink-0 overflow-hidden p-1.5"
         style={{
           backgroundColor: '#EEF2F6',
           boxShadow: 'inset 2px 2px 4px rgba(166, 180, 200, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.9)'
@@ -129,16 +129,16 @@ export default function SpecialCard({
           <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-transparent to-transparent pointer-events-none" />
 
           {/* Special Tag Badge */}
-          <div className="absolute top-3 left-3 z-10">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-orange-600 text-white shadow-md">
+          <div className="absolute top-2.5 left-2.5 z-10">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-orange-600 text-white shadow-md">
               <span>{special.badge || "Today's Special"}</span>
             </span>
           </div>
 
           {/* Savings Badge */}
           {savings > 0 && (
-            <div className="absolute top-3 right-3 z-10">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-600 text-white shadow-md">
+            <div className="absolute top-2.5 right-2.5 z-10">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-md">
                 <span>Save {currencySymbol}{savings}</span>
               </span>
             </div>
@@ -147,24 +147,22 @@ export default function SpecialCard({
       </div>
 
       {/* Details */}
-      <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
+      <div className="p-3.5 sm:p-4 flex-1 flex flex-col justify-between">
         <div>
-          <h3 className="text-base sm:text-lg font-black text-slate-800 line-clamp-1 group-hover:text-orange-600 transition-colors font-display">
+          <h3 className="text-sm sm:text-base font-black text-slate-800 line-clamp-1 group-hover:text-orange-600 transition-colors font-display h-5 sm:h-6 leading-5 sm:leading-6">
             {title}
           </h3>
-          {special.description && (
-            <p className="text-xs sm:text-sm font-medium text-slate-500 line-clamp-2 mt-1 leading-relaxed">
-              {special.description}
-            </p>
-          )}
+          <p className="text-[11px] sm:text-xs font-medium text-slate-500 line-clamp-1 mt-0.5 leading-relaxed min-h-[16px] sm:min-h-[18px]">
+            {special.description || '\u00A0'}
+          </p>
         </div>
 
         {/* Price and Cart Interaction */}
         <div 
-          className="flex items-center justify-between mt-4 pt-3"
+          className="flex items-center justify-between mt-3.5 pt-3"
           style={{ borderTop: '1px solid rgba(255, 255, 255, 0.8)' }}
         >
-          <div className="flex flex-col justify-center">
+          <div className="flex flex-col justify-center min-h-[36px]">
             <div className="flex items-baseline gap-1.5">
               <div className="flex items-baseline gap-0.5">
                 <span className="text-xs font-semibold text-slate-500">{currencySymbol}</span>
@@ -178,16 +176,22 @@ export default function SpecialCard({
                 </span>
               )}
             </div>
-            {savings > 0 && (
-              <span className="text-[10px] font-black text-emerald-600 leading-none">
-                Save {currencySymbol}{savings} ({savingsPercent}% OFF)
-              </span>
-            )}
+            <div className="min-h-[14px] flex items-center">
+              {savings > 0 ? (
+                <span className="text-[10px] font-black text-emerald-600 leading-none">
+                  Save {currencySymbol}{savings} ({savingsPercent}% OFF)
+                </span>
+              ) : (
+                <span className="text-[10px] leading-none opacity-0 select-none">
+                  &nbsp;
+                </span>
+              )}
+            </div>
           </div>
 
           {quantity > 0 ? (
             <div 
-              className="inline-flex items-center gap-2 rounded-xl p-1"
+              className="inline-flex items-center gap-1.5 rounded-xl p-0.5 h-[32px]"
               style={{
                 backgroundColor: '#EEF2F6',
                 boxShadow: 'inset 2px 2px 4px rgba(166, 180, 200, 0.35), inset -2px -2px 4px rgba(255, 255, 255, 0.9)',
@@ -200,15 +204,15 @@ export default function SpecialCard({
                   onDecrement(itemId);
                 }}
                 aria-label="Decrease quantity"
-                className="size-7 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer"
+                className="size-6 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer"
                 style={{
                   backgroundColor: '#F97316',
                   boxShadow: '1px 1px 3px rgba(249, 115, 22, 0.4)'
                 }}
               >
-                <Minus className="size-3.5 stroke-[3]" />
+                <Minus className="size-3 stroke-[3]" />
               </button>
-              <span className="font-black text-sm text-slate-800 min-w-[20px] text-center tabular-nums">
+              <span className="font-black text-xs text-slate-800 min-w-[18px] text-center tabular-nums">
                 {quantity}
               </span>
               <button
@@ -217,13 +221,13 @@ export default function SpecialCard({
                   onIncrement(itemId);
                 }}
                 aria-label="Increase quantity"
-                className="size-7 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer"
+                className="size-6 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer"
                 style={{
                   backgroundColor: '#F97316',
                   boxShadow: '1px 1px 3px rgba(249, 115, 22, 0.4)'
                 }}
               >
-                <Plus className="size-3.5 stroke-[3]" />
+                <Plus className="size-3 stroke-[3]" />
               </button>
             </div>
           ) : (
@@ -232,15 +236,15 @@ export default function SpecialCard({
                 e.stopPropagation();
                 onAdd({ ...special, price: offerPrice, original_price: originalPrice > 0 ? originalPrice : undefined });
               }}
-              aria-label={`Add ${title} to order`}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-black text-xs sm:text-sm text-white active:scale-95 transition-all cursor-pointer"
+              aria-label={`Add ${title}`}
+              className="inline-flex items-center gap-1 px-3 h-[32px] rounded-xl font-black text-xs text-white active:scale-95 transition-all cursor-pointer"
               style={{
                 backgroundColor: '#F97316',
-                boxShadow: '3px 3px 8px rgba(249, 115, 22, 0.35), -2px -2px 6px rgba(255, 255, 255, 0.4)'
+                boxShadow: '2px 2px 6px rgba(249, 115, 22, 0.35), -1px -1px 4px rgba(255, 255, 255, 0.4)'
               }}
             >
-              <Plus className="size-4" />
-              <span>Add to Order</span>
+              <Plus className="size-3.5 stroke-[2.5]" />
+              <span>Add</span>
             </button>
           )}
         </div>

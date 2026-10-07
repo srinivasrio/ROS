@@ -37,6 +37,7 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { RestaurantProvider } from "@/context/RestaurantContext";
 import { GlobalContextProvider } from "@/context/GlobalContext";
 import { AutoLogoutProvider } from "@/components/shared/AutoLogoutProvider";
+import { WarningPopupProvider } from "@/components/shared/WarningPopupCard";
 
 export default function RootLayout({
   children,
@@ -62,8 +63,10 @@ export default function RootLayout({
           <GlobalContextProvider>
             <RestaurantProvider>
               <AutoLogoutProvider>
-                {children}
-                <Toaster position="top-center" richColors />
+                <WarningPopupProvider>
+                  {children}
+                  <Toaster position="top-center" richColors />
+                </WarningPopupProvider>
               </AutoLogoutProvider>
             </RestaurantProvider>
           </GlobalContextProvider>

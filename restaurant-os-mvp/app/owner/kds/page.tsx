@@ -6,7 +6,7 @@ import {
     Monitor, Building2, Clock, ChefHat, CheckCircle2,
     ArrowLeft, Flame, RefreshCw, Play, Check,
     UtensilsCrossed, AlertCircle, ChevronRight, Star,
-    Layers, Store, Utensils
+    Layers, Store, Utensils, Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useOwner } from '@/context/OwnerContext';
@@ -71,21 +71,24 @@ export default function KDSPage() {
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
     const isFirstLoad = useRef(true);
 
-    // Sync with top bar BranchSelector
+    // Sync with top bar BranchSelector (only show single restaurants in KDS)
     useEffect(() => {
         if (!loadingBranches && branches.length > 0) {
-            if (!isAllRestaurants && selectedRestaurantId) {
+            if (selectedRestaurantId) {
                 const found = branches.find(b => b.id === selectedRestaurantId || b.restaurant_id === selectedRestaurantId);
-                if (found && selectedBranch?.id !== found.id) {
+                if (found) {
                     setSelectedBranch(found);
                     setIsConsolidated(false);
+                    return;
                 }
-            } else if (isAllRestaurants && selectedBranch) {
-                setSelectedBranch(null);
+            }
+            // Auto-select first branch if none explicitly chosen
+            if (!selectedBranch) {
+                setSelectedBranch(branches[0]);
                 setIsConsolidated(false);
             }
         }
-    }, [selectedRestaurantId, isAllRestaurants, loadingBranches, branches]);
+    }, [selectedRestaurantId, loadingBranches, branches, selectedBranch]);
 
     // Live Clock
     useEffect(() => {
@@ -216,10 +219,10 @@ export default function KDSPage() {
             subscriptions.push(sub);
         });
 
-        // 4. Conservative 90-second safety fallback heartbeat (replaces aggressive 8s polling)
+        // 4. Safety fallback heartbeat (8 seconds) ensures live kitchen synchronization even across network hiccups
         const safetyInterval = setInterval(() => {
             fetchKitchenOrders(true);
-        }, 90000);
+        }, 8000);
 
         return () => {
             if (debounceTimer) clearTimeout(debounceTimer);
@@ -302,16 +305,6 @@ export default function KDSPage() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <button
-                            onClick={() => {
-                                setIsConsolidated(true);
-                                setSelectedBranch(null);
-                            }}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-neutral-800 dark:text-neutral-200 rounded-xl text-xs font-bold transition-all cursor-pointer border border-neutral-200/60 dark:border-zinc-700/60 shadow-xs"
-                        >
-                            <Layers size={14} className="text-indigo-600 dark:text-indigo-400" />
-                            <span>All Outlets Consolidated</span>
-                        </button>
                         <button
                             onClick={() => fetchBranchesOverview()}
                             className="p-2.5 bg-white dark:bg-zinc-800 border border-neutral-200/60 dark:border-zinc-700/60 rounded-xl text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 transition-colors cursor-pointer shadow-xs"
@@ -736,40 +729,12 @@ export default function KDSPage() {
                                         </div>
                                     </div>
 
-                                    {/* Action Buttons */}
+                                    {/* View-Only Ticket Indicator */}
                                     <div className="pt-2 border-t border-neutral-100 dark:border-zinc-800">
-                                        {(order.status === 'placed' || order.status === 'queued') && (
-                                            <button
-                                                disabled={isActionBusy}
-                                                onClick={() => handleUpdateStatus(order.id, 'preparing')}
-                                                className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black shadow-sm shadow-amber-500/20 cursor-pointer disabled:opacity-50 transition-all"
-                                            >
-                                                <Play size={12} className="fill-white" />
-                                                <span>{isActionBusy ? 'Updating...' : 'Start Cooking'}</span>
-                                            </button>
-                                        )}
-
-                                        {order.status === 'preparing' && (
-                                            <button
-                                                disabled={isActionBusy}
-                                                onClick={() => handleUpdateStatus(order.id, 'ready')}
-                                                className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-sm shadow-emerald-600/20 cursor-pointer disabled:opacity-50 transition-all"
-                                            >
-                                                <Check size={14} />
-                                                <span>{isActionBusy ? 'Updating...' : 'Mark Ready'}</span>
-                                            </button>
-                                        )}
-
-                                        {order.status === 'ready' && (
-                                            <button
-                                                disabled={isActionBusy}
-                                                onClick={() => handleUpdateStatus(order.id, 'served')}
-                                                className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white dark:bg-white dark:text-neutral-900 rounded-xl text-xs font-black shadow-sm cursor-pointer disabled:opacity-50 transition-all"
-                                            >
-                                                <CheckCircle2 size={13} />
-                                                <span>{isActionBusy ? 'Updating...' : 'Complete & Serve'}</span>
-                                            </button>
-                                        )}
+                                        <div className="w-full flex items-center justify-center gap-1.5 py-2 bg-neutral-50 dark:bg-zinc-800/60 rounded-xl text-xs font-semibold text-neutral-500 border border-neutral-200/50 dark:border-zinc-700/50">
+                                            <Lock size={12} className="text-neutral-400" />
+                                            <span>Live Ticket • Managed by Kitchen & Admin</span>
+                                        </div>
                                     </div>
                                 </motion.div>
                             );

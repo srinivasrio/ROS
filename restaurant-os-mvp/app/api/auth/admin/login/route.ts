@@ -552,7 +552,9 @@ export async function POST(req: NextRequest) {
 
         // Set secure cookies
         response.cookies.set('dine_auth_token', token, cookieOpts);
-        if (!isOwnerPanel) {
+        if (isOwnerPanel) {
+            response.cookies.set('dine_auth_token_owner', token, cookieOpts);
+        } else {
             response.cookies.set('dine_auth_token_admin', token, cookieOpts);
         }
         if (rid) {
@@ -564,7 +566,9 @@ export async function POST(req: NextRequest) {
         if (rid) {
             const cleanRid = String(rid).trim().replace(/[^a-zA-Z0-9_-]/g, '_');
             response.cookies.set(`dine_auth_token_${cleanRid}`, token, cookieOpts);
-            if (!isOwnerPanel) {
+            if (isOwnerPanel) {
+                response.cookies.set(`dine_auth_token_${cleanRid}_owner`, token, cookieOpts);
+            } else {
                 response.cookies.set(`dine_auth_token_${cleanRid}_admin`, token, cookieOpts);
             }
             if (assignedBranchId) {

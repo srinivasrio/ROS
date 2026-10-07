@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, Lock, Mail, ArrowRight, Sparkles, Building2, Zap, CheckCircle2, AlertCircle, RefreshCw, Key, Smartphone, QrCode, Eye, EyeOff, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { DineInOneLogo } from '../../components/DineInOneLogo';
+import { showWarningPopup } from '../../components/WarningPopupCard';
 
 type LoginStep = 'password' | 'email-verification' | 'totp';
 
@@ -25,7 +27,11 @@ export default function SuperAdminLoginPage() {
     const handleLoginInitiate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!email.trim() || !password) {
-            toast.error('Please enter both email and password');
+            showWarningPopup({
+                title: 'Missing Credentials',
+                message: 'Please enter both founder email and password.',
+                type: 'warning'
+            });
             return;
         }
 
@@ -46,10 +52,22 @@ export default function SuperAdminLoginPage() {
                 setStep('email-verification');
                 startResendCooldown();
             } else {
-                toast.error(data.error || 'Authentication failed');
+                const errMsg = data.error || 'Authentication failed. Please check your credentials.';
+                showWarningPopup({
+                    title: 'Authentication Failed',
+                    message: errMsg,
+                    type: 'error',
+                    dismissText: 'Try Again'
+                });
             }
         } catch (err: any) {
-            toast.error(err.message || 'Error connecting to server');
+            const errMsg = err?.message || 'Error connecting to authentication service.';
+            showWarningPopup({
+                title: 'Connection Error',
+                message: errMsg,
+                type: 'error',
+                dismissText: 'Try Again'
+            });
         } finally {
             setLoading(false);
         }
@@ -58,7 +76,11 @@ export default function SuperAdminLoginPage() {
     const handleVerifyEmail = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!otp.trim() || !loginVerificationToken) {
-            toast.error('Please enter the verification code');
+            showWarningPopup({
+                title: 'Missing Code',
+                message: 'Please enter the email verification code.',
+                type: 'warning'
+            });
             return;
         }
 
@@ -77,10 +99,22 @@ export default function SuperAdminLoginPage() {
                 setEmployeeName(data.employeeName || 'Super Admin');
                 setStep('totp');
             } else {
-                toast.error(data.error || 'Verification failed');
+                const errMsg = data.error || 'Verification code failed or expired.';
+                showWarningPopup({
+                    title: 'Verification Failed',
+                    message: errMsg,
+                    type: 'error',
+                    dismissText: 'Try Again'
+                });
             }
         } catch (err: any) {
-            toast.error(err.message || 'Error connecting to server');
+            const errMsg = err?.message || 'Error connecting to server';
+            showWarningPopup({
+                title: 'Verification Error',
+                message: errMsg,
+                type: 'error',
+                dismissText: 'Try Again'
+            });
         } finally {
             setLoading(false);
         }
@@ -89,7 +123,11 @@ export default function SuperAdminLoginPage() {
     const handleVerifyTotp = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!totpCode.trim() || !employeeId) {
-            toast.error('Please enter the TOTP code');
+            showWarningPopup({
+                title: 'Missing TOTP Code',
+                message: 'Please enter the 6-digit TOTP code from your authenticator app.',
+                type: 'warning'
+            });
             return;
         }
 
@@ -107,10 +145,22 @@ export default function SuperAdminLoginPage() {
                 router.push('/admin/dashboard');
                 router.refresh();
             } else {
-                toast.error(data.error || 'TOTP verification failed');
+                const errMsg = data.error || 'TOTP verification code is incorrect or expired.';
+                showWarningPopup({
+                    title: 'Authentication Failed',
+                    message: errMsg,
+                    type: 'error',
+                    dismissText: 'Try Again'
+                });
             }
         } catch (err: any) {
-            toast.error(err.message || 'Error connecting to server');
+            const errMsg = err?.message || 'Error connecting to server';
+            showWarningPopup({
+                title: 'Authentication Error',
+                message: errMsg,
+                type: 'error',
+                dismissText: 'Try Again'
+            });
         } finally {
             setLoading(false);
         }
@@ -176,9 +226,7 @@ export default function SuperAdminLoginPage() {
                 <div className="relative overflow-hidden rounded-3xl border border-[#E4E7EC] bg-white p-8 sm:p-10 shadow-xl shadow-indigo-100/50">
                     {/* Brand Header */}
                     <div className="text-center">
-                        <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30 mb-4 font-black text-2xl tracking-tighter">
-                            D
-                        </div>
+                        <DineInOneLogo size={64} className="mx-auto mb-4" />
                         <h1 className="text-2xl font-black tracking-tight text-[#172033] sm:text-3xl">
                             Dine in One
                         </h1>

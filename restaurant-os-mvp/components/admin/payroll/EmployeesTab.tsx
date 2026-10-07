@@ -10,7 +10,9 @@ import {
     Search as LucideSearch,
     Filter as LucideFilter,
     Mail as LucideMail,
-    Phone as LucidePhone
+    Phone as LucidePhone,
+    Eye as LucideEye,
+    EyeOff as LucideEyeOff
 } from 'lucide-react';
 import { PayrollService, Employee, Branch } from '@/services/payroll.service';
 import { StaffService } from '@/services/staff.service';
@@ -43,11 +45,48 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedEmployee, setSelectedEmployee] = useState<Employee | undefined>();
     const [showDeleted, setShowDeleted] = useState(false);
+    const [isOwner, setIsOwner] = useState(false);
+
+    useEffect(() => {
+        fetch('/api/auth/session')
+            .then(res => res.json())
+            .then(data => {
+                const role = (data?.user?.role || '').toLowerCase();
+                const ownerRoles = ['owner', 'restaurant_owner', 'super_admin', 'superadmin'];
+                setIsOwner(ownerRoles.includes(role));
+            })
+            .catch(() => setIsOwner(false));
+    }, []);
 
     // Filters
     const [searchQuery, setSearchQuery] = useState('');
     const [roleFilter, setRoleFilter] = useState('all');
     const [branchFilter, setBranchFilter] = useState('all');
+    const [revealedPins, setRevealedPins] = useState<Set<string>>(new Set());
+    const [showAllPins, setShowAllPins] = useState(false);
+
+    const toggleRevealPin = (id: string) => {
+        setRevealedPins(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
+    const toggleRevealAllPins = () => {
+        if (showAllPins) {
+            setRevealedPins(new Set());
+            setShowAllPins(false);
+        } else {
+            const allIds = new Set(employees.map(e => e.id));
+            setRevealedPins(allIds);
+            setShowAllPins(true);
+        }
+    };
 
     // Delete Modal
     const [deleteModal, setDeleteModal] = useState<{
@@ -70,7 +109,7 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
 
         const currentCached = getCached<any>(cacheKey);
         if (currentCached && employees.length === 0 && !showDeleted) {
-            setEmployees(currentCached.employees || []);
+            setEmployees((currentCached.employees || []).filter((e: any) => !['owner', 'restaurant_owner'].includes(String(e.role || '').toLowerCase())));
             setBranches(currentCached.branches || []);
             setLoading(false);
         }
@@ -93,7 +132,9 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                     StaffService.fetchDeletedStaff(restaurantId)
                 ]);
                 setBranches(branchList);
-                const mappedList: Employee[] = deletedList.map(s => ({
+                const mappedList: Employee[] = deletedList
+                    .filter(s => !['owner', 'restaurant_owner'].includes(String(s.role || '').toLowerCase()))
+                    .map(s => ({
                     id: s.id,
                     restaurant_id: restaurantId,
                     name: s.name,
@@ -122,8 +163,9 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
 
                 if (data) {
                     setBranches(data.branches);
-                    setEmployees(data.employees);
-                    setCache(cacheKey, data, { ttlMs: 15 * 60 * 1000 });
+                    const nonOwner = (data.employees || []).filter((e: any) => !['owner', 'restaurant_owner'].includes(String(e.role || '').toLowerCase()));
+                    setEmployees(nonOwner);
+                    setCache(cacheKey, { branches: data.branches, employees: nonOwner }, { ttlMs: 15 * 60 * 1000 });
                     setLastSync(new Date());
                 }
             }
@@ -221,9 +263,10 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
         }
     };
 
-    // Filter employees
-    const uniqueRoles = [...new Set(employees.map(e => e.role))].sort();
-    const filtered = employees.filter(emp => {
+    // Filter employees (exclude owner from directory and roles filter)
+    const nonOwnerEmployees = employees.filter(e => !['owner', 'restaurant_owner'].includes(String(e.role || '').toLowerCase()));
+    const uniqueRoles = [...new Set(nonOwnerEmployees.map(e => e.role))].sort();
+    const filtered = nonOwnerEmployees.filter(emp => {
         if (searchQuery) {
             const q = searchQuery.toLowerCase().trim();
             const cleanQ = q.replace(/[^0-9]/g, '');
@@ -330,6 +373,19 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                                 <th className="px-4 py-3">Employee</th>
                                 <th className="px-4 py-3">Role</th>
                                 <th className="px-4 py-3">Contact</th>
+                                <th className="px-4 py-3 text-center">
+                                    <div className="inline-flex items-center justify-center gap-1">
+                                        <span>PIN</span>
+                                        <button
+                                            type="button"
+                                            onClick={toggleRevealAllPins}
+                                            className="p-0.5 rounded hover:bg-neutral-200 text-neutral-500 hover:text-black transition-colors"
+                                            title={showAllPins ? "Hide all staff PINs" : "Reveal all staff PINs"}
+                                        >
+                                            {showAllPins ? <LucideEyeOff size={13} className="text-blue-600" /> : <LucideEye size={13} />}
+                                        </button>
+                                    </div>
+                                </th>
                                 <th className="px-4 py-3">Branch</th>
                                 <th className="px-4 py-3 text-right">Salary</th>
                                 <th className="px-4 py-3">Type</th>
@@ -341,7 +397,7 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                         <tbody className="divide-y divide-neutral-100">
                             {filtered.length === 0 ? (
                                 <tr>
-                                    <td colSpan={10} className="px-4 py-10 text-center text-neutral-400 font-medium text-sm">
+                                    <td colSpan={11} className="px-4 py-10 text-center text-neutral-400 font-medium text-sm">
                                         {showDeleted ? 'No archived employees.' : searchQuery || roleFilter !== 'all' ? 'No employees match your filters.' : 'No employees found. Add one to get started!'}
                                     </td>
                                 </tr>
@@ -380,8 +436,29 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                                                 </span>
                                             </div>
                                         </td>
+                                        <td className="px-4 py-2.5 text-center">
+                                            {emp.pin ? (
+                                                <div className="inline-flex items-center justify-center gap-1.5">
+                                                    <span className="font-mono text-[11px] font-bold text-neutral-800 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200 tracking-wider">
+                                                        {revealedPins.has(emp.id) || showAllPins ? emp.pin : '••••'}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleRevealPin(emp.id)}
+                                                        className="p-1 text-neutral-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                                        title={revealedPins.has(emp.id) || showAllPins ? "Hide PIN" : "Reveal PIN"}
+                                                    >
+                                                        {revealedPins.has(emp.id) || showAllPins ? <LucideEyeOff size={13} /> : <LucideEye size={13} />}
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-neutral-300 font-mono text-[11px]">—</span>
+                                            )}
+                                        </td>
                                         <td className="px-4 py-2.5 text-neutral-500">{emp.branch?.name || '—'}</td>
-                                        <td className="px-4 py-2.5 text-right font-semibold text-black tabular-nums">₹{emp.monthly_salary.toLocaleString('en-IN')}</td>
+                                        <td className="px-4 py-2.5 text-right font-semibold text-black tabular-nums">
+                                            {emp.monthly_salary && Number(emp.monthly_salary) > 0 ? `₹${Number(emp.monthly_salary).toLocaleString('en-IN')}` : '—'}
+                                        </td>
                                         <td className="px-4 py-2.5">
                                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
                                                 emp.salary_type === 'daily' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
@@ -455,6 +532,7 @@ export default function EmployeesTab({ restaurantId }: EmployeesTabProps) {
                 onSuccess={() => loadData(true)}
                 employee={selectedEmployee}
                 branches={branches}
+                isOwner={isOwner}
             />
 
             <DeleteStaffModal

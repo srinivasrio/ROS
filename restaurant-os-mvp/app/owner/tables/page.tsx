@@ -88,21 +88,7 @@ export default function TablesPage() {
                 </div>
             </div>
 
-            {/* Active Outlet Banner if isolated */}
-            {!isAllRestaurants && currentRestaurant && (
-                <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-2xl p-3 px-4 flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300">
-                    <div className="flex items-center gap-2">
-                        <Store size={15} />
-                        <span>Viewing tables configured for <strong>{currentRestaurant.name}</strong></span>
-                    </div>
-                    <button
-                        onClick={() => setSelectedRestaurant('all')}
-                        className="font-bold underline hover:opacity-80 transition"
-                    >
-                        Show All Outlets
-                    </button>
-                </div>
-            )}
+
 
             {/* Stats Ribbon */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">

@@ -5,8 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X as LucideX, 
   ArrowLeft as LucideArrowLeft, 
-  Flame as LucideFlame, 
-  Sparkles as LucideSparkles, 
   ShoppingBag as LucideShoppingBag, 
   Clock as LucideClock,
   Plus as LucidePlus,
@@ -137,7 +135,6 @@ export default function SharedSpecialDetailModal({
 
   const rating = Number(displaySpecial?.rating || 0);
   const expiryTime = displaySpecial?.expiry_datetime || displaySpecial?.special_expiry_datetime;
-  const badgeText = displaySpecial?.badge || "Chef's Special";
 
   const subtotal = effectiveQty > 0 ? offerPrice * effectiveQty : offerPrice;
 
@@ -158,15 +155,15 @@ export default function SharedSpecialDetailModal({
 
           {/* Modal Container */}
           <motion.div
-            initial={{ y: '100%', opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: '100%', opacity: 0 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 350, mass: 0.8 }}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
             style={{
               boxShadow: '0 20px 50px rgba(15, 23, 42, 0.4)',
               border: '1px solid rgba(255, 255, 255, 0.85)',
-              willChange: 'transform, opacity',
+              willChange: 'transform',
             }}
             className="relative w-full sm:max-w-lg md:max-w-xl bg-[#EEF2F6] rounded-t-[32px] sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col z-10 transform-gpu"
             role="dialog"
@@ -198,10 +195,6 @@ export default function SharedSpecialDetailModal({
               </button>
 
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-black uppercase tracking-wider backdrop-blur-md shadow-md">
-                  <LucideFlame size={12} className="fill-white" />
-                  <span>{badgeText}</span>
-                </span>
                 <button
                   type="button"
                   onClick={onClose}
@@ -295,39 +288,11 @@ export default function SharedSpecialDetailModal({
               )}
             </div>
 
-            {/* Description */}
-            {displaySpecial.description ? (
-              <div className="space-y-1.5">
-                <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider">
-                  Chef&apos;s Notes
-                </h3>
-                <p 
-                  style={{
-                    boxShadow: 'inset 1.5px 1.5px 3px rgba(166, 180, 200, 0.3), inset -1.5px -1.5px 3px rgba(255, 255, 255, 0.85)',
-                    border: '1px solid rgba(255, 255, 255, 0.7)',
-                  }}
-                  className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed bg-[#EEF2F6] p-3.5 rounded-2xl"
-                >
-                  {displaySpecial.description}
-                </p>
-              </div>
-            ) : (
-              <div 
-                style={{
-                  boxShadow: 'inset 1.5px 1.5px 3px rgba(166, 180, 200, 0.3), inset -1.5px -1.5px 3px rgba(255, 255, 255, 0.85)',
-                  border: '1px solid rgba(255, 255, 255, 0.7)',
-                }}
-                className="bg-[#EEF2F6] p-3 rounded-xl text-xs text-slate-500 font-medium italic"
-              >
-                Signature recipe crafted exclusively by our executive chef for today&apos;s patrons.
-              </div>
-            )}
 
             {/* Included Dishes (if multi-item special) */}
             {parsedItems.length > 0 && (
               <div className="space-y-3">
-                <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <LucideSparkles size={14} className="text-orange-500" />
+                <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider">
                   <span>Included in Special ({parsedItems.length})</span>
                 </h3>
 

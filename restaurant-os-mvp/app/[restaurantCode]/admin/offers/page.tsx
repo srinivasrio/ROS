@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus as LucidePlus, Copy as LucideCopy, Trash2 as LucideTrash2, Tags as LucideTags } from 'lucide-react';
+import { Plus as LucidePlus, Copy as LucideCopy, Trash2 as LucideTrash2, Tags as LucideTags, Utensils, ShoppingBag, Truck, Layers } from 'lucide-react';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { OfferService, Offer } from '@/services/offers.service';
@@ -10,6 +10,35 @@ import CreateOfferModal from '@/components/admin/CreateOfferModal';
 import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
 import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
+
+const getOrderTypeBadge = (type?: string) => {
+    switch (type) {
+        case 'DINE_IN':
+            return {
+                label: 'Dine In Only',
+                icon: Utensils,
+                className: 'bg-blue-50 text-blue-700 border-blue-200'
+            };
+        case 'TAKEAWAY':
+            return {
+                label: 'Take Away Only',
+                icon: ShoppingBag,
+                className: 'bg-amber-50 text-amber-700 border-amber-200'
+            };
+        case 'DELIVERY':
+            return {
+                label: 'Delivery Only',
+                icon: Truck,
+                className: 'bg-purple-50 text-purple-700 border-purple-200'
+            };
+        default:
+            return {
+                label: 'All Orders',
+                icon: Layers,
+                className: 'bg-slate-50 text-slate-700 border-slate-200'
+            };
+    }
+};
 
 export default function Offers() {
     const params = useParams();
@@ -142,9 +171,22 @@ export default function Offers() {
                                 <p className="text-black font-bold text-xs mt-2">
                                     {offer.discount_type === 'flat' ? `₹${offer.discount_value} OFF` : `${offer.discount_value}% OFF`}
                                 </p>
+
+                                <div className="mt-2.5 flex items-center">
+                                    {(() => {
+                                        const typeInfo = getOrderTypeBadge(offer.applicable_order_type);
+                                        const TypeIcon = typeInfo.icon;
+                                        return (
+                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold border ${typeInfo.className}`}>
+                                                <TypeIcon size={13} />
+                                                {typeInfo.label}
+                                            </span>
+                                        );
+                                    })()}
+                                </div>
                                 
                                 {offer.end_datetime && (
-                                    <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold text-orange-600 uppercase">
+                                    <div className="mt-2.5 flex items-center gap-1.5 text-[10px] font-bold text-orange-600 uppercase">
                                         <div className="w-1.5 h-1.5 rounded-full bg-orange-600 animate-pulse" />
                                         Expires: {new Date(offer.end_datetime).toLocaleDateString()} {new Date(offer.end_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </div>

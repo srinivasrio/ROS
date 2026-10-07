@@ -148,24 +148,7 @@ export default function MenuPage() {
                 </div>
             </div>
 
-            {/* Filtered by Restaurant Banner (if single branch selected) */}
-            {!isAllRestaurants && currentRestaurant && (
-                <div className="flex items-center justify-between p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-800/40">
-                    <div className="flex items-center gap-2.5">
-                        <Store size={16} className="text-indigo-600 dark:text-indigo-400" />
-                        <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
-                            Viewing Menu for: <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{currentRestaurant.name}</span>
-                            <span className="ml-2 font-mono text-[10px] text-neutral-400">ID: {currentRestaurant.id}</span>
-                        </span>
-                    </div>
-                    <button
-                        onClick={() => setSelectedRestaurant('all')}
-                        className="px-3 py-1 rounded-xl bg-white dark:bg-zinc-800 text-xs font-bold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-zinc-700 transition-colors cursor-pointer shadow-2xs"
-                    >
-                        Show All Outlets ({restaurants.length})
-                    </button>
-                </div>
-            )}
+
 
             {/* KPI Ribbon */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

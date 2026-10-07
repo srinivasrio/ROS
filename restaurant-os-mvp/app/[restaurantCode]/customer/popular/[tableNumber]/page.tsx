@@ -116,8 +116,7 @@ export default function AllPopularItemsPage() {
                             <LucideChevronLeft size={18} />
                         </button>
                         <div className="flex flex-col min-w-0">
-                            <h1 className="text-sm sm:text-base font-black text-slate-900 leading-tight truncate flex items-center gap-1.5">
-                                <LucideSparkles size={16} className="text-orange-500 shrink-0" />
+                            <h1 className="text-sm sm:text-base font-black text-slate-900 leading-tight truncate">
                                 <span>Most Loved Dishes</span>
                             </h1>
                             <p className="text-[10px] font-semibold text-slate-500 truncate">

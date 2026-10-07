@@ -159,7 +159,7 @@ export default function OwnerManagementWorkspace({
     // Approve Branch Modal State
     const [branchToApprove, setBranchToApprove] = useState<any | null>(null);
     const [branchApprovePlan, setBranchApprovePlan] = useState('standard');
-    const [branchApproveQuota, setBranchApproveQuota] = useState(1);
+    const [branchApproveQuota, setBranchApproveQuota] = useState<number | string>('');
     const [branchApproveLoading, setBranchApproveLoading] = useState(false);
 
     // Reject Branch Modal State
@@ -265,7 +265,7 @@ export default function OwnerManagementWorkspace({
                     locationId: branchToApprove.id,
                     action: 'approve',
                     planSlug: branchApprovePlan,
-                    customQuota: branchApproveQuota
+                    customQuota: Number(branchApproveQuota) || null
                 })
             });
             const json = await res.json();
@@ -2851,8 +2851,9 @@ export default function OwnerManagementWorkspace({
                                 type="number"
                                 min={1}
                                 max={50}
+                                placeholder="1"
                                 value={branchApproveQuota}
-                                onChange={(e) => setBranchApproveQuota(Math.max(1, parseInt(e.target.value) || 1))}
+                                onChange={(e) => setBranchApproveQuota(e.target.value === '' ? '' : parseInt(e.target.value) || '')}
                                 className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl text-xs font-bold text-[#172033] focus:outline-none focus:border-emerald-600"
                             />
                             <p className="text-[11px] text-neutral-400">

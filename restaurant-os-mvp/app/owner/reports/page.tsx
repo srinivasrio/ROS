@@ -21,369 +21,255 @@ import {
     PieChart,
     Receipt,
     Store,
-    Flame
+    Flame,
+    Zap,
+    Filter,
+    LayoutGrid,
+    IndianRupee
 } from 'lucide-react';
+import { AnalyticsService, AnalyticsMetrics, TimeRange, OrderLogEntry } from '@/services/analytics.service';
+import { TimeFilter } from '@/components/admin/analytics/TimeFilter';
+import { LineChart, BarChart, DonutChart } from '@/components/admin/analytics/ProfessionalCharts';
+import { DetailedTable } from '@/components/admin/analytics/DetailedTable';
+import { formatCurrency } from '@/lib/utils';
 
 export default function ReportsPage() {
-    const { selectedRestaurantId, isAllRestaurants, currentRestaurant, restaurants, setSelectedRestaurant } = useOwner();
-    const [period, setPeriod] = useState('all');
-    const [reportData, setReportData] = useState<any>(null);
+    const { selectedRestaurantId, isAllRestaurants, currentRestaurant, restaurants } = useOwner();
+    const [range, setRange] = useState<TimeRange>('7d');
     const [loading, setLoading] = useState(true);
+    const [metrics, setMetrics] = useState<AnalyticsMetrics | null>(null);
+    const [revenueTrend, setRevenueTrend] = useState<any[]>([]);
+    const [statusBreakdown, setStatusBreakdown] = useState<any[]>([]);
+    const [categoryRevenue, setCategoryRevenue] = useState<any[]>([]);
+    const [paymentSplit, setPaymentSplit] = useState<any[]>([]);
+    const [topDishes, setTopDishes] = useState<any[]>([]);
+    const [slowDishes, setSlowDishes] = useState<any[]>([]);
+    const [orderLog, setOrderLog] = useState<OrderLogEntry[]>([]);
+    const [branchData, setBranchData] = useState<any[]>([]);
 
-    const fetchReports = useCallback(async () => {
+    // Target restaurant ID for analytics
+    const targetRestaurantId = (!isAllRestaurants && selectedRestaurantId) 
+        ? selectedRestaurantId 
+        : (restaurants[0]?.id || '');
+
+    const fetchAnalytics = useCallback(async () => {
         setLoading(true);
         try {
-            const params = new URLSearchParams();
-            params.set('period', period);
-            if (!isAllRestaurants && selectedRestaurantId) {
-                params.set('branch', selectedRestaurantId);
+            if (targetRestaurantId) {
+                const [
+                    kpis, 
+                    trends, 
+                    status, 
+                    cats, 
+                    payments, 
+                    top, 
+                    slow, 
+                    log
+                ] = await Promise.all([
+                    AnalyticsService.fetchKPIMetrics(targetRestaurantId, range),
+                    AnalyticsService.fetchRevenueTrends(targetRestaurantId, range),
+                    AnalyticsService.fetchOrderStatusBreakdown(targetRestaurantId, range),
+                    AnalyticsService.fetchCategoryRevenue(targetRestaurantId, range),
+                    AnalyticsService.fetchPaymentMethodSplit(targetRestaurantId, range),
+                    AnalyticsService.fetchTopSellingItems(targetRestaurantId, range, 10),
+                    AnalyticsService.fetchTopSellingItems(targetRestaurantId, range, 10, true),
+                    AnalyticsService.fetchOrderLog(targetRestaurantId, range)
+                ]);
+
+                setMetrics(kpis);
+                setRevenueTrend(trends || []);
+                setStatusBreakdown(status || []);
+                setCategoryRevenue(cats || []);
+                setPaymentSplit(payments || []);
+                setTopDishes(top || []);
+                setSlowDishes(slow || []);
+                setOrderLog(log || []);
             }
 
-            const res = await fetch(`/api/owner/reports?${params.toString()}`);
+            // Also load aggregate branch breakdown
+            const res = await fetch(`/api/owner/reports?period=all`);
             if (res.ok) {
                 const data = await res.json();
-                setReportData(data);
+                setBranchData(data?.branchBreakdown || []);
             }
         } catch (err) {
-            console.error('Failed to load reports:', err);
+            console.error('Failed to load reports & analytics:', err);
         } finally {
             setLoading(false);
         }
-    }, [period, selectedRestaurantId, isAllRestaurants]);
+    }, [targetRestaurantId, range]);
 
     useEffect(() => {
-        fetchReports();
-    }, [fetchReports]);
+        fetchAnalytics();
+    }, [fetchAnalytics]);
 
-    const rev = reportData?.totalRevenue || 0;
-    const ordersCount = reportData?.totalOrders || 0;
-    const aov = reportData?.averageOrderValue || 0;
-    const gst = reportData?.totalGst || 0;
-    const orderTypes = reportData?.orderTypeStats || {
-        dineIn: { count: 0, revenue: 0 },
-        takeaway: { count: 0, revenue: 0 },
-        delivery: { count: 0, revenue: 0 }
-    };
-
-    const dineInPct = rev > 0 ? Math.round((orderTypes.dineIn.revenue / rev) * 100) : 0;
-    const takeawayPct = rev > 0 ? Math.round((orderTypes.takeaway.revenue / rev) * 100) : 0;
-    const deliveryPct = rev > 0 ? Math.round((orderTypes.delivery.revenue / rev) * 100) : 0;
+    const activeOutletName = (!isAllRestaurants && currentRestaurant) 
+        ? currentRestaurant.name 
+        : (restaurants.find(r => r.id === targetRestaurantId)?.name || 'All Outlets');
 
     return (
-        <div className="p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+        <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
             {/* Header & Controls */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-tight flex items-center gap-2.5">
                         <BarChart3 className="text-emerald-500" size={24} />
-                        Executive Intelligence & Reports
+                        Executive Restaurant Analytics
                     </h2>
                     <p className="text-sm text-neutral-400 mt-0.5">
-                        {isAllRestaurants
-                            ? 'Franchise-wide operational metrics & audit breakdown'
-                            : `Consolidated performance metrics for ${currentRestaurant?.name || 'Selected Outlet'}`}
+                        Real-time analytics and financial intelligence for <strong className="text-neutral-700 dark:text-neutral-200">{activeOutletName}</strong>
                     </p>
                 </div>
 
                 <div className="flex items-center gap-3">
                     <button
-                        onClick={() => fetchReports()}
-                        className="p-2.5 rounded-xl border border-neutral-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-800/80 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-zinc-700 transition"
-                        title="Refresh report data"
+                        onClick={() => fetchAnalytics()}
+                        disabled={loading}
+                        className="p-2.5 rounded-xl bg-white dark:bg-zinc-800 border border-neutral-200/60 dark:border-zinc-700/30 text-neutral-600 dark:text-neutral-300 hover:text-emerald-600 transition-colors cursor-pointer shadow-xs"
+                        title="Refresh Analytics"
                     >
-                        <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+                        <RefreshCw size={14} className={loading ? 'animate-spin text-emerald-500' : ''} />
                     </button>
-                    <div className="flex items-center bg-white dark:bg-zinc-900 border border-neutral-200/60 dark:border-zinc-800 rounded-xl p-1 shadow-xs">
-                        {[
-                            { id: 'today', label: 'Today' },
-                            { id: 'week', label: '7D' },
-                            { id: 'month', label: '30D' },
-                            { id: 'quarter', label: '90D' },
-                            { id: 'all', label: 'All Time' }
-                        ].map(t => (
-                            <button
-                                key={t.id}
-                                onClick={() => setPeriod(t.id)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                                    period === t.id
-                                        ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-xs'
-                                        : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-white'
-                                }`}
-                            >
-                                {t.label}
-                            </button>
-                        ))}
-                    </div>
+                    <TimeFilter value={range} onChange={setRange} />
                 </div>
             </div>
 
-            {/* Active Outlet Banner if isolated */}
-            {!isAllRestaurants && currentRestaurant && (
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 px-4 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
-                    <div className="flex items-center gap-2">
-                        <Store size={15} />
-                        <span>Isolating revenue and orders for <strong>{currentRestaurant.name}</strong></span>
-                    </div>
-                    <button
-                        onClick={() => setSelectedRestaurant('all')}
-                        className="font-bold underline hover:opacity-80 transition"
-                    >
-                        Switch to Franchise-Wide
-                    </button>
-                </div>
-            )}
-
-            {/* Core Financial Ribbon */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                    {
-                        label: 'Total Realized Revenue',
-                        value: loading ? '...' : `₹${rev.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                        desc: 'Net settled sales volume',
-                        icon: DollarSign,
-                        color: 'text-emerald-500',
-                        bg: 'bg-emerald-50 dark:bg-emerald-950/30'
-                    },
-                    {
-                        label: 'Total Orders Completed',
-                        value: loading ? '...' : ordersCount,
-                        desc: `${orderTypes.dineIn.count} dine-in · ${orderTypes.takeaway.count} takeaway`,
-                        icon: ShoppingBag,
-                        color: 'text-orange-500',
-                        bg: 'bg-orange-50 dark:bg-orange-950/30'
-                    },
-                    {
-                        label: 'Average Order Value (AOV)',
-                        value: loading ? '...' : `₹${Math.round(aov).toLocaleString('en-IN')}`,
-                        desc: 'Average bill size per ticket',
-                        icon: TrendingUp,
-                        color: 'text-indigo-500',
-                        bg: 'bg-indigo-50 dark:bg-indigo-950/30'
-                    },
-                    {
-                        label: 'Taxes Collected (GST)',
-                        value: loading ? '...' : `₹${gst.toFixed(2)}`,
-                        desc: 'CGST + SGST audit liability',
-                        icon: Receipt,
-                        color: 'text-blue-500',
-                        bg: 'bg-blue-50 dark:bg-blue-950/30'
-                    },
-                ].map((stat, i) => (
-                    <motion.div
-                        key={i}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                        className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-neutral-200/70 dark:border-zinc-800/80 shadow-xs flex items-center gap-4"
-                    >
-                        <div className={`p-3 rounded-xl shrink-0 ${stat.bg} ${stat.color}`}>
-                            <stat.icon size={20} />
-                        </div>
-                        <div className="min-w-0">
-                            <p className="text-[10px] font-black text-neutral-400 uppercase tracking-wider truncate">{stat.label}</p>
-                            <p className="text-xl font-black text-neutral-900 dark:text-white truncate">{stat.value}</p>
-                            <p className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate">{stat.desc}</p>
-                        </div>
-                    </motion.div>
-                ))}
+            {/* KPI Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <AnalyticsStatCard 
+                    title="Total Realized Revenue" 
+                    value={loading ? '...' : formatCurrency(metrics?.totalRevenue || 0)} 
+                    icon={TrendingUp} 
+                    color="emerald" 
+                />
+                <AnalyticsStatCard 
+                    title="Total Orders Count" 
+                    value={loading ? '...' : (metrics?.totalOrders || 0)} 
+                    icon={ShoppingBag} 
+                    color="orange" 
+                />
+                <AnalyticsStatCard 
+                    title="Average Order Value" 
+                    value={loading ? '...' : formatCurrency(metrics?.avgOrderValue || 0)} 
+                    icon={Zap} 
+                    color="blue" 
+                />
+                <AnalyticsStatCard 
+                    title="Cancellation Rate" 
+                    value={loading ? '...' : `${metrics?.cancellationRate || 0}%`} 
+                    icon={Filter} 
+                    color="red" 
+                />
             </div>
 
-            {/* Channel Performance: Dine In vs Takeaway vs Delivery */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                {[
-                    {
-                        title: 'Dine-In Operations',
-                        count: orderTypes.dineIn.count,
-                        revenue: orderTypes.dineIn.revenue,
-                        pct: dineInPct,
-                        icon: Utensils,
-                        color: 'from-amber-500 to-orange-500',
-                        badgeBg: 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                    },
-                    {
-                        title: 'Takeaway Counters',
-                        count: orderTypes.takeaway.count,
-                        revenue: orderTypes.takeaway.revenue,
-                        pct: takeawayPct,
-                        icon: PackageCheck,
-                        color: 'from-blue-500 to-indigo-500',
-                        badgeBg: 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-500/20'
-                    },
-                    {
-                        title: 'Direct Delivery',
-                        count: orderTypes.delivery.count,
-                        revenue: orderTypes.delivery.revenue,
-                        pct: deliveryPct,
-                        icon: Truck,
-                        color: 'from-emerald-500 to-teal-500',
-                        badgeBg: 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-                    }
-                ].map((channel, i) => (
-                    <div
-                        key={i}
-                        className="bg-white dark:bg-zinc-900 rounded-2xl border border-neutral-200/70 dark:border-zinc-800/80 p-5 shadow-xs space-y-4"
-                    >
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className={`p-2 rounded-xl border ${channel.badgeBg}`}>
-                                    <channel.icon size={18} />
-                                </div>
-                                <div>
-                                    <h4 className="text-xs font-bold text-neutral-900 dark:text-white">{channel.title}</h4>
-                                    <p className="text-[10px] text-neutral-400">{channel.count} orders recorded</p>
-                                </div>
-                            </div>
-                            <span className="text-xs font-black text-neutral-900 dark:text-white">
-                                {channel.pct}%
-                            </span>
-                        </div>
-
-                        <div>
-                            <div className="flex justify-between items-baseline mb-1">
-                                <span className="text-[10px] uppercase font-bold text-neutral-400">Channel Revenue</span>
-                                <span className="font-mono font-black text-sm text-neutral-900 dark:text-white">
-                                    ₹{channel.revenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </span>
-                            </div>
-                            <div className="w-full h-2 bg-neutral-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                                <div
-                                    className={`h-full bg-gradient-to-r ${channel.color} rounded-full transition-all duration-500`}
-                                    style={{ width: `${Math.max(channel.pct, 0)}%` }}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                ))}
+            {/* Operations Row */}
+            <div className="space-y-4">
+                <h3 className="text-xs font-black text-neutral-500 uppercase tracking-widest flex items-center gap-2">
+                    <LayoutGrid size={14} /> Operations & Demand Velocity
+                </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <ChartContainer title="Revenue Over Time" subtitle="Trend analysis">
+                        <LineChart data={revenueTrend} />
+                    </ChartContainer>
+                    <ChartContainer title="Order Volume" subtitle="Fulfillment peaks">
+                        <BarChart data={revenueTrend} color="#8B5CF6" />
+                    </ChartContainer>
+                    <ChartContainer title="Order Status Breakdown" subtitle="Kitchen & delivery state">
+                        <DonutChart data={statusBreakdown} />
+                    </ChartContainer>
+                </div>
             </div>
 
-            {/* Split Row: Top Selling Dishes + Payment Method Split */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Top Selling Items */}
-                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-neutral-200/70 dark:border-zinc-800/80 p-6 shadow-xs space-y-4">
-                    <div className="flex items-center justify-between border-b border-neutral-100 dark:border-zinc-800 pb-3">
-                        <div className="flex items-center gap-2">
-                            <Flame size={16} className="text-rose-500" />
-                            <h3 className="text-xs font-black uppercase tracking-wider text-neutral-800 dark:text-neutral-200">
-                                Top Selling Dishes
-                            </h3>
-                        </div>
-                        <span className="text-[10px] font-bold text-neutral-400">By Sales Quantity</span>
-                    </div>
-
-                    {loading ? (
-                        <div className="py-12 text-center text-xs text-neutral-400">Loading top menu items...</div>
-                    ) : (reportData?.topItems || []).length === 0 ? (
-                        <div className="py-12 text-center text-xs text-neutral-400">No item line-items recorded yet.</div>
-                    ) : (
-                        <div className="divide-y divide-neutral-100 dark:divide-zinc-800">
-                            {reportData.topItems.map((item: any, idx: number) => (
-                                <div key={idx} className="py-3 flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-6 h-6 rounded-md bg-neutral-100 dark:bg-zinc-800 text-neutral-600 dark:text-neutral-400 font-black text-xs flex items-center justify-center shrink-0">
-                                            #{idx + 1}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            {/* FSSAI Veg / Non-Veg Indicator */}
-                                            <span
-                                                className={`w-3 h-3 rounded-xs border flex items-center justify-center p-0.5 shrink-0 ${
-                                                    item.is_veg
-                                                        ? 'border-emerald-600 dark:border-emerald-500'
-                                                        : 'border-rose-600 dark:border-rose-500'
-                                                }`}
-                                            >
-                                                <span
-                                                    className={`w-1.5 h-1.5 rounded-full ${
-                                                        item.is_veg ? 'bg-emerald-600' : 'bg-rose-600'
-                                                    }`}
-                                                />
-                                            </span>
-                                            <span className="text-xs font-bold text-neutral-900 dark:text-white">
-                                                {item.name}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-4 text-right">
-                                        <span className="text-xs font-bold text-neutral-600 dark:text-neutral-400">
-                                            {item.quantity} sold
-                                        </span>
-                                        <span className="font-mono font-bold text-xs text-neutral-900 dark:text-white">
-                                            ₹{item.revenue.toFixed(2)}
-                                        </span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+            {/* Revenue Breakdown Row */}
+            <div className="space-y-4">
+                <h3 className="text-xs font-black text-neutral-500 uppercase tracking-widest flex items-center gap-2">
+                    <IndianRupee size={14} /> Settlement & Category Revenue
+                </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <ChartContainer title="Revenue by Category" subtitle="Top performing menu sections">
+                        <DonutChart data={categoryRevenue} />
+                    </ChartContainer>
+                    <ChartContainer title="Payment Settlement Methods" subtitle="UPI vs Cash vs Card">
+                        <DonutChart data={paymentSplit} />
+                    </ChartContainer>
+                    <ChartContainer title="Average Order Value Trend" subtitle="Ticket size evolution">
+                        <LineChart data={revenueTrend} color="#3B82F6" />
+                    </ChartContainer>
                 </div>
+            </div>
 
-                {/* Payment Methods & Settle Breakdown */}
-                <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-neutral-200/70 dark:border-zinc-800/80 p-6 shadow-xs space-y-4">
-                    <div className="flex items-center justify-between border-b border-neutral-100 dark:border-zinc-800 pb-3">
-                        <div className="flex items-center gap-2">
-                            <CreditCard size={16} className="text-indigo-500" />
-                            <h3 className="text-xs font-black uppercase tracking-wider text-neutral-800 dark:text-neutral-200">
-                                Payment Settlement Modes
-                            </h3>
-                        </div>
-                        <span className="text-[10px] font-bold text-neutral-400">Gross Settlement</span>
-                    </div>
-
-                    {loading ? (
-                        <div className="py-12 text-center text-xs text-neutral-400">Loading settlement methods...</div>
-                    ) : !reportData?.paymentBreakdown || Object.keys(reportData.paymentBreakdown).length === 0 ? (
-                        <div className="py-12 text-center text-xs text-neutral-400">No payment data recorded.</div>
-                    ) : (
-                        <div className="divide-y divide-neutral-100 dark:divide-zinc-800">
-                            {Object.entries(reportData.paymentBreakdown).map(([method, data]: [string, any], idx) => {
-                                const methodPct = rev > 0 ? Math.round((data.amount / rev) * 100) : 0;
-                                return (
-                                    <div key={idx} className="py-3 flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 flex items-center justify-center font-bold text-xs">
-                                                <CreditCard size={14} />
-                                            </div>
-                                            <div>
-                                                <p className="text-xs font-bold text-neutral-900 dark:text-white uppercase tracking-wider">
-                                                    {method || 'CASH'}
-                                                </p>
-                                                <p className="text-[10px] text-neutral-400">{data.count} transactions</p>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="font-mono font-bold text-xs text-neutral-900 dark:text-white">
-                                                ₹{data.amount.toFixed(2)}
-                                            </p>
-                                            <p className="text-[10px] font-semibold text-neutral-400">
-                                                {methodPct}% share
-                                            </p>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
+            {/* Menu Performance Row */}
+            <div className="space-y-4">
+                <h3 className="text-xs font-black text-neutral-500 uppercase tracking-widest flex items-center gap-2">
+                    <Utensils size={14} /> Menu Item Velocity
+                </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <ChartContainer title="Top 10 Selling Dishes" subtitle="By total quantity sold">
+                        <BarChart data={topDishes} horizontal color="#10B981" />
+                    </ChartContainer>
+                    <ChartContainer title="Slow Moving Menu Items" subtitle="Low velocity items">
+                        <BarChart data={slowDishes} horizontal color="#EF4444" />
+                    </ChartContainer>
                 </div>
+            </div>
+
+            {/* Tables: Recent Orders & Item Performance */}
+            <div className="space-y-6">
+                <DetailedTable 
+                    title="Recent Order Log" 
+                    data={orderLog}
+                    columns={[
+                        { key: 'order_number', label: 'Order #' },
+                        { 
+                            key: 'created_at', 
+                            label: 'Time', 
+                            render: (val: any) => val ? new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—' 
+                        },
+                        { key: 'table_number', label: 'Table' },
+                        { key: 'items', label: 'Items' },
+                        { key: 'total_amount', label: 'Amount', render: (val: any) => formatCurrency(val) },
+                        { key: 'payment_method', label: 'Payment' },
+                        { 
+                            key: 'status', 
+                            label: 'Status', 
+                            render: (val: any) => (
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                    val === 'paid' || val === 'completed' || val === 'served'
+                                        ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300' 
+                                        : 'bg-neutral-100 dark:bg-zinc-800 text-neutral-700 dark:text-neutral-300'
+                                }`}>{val}</span>
+                            )
+                        }
+                    ]}
+                />
+
+                <DetailedTable 
+                    title="Menu Item Sales Breakdown" 
+                    data={topDishes}
+                    columns={[
+                        { key: 'name', label: 'Dish Name' },
+                        { key: 'category', label: 'Category' },
+                        { key: 'quantity', label: 'Quantity Sold' },
+                        { key: 'revenue', label: 'Gross Revenue', render: (val: any) => formatCurrency(val) }
+                    ]}
+                />
             </div>
 
             {/* Franchise Multi-Branch Breakdown Table */}
-            <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-neutral-200/70 dark:border-zinc-800/80 p-6 shadow-xs space-y-4">
-                <div className="flex items-center justify-between border-b border-neutral-100 dark:border-zinc-800 pb-3">
-                    <div className="flex items-center gap-2">
-                        <Building2 size={16} className="text-amber-500" />
-                        <h3 className="text-xs font-black uppercase tracking-wider text-neutral-800 dark:text-neutral-200">
-                            Restaurant Branch Revenue & Fulfillment Split
-                        </h3>
+            {branchData.length > 0 && (
+                <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-neutral-200/70 dark:border-zinc-800/80 p-6 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-neutral-100 dark:border-zinc-800 pb-3">
+                        <div className="flex items-center gap-2">
+                            <Building2 size={16} className="text-amber-500" />
+                            <h3 className="text-xs font-black uppercase tracking-wider text-neutral-800 dark:text-neutral-200">
+                                Restaurant Branch Revenue & Orders Breakdown
+                            </h3>
+                        </div>
+                        <span className="text-[10px] text-neutral-400 font-bold">
+                            {branchData.length} Outlets Configured
+                        </span>
                     </div>
-                    <span className="text-[10px] text-neutral-400 font-bold">
-                        {reportData?.branchBreakdown?.length || 0} Outlets Configured
-                    </span>
-                </div>
 
-                {loading ? (
-                    <div className="py-8 text-center text-xs text-neutral-400">Loading branch metrics...</div>
-                ) : (reportData?.branchBreakdown || []).length === 0 ? (
-                    <div className="py-8 text-center text-xs text-neutral-400">No branch transaction data found for this period.</div>
-                ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
                             <thead className="bg-neutral-50 dark:bg-zinc-800/50 text-[10px] uppercase font-black text-neutral-500">
@@ -397,7 +283,7 @@ export default function ReportsPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-neutral-100 dark:divide-zinc-800">
-                                {reportData.branchBreakdown.map((b: any, idx: number) => (
+                                {branchData.map((b: any, idx: number) => (
                                     <tr key={idx} className="hover:bg-neutral-50/50 dark:hover:bg-zinc-800/30 transition">
                                         <td className="p-3">
                                             <div className="flex items-center gap-2.5">
@@ -421,7 +307,7 @@ export default function ReportsPage() {
                                         </td>
                                         <td className="p-3 text-right">
                                             <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                                ₹{b.revenue.toFixed(2)}
+                                                ₹{parseFloat(b.revenue || 0).toFixed(2)}
                                             </span>
                                         </td>
                                     </tr>
@@ -429,7 +315,46 @@ export default function ReportsPage() {
                             </tbody>
                         </table>
                     </div>
-                )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function AnalyticsStatCard({ title, value, icon: Icon, color }: any) {
+    const colorMap: any = {
+        emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500',
+        orange: 'bg-orange-50 dark:bg-orange-500/10 text-orange-500',
+        blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-500',
+        red: 'bg-red-50 dark:bg-red-500/10 text-red-500'
+    };
+
+    return (
+        <div className="bg-white dark:bg-zinc-900 border border-neutral-200/70 dark:border-zinc-800 p-6 rounded-2xl shadow-xs hover:shadow-md transition-shadow group">
+            <div className="flex justify-between items-start mb-4">
+                <div className={`p-3 rounded-xl ${colorMap[color]} group-hover:scale-110 transition-transform`}>
+                    <Icon className="w-5 h-5" />
+                </div>
+            </div>
+            <div>
+                <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{title}</p>
+                <h3 className="text-2xl font-black text-neutral-900 dark:text-white mt-1">{value}</h3>
+            </div>
+        </div>
+    );
+}
+
+function ChartContainer({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+    return (
+        <div className="bg-white dark:bg-zinc-900 border border-neutral-200/70 dark:border-zinc-800 p-6 rounded-3xl shadow-xs space-y-4">
+            <div className="flex justify-between items-start">
+                <div>
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-white">{title}</h4>
+                    <p className="text-xs font-medium text-neutral-400">{subtitle}</p>
+                </div>
+            </div>
+            <div className="w-full">
+                {children}
             </div>
         </div>
     );

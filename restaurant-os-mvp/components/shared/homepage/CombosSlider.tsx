@@ -55,13 +55,13 @@ export default function CombosSlider({
   const scrollPrev = () => {
     const el = containerRef.current;
     if (!el) return;
-    el.scrollBy({ left: -340, behavior: 'smooth' });
+    el.scrollBy({ left: -260, behavior: 'smooth' });
   };
 
   const scrollNext = () => {
     const el = containerRef.current;
     if (!el) return;
-    el.scrollBy({ left: 340, behavior: 'smooth' });
+    el.scrollBy({ left: 260, behavior: 'smooth' });
   };
 
   if (!combos || combos.length === 0) {
@@ -92,7 +92,7 @@ export default function CombosSlider({
       {/* Single Row, Multiple Columns Horizontal Scrollable Track */}
       <div
         ref={containerRef}
-        className="flex items-start gap-4 sm:gap-6 overflow-x-auto no-scrollbar py-2.5 px-1 scroll-smooth overscroll-x-contain"
+        className="flex items-start gap-3.5 sm:gap-5 overflow-x-auto no-scrollbar py-2.5 px-1 scroll-smooth overscroll-x-contain"
       >
         {combos.map((combo: any) => {
           // CartContext stores combos via addSpecialToCart with key `special-{id}`
@@ -100,7 +100,7 @@ export default function CombosSlider({
           return (
             <div
               key={combo.id}
-              className="w-[280px] sm:w-[320px] md:w-[340px] shrink-0 snap-start"
+              className="w-[210px] sm:w-[235px] md:w-[255px] shrink-0 snap-start"
             >
               <ComboCard
                 combo={combo}

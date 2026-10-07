@@ -730,8 +730,8 @@ export default function AdminAboutPage() {
                                     <label className="block text-xs font-semibold text-black mb-1">GST Tax Rate (%)</label>
                                     <input
                                         type="number"
-                                        value={restaurantInfo.tax_percentage ?? 5}
-                                        onChange={e => setRestaurantInfo({ ...restaurantInfo, tax_percentage: Number(e.target.value) || 0 })}
+                                        value={restaurantInfo.tax_percentage === 0 || restaurantInfo.tax_percentage === undefined || restaurantInfo.tax_percentage === null ? '' : restaurantInfo.tax_percentage}
+                                        onChange={e => setRestaurantInfo({ ...restaurantInfo, tax_percentage: e.target.value === '' ? ('' as any) : (Number(e.target.value) || 0) })}
                                         placeholder="5"
                                         className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                                     />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X as LucideX, Loader2 as LucideLoader2, Bike as LucideBike } from 'lucide-react';
+import { X as LucideX, Loader2 as LucideLoader2, Bike as LucideBike, Eye as LucideEye, EyeOff as LucideEyeOff } from 'lucide-react';
 import { StaffService, Staff } from '@/services/staff.service';
 import { useRestaurantId } from '@/hooks/useRestaurantId';
 import { createClient } from '@/lib/supabase';
@@ -11,22 +11,40 @@ interface StaffModalProps {
     onClose: () => void;
     onSuccess: () => void;
     staff?: Staff;
+    isOwner?: boolean;
 }
 
-export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffModalProps) {
+export default function StaffModal({ isOpen, onClose, onSuccess, staff, isOwner }: StaffModalProps) {
     const { restaurantId } = useRestaurantId();
     const [loading, setLoading] = useState(false);
+    const [showPin, setShowPin] = useState(false);
+    const [currentUserIsOwner, setCurrentUserIsOwner] = useState<boolean>(isOwner ?? false);
+
+    useEffect(() => {
+        if (typeof isOwner === 'boolean') {
+            setCurrentUserIsOwner(isOwner);
+            return;
+        }
+        fetch('/api/auth/session')
+            .then(res => res.json())
+            .then(data => {
+                const role = (data?.user?.role || '').toLowerCase();
+                const ownerRoles = ['owner', 'restaurant_owner', 'super_admin', 'superadmin'];
+                setCurrentUserIsOwner(ownerRoles.includes(role));
+            })
+            .catch(() => setCurrentUserIsOwner(false));
+    }, [isOwner]);
     const [formData, setFormData] = useState({
         name: staff?.name || '',
         email: staff?.email || '',
-        role: staff?.role || 'waiter',
+        role: staff?.role || '',
         mobile: staff?.mobile || '',
         pin: staff?.pin || '',
         status: staff?.status || 'active',
         address: staff?.address || '',
         aadhaar_id: staff?.aadhaar_id || '',
-        vehicle_type: 'Motorcycle',
-        vehicle_number: '',
+        vehicle_type: staff?.vehicle_type || '',
+        vehicle_number: staff?.vehicle_number || '',
     });
 
     // Reset form when staff prop changes
@@ -35,13 +53,13 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
             setFormData({
                 name: staff.name,
                 email: staff.email || '',
-                role: staff.role,
-                mobile: staff.mobile,
+                role: staff.role || '',
+                mobile: staff.mobile || '',
                 pin: '', // Never load hashed PIN into input
-                status: staff.status,
+                status: staff.status || 'active',
                 address: staff.address || '',
                 aadhaar_id: staff.aadhaar_id || '',
-                vehicle_type: staff.vehicle_type || 'Motorcycle',
+                vehicle_type: staff.vehicle_type || '',
                 vehicle_number: staff.vehicle_number || '',
             });
 
@@ -56,7 +74,7 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                         if (data) {
                             setFormData(prev => ({
                                 ...prev,
-                                vehicle_type: data.vehicle_type || 'Motorcycle',
+                                vehicle_type: data.vehicle_type || '',
                                 vehicle_number: data.vehicle_number || '',
                             }));
                         }
@@ -66,13 +84,13 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
             setFormData({
                 name: '',
                 email: '',
-                role: 'waiter',
+                role: '',
                 mobile: '',
                 pin: '',
                 status: 'active',
                 address: '',
                 aadhaar_id: '',
-                vehicle_type: 'Motorcycle',
+                vehicle_type: '',
                 vehicle_number: '',
             });
         }
@@ -84,6 +102,11 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
         e.preventDefault();
         if (!restaurantId) {
             alert('Restaurant ID not found. Please try again.');
+            return;
+        }
+
+        if (['admin', 'restaurant_admin'].includes(formData.role) && !currentUserIsOwner) {
+            alert('Only restaurant owners can create or assign administrator accounts.');
             return;
         }
 
@@ -160,6 +183,7 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                             <input
                                 type="text"
                                 required
+                                placeholder="e.g. Rahul Sharma"
                                 className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 value={formData.name}
                                 onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -169,24 +193,34 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                         <div>
                             <label className="block text-sm font-medium text-black mb-1">Role</label>
                             <select
+                                required
                                 className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                                value={['waiter', 'chef', 'admin', 'supervisor', 'delivery_boy'].includes(formData.role) ? formData.role : 'other'}
+                                value={formData.role ? (['waiter', 'chef', 'admin', 'restaurant_admin', 'supervisor', 'delivery_boy'].includes(formData.role) ? formData.role : 'other') : ''}
                                 onChange={e => {
                                     const val = e.target.value;
                                     setFormData({ ...formData, role: val === 'other' ? '' : val });
                                 }}
                             >
+                                <option value="">Select Role</option>
                                 <option value="waiter">Waiter</option>
                                 <option value="chef">Chef</option>
-                                <option value="admin">Admin</option>
-                                <option value="restaurant_admin">Restaurant Admin</option>
+                                {currentUserIsOwner ? (
+                                    <>
+                                        <option value="admin">Admin</option>
+                                        <option value="restaurant_admin">Restaurant Admin</option>
+                                    </>
+                                ) : (formData.role === 'admin' || formData.role === 'restaurant_admin') ? (
+                                    <option value={formData.role} disabled>
+                                        {formData.role === 'restaurant_admin' ? 'Restaurant Admin' : 'Admin'} (Owner only)
+                                    </option>
+                                ) : null}
                                 <option value="supervisor">Supervisor</option>
                                 <option value="delivery_boy">Delivery Boy</option>
                                 <option value="other">Other / Custom</option>
                             </select>
                         </div>
 
-                        {!['waiter', 'chef', 'admin', 'restaurant_admin', 'supervisor', 'delivery_boy'].includes(formData.role) && (
+                        {Boolean(formData.role) && !['waiter', 'chef', 'admin', 'restaurant_admin', 'supervisor', 'delivery_boy'].includes(formData.role) && (
                             <div>
                                 <label className="block text-sm font-medium text-black mb-1">Custom Role Name</label>
                                 <input
@@ -214,6 +248,7 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                                             value={formData.vehicle_type}
                                             onChange={e => setFormData({ ...formData, vehicle_type: e.target.value })}
                                         >
+                                            <option value="">Select Vehicle Type</option>
                                             <option value="Motorcycle">Motorcycle</option>
                                             <option value="Scooter">Scooter</option>
                                             <option value="EV Scooter">EV Scooter</option>
@@ -275,19 +310,29 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                             <label className="block text-sm font-medium text-black mb-1">
                                 Security PIN {staff ? '(Leave blank to keep current)' : '(4-6 digits)'}
                             </label>
-                            <input
-                                type="password"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                maxLength={6}
-                                placeholder={staff ? '•••• (Unchanged)' : 'Enter 4-6 digit PIN'}
-                                className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                                value={formData.pin}
-                                onChange={e => setFormData({ ...formData, pin: e.target.value.replace(/[^0-9]/g, '') })}
-                                required={!staff}
-                            />
+                            <div className="relative">
+                                <input
+                                    type={showPin ? "text" : "password"}
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    maxLength={6}
+                                    placeholder={staff?.pin ? (showPin ? `Current: ${staff.pin}` : '•••• (Unchanged)') : 'Enter 4-6 digit PIN'}
+                                    className="w-full px-3 py-2 pr-10 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                                    value={formData.pin}
+                                    onChange={e => setFormData({ ...formData, pin: e.target.value.replace(/[^0-9]/g, '') })}
+                                    required={!staff}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPin(!showPin)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 transition-colors p-0.5"
+                                    title={showPin ? "Hide PIN" : "Show PIN"}
+                                >
+                                    {showPin ? <LucideEyeOff size={16} /> : <LucideEye size={16} />}
+                                </button>
+                            </div>
                             <p className="text-[10px] text-neutral-500 mt-1">
-                                {staff ? 'Enter a new 4-6 digit numeric PIN only if resetting.' : 'Employee uses this PIN to log into their panel.'}
+                                {staff ? (staff.pin ? `Current PIN: ${showPin ? staff.pin : '••••'}. Enter new PIN only to change.` : 'Enter a new 4-6 digit numeric PIN.') : 'Employee uses this PIN to log into their panel.'}
                             </p>
                         </div>
 
@@ -295,6 +340,7 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                             <label className="block text-sm font-medium text-black mb-1">Aadhaar / ID Number</label>
                             <input
                                 type="text"
+                                placeholder="12 digit Aadhaar or ID"
                                 className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 value={formData.aadhaar_id}
                                 onChange={e => setFormData({ ...formData, aadhaar_id: e.target.value })}
@@ -305,6 +351,7 @@ export default function StaffModal({ isOpen, onClose, onSuccess, staff }: StaffM
                             <label className="block text-sm font-medium text-black mb-1">Residential Address</label>
                             <textarea
                                 rows={3}
+                                placeholder="Residential address"
                                 className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                                 value={formData.address}
                                 onChange={e => setFormData({ ...formData, address: e.target.value })}

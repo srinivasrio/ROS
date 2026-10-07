@@ -3,9 +3,11 @@
 import { useState, useCallback, Suspense, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-    ShieldAlert, Lock, Mail, Loader2, ArrowRight, ExternalLink
+    Lock, Mail, Loader2, ArrowRight, ExternalLink
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 function SuperAdminLoginInner() {
     const [identifier, setIdentifier] = useState('');
@@ -14,7 +16,15 @@ function SuperAdminLoginInner() {
     const superAdminUrl = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://control.localhost:3005';
 
     const handleRedirect = () => {
-        window.location.href = superAdminUrl;
+        try {
+            window.location.href = superAdminUrl;
+        } catch (err: any) {
+            showWarningPopup({
+                title: 'Connection Notice',
+                message: err?.message || 'Could not redirect to Super Admin Console.',
+                type: 'warning'
+            });
+        }
     };
 
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
@@ -24,7 +34,12 @@ function SuperAdminLoginInner() {
             // Forward to superadmin app or authenticate directly
             window.location.href = `${superAdminUrl}/login`;
         } catch (err: any) {
-            toast.error(err.message || 'Super admin redirection failed');
+            showWarningPopup({
+                title: 'Portal Redirection Failed',
+                message: err?.message || 'Super admin redirection failed',
+                type: 'error',
+                dismissText: 'Retry'
+            });
             setLoading(false);
         }
     }, [superAdminUrl]);
@@ -41,9 +56,7 @@ function SuperAdminLoginInner() {
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center mb-8"
                 >
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-red-600 to-rose-700 shadow-xl shadow-red-600/25 mb-4 border border-red-500/20 text-white">
-                        <ShieldAlert size={32} />
-                    </div>
+                    <DineInOneLogo size={64} className="mx-auto mb-4" />
                     <div>
                         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 text-xs font-bold uppercase tracking-wider mb-2">
                             control.localhost:3005

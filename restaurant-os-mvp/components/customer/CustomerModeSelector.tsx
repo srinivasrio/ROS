@@ -9,6 +9,7 @@ import {
     X, ChevronRight, Phone, User, Loader2, RefreshCw, Edit3
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 import { formatAddress } from '@/lib/utils';
 import { TableNotFoundWarningCard } from '@/components/customer/TableNotFoundWarningCard';
 import { parseTableQrCode, TableVerifyResponse } from '@/lib/table-qr-utils';
@@ -606,7 +607,12 @@ export default function CustomerModeSelector({ restaurantCode }: CustomerModeSel
 
         // Verify that customer location satisfies both conditions (inside radius & inside active zone)
         if (activeCoords && !matchedDeliveryZone) {
-            toast.error('Cannot proceed: delivery address is outside the delivery radius or not within an active delivery zone.');
+            showWarningPopup({
+                title: 'Delivery Area Restriction',
+                message: 'Cannot proceed: your delivery address is outside the delivery radius or not within an active delivery zone.',
+                type: 'restriction',
+                dismissText: 'Dismiss'
+            });
             return;
         }
 
@@ -1469,7 +1475,12 @@ export default function CustomerModeSelector({ restaurantCode }: CustomerModeSel
                                                                     toast.success(`Address verified for ${data.zoneName || 'delivery'}`);
                                                                 } else {
                                                                     setMatchedDeliveryZone(null);
-                                                                    toast.error(data.message || 'Selected address is not eligible for delivery.');
+                                                                    showWarningPopup({
+                                                                        title: 'Address Not Eligible',
+                                                                        message: data.message || 'Selected address is not eligible for delivery from this restaurant.',
+                                                                        type: 'restriction',
+                                                                        dismissText: 'Dismiss'
+                                                                    });
                                                                 }
                                                             } catch {}
                                                         }

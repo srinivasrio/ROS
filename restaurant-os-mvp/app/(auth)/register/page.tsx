@@ -47,13 +47,18 @@ export default function RegisterPage() {
     const [city, setCity] = useState('');
     const [state, setState] = useState('');
     const [pincode, setPincode] = useState('');
-    const [gstPercentage, setGstPercentage] = useState('5');
-    const [cgstPercentage, setCgstPercentage] = useState('2.5');
-    const [sgstPercentage, setSgstPercentage] = useState('2.5');
+    const [gstPercentage, setGstPercentage] = useState('');
+    const [cgstPercentage, setCgstPercentage] = useState('');
+    const [sgstPercentage, setSgstPercentage] = useState('');
     const [planSlug, setPlanSlug] = useState<'standard' | 'growth' | 'pro'>('standard');
 
     const handleGstChange = (val: string) => {
         setGstPercentage(val);
+        if (val === '') {
+            setCgstPercentage('');
+            setSgstPercentage('');
+            return;
+        }
         const num = parseFloat(val);
         if (!isNaN(num) && num >= 0) {
             const half = (num / 2).toString();

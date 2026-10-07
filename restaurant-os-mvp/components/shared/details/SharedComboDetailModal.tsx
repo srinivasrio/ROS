@@ -47,11 +47,9 @@ export default function SharedComboDetailModal({
   const isModalOpen = Boolean(isOpen !== undefined ? isOpen : combo);
   const [activeCombo, setActiveCombo] = React.useState(combo);
 
-  React.useEffect(() => {
-    if (combo) {
-      setActiveCombo(combo);
-    }
-  }, [combo]);
+  if (combo && combo !== activeCombo) {
+    setActiveCombo(combo);
+  }
 
   const displayCombo = combo || activeCombo;
 
@@ -157,15 +155,15 @@ export default function SharedComboDetailModal({
 
           {/* Modal Container */}
           <motion.div
-            initial={{ y: '100%', opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: '100%', opacity: 0 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 350, mass: 0.8 }}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
             style={{
               boxShadow: '0 20px 50px rgba(15, 23, 42, 0.4)',
               border: '1px solid rgba(255, 255, 255, 0.85)',
-              willChange: 'transform, opacity',
+              willChange: 'transform',
             }}
             className="relative w-full sm:max-w-lg md:max-w-xl bg-[#EEF2F6] rounded-t-[32px] sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col z-10 transform-gpu"
             role="dialog"
