@@ -36,11 +36,11 @@ const Navbar = () => {
         }`}
       >
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex flex-col items-start leading-none group">
-            <div className="text-xl font-bold tracking-tight">
+          <Link href="/" className="inline-flex flex-col items-center leading-none group">
+            <div className="text-xl font-bold tracking-tight text-foreground">
               Dine <span className="gradient-text-coral text-xl">in</span> One
             </div>
-            <span className="text-[8px] font-black tracking-[0.26em] text-neutral-500 uppercase -mt-0.5 leading-none">
+            <span className="text-[7.5px] font-black tracking-[0.3em] text-neutral-500 uppercase mt-1 leading-none pl-2 text-center w-full">
               SMART POS
             </span>
           </Link>
