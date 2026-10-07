@@ -7,6 +7,39 @@ const smoothScrollTo = (id: string) => {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
 };
 
+const heroWords = [
+  { text: "The", highlight: false },
+  { text: "smartest", highlight: true },
+  { text: "decision", highlight: true },
+  { text: "for", highlight: false },
+  { text: "your", highlight: false },
+  { text: "restaurant", highlight: false },
+];
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.1,
+    },
+  },
+};
+
+const wordVariants = {
+  hidden: { opacity: 0, y: 22, filter: "blur(8px)" },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: {
+      duration: 0.5,
+      ease: [0.22, 1, 0.36, 1],
+    },
+  },
+};
+
 const HeroSection = () => {
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-32" id="hero">
@@ -16,12 +49,24 @@ const HeroSection = () => {
 
       <div className="relative z-10 max-w-4xl mx-auto px-6 text-center">
         <motion.h1
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-tight mb-6 gradient-text-coral" 
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+          className="text-4xl sm:text-5xl md:text-6xl font-extrabold leading-tight mb-6"
         >
-          The Smartest Decision for Your Restaurant
+          {heroWords.map((item, idx) => (
+            <motion.span
+              key={idx}
+              variants={wordVariants}
+              className={`inline-block mr-[0.24em] ${
+                item.highlight
+                  ? "gradient-text-coral drop-shadow-xs"
+                  : "text-foreground"
+              }`}
+            >
+              {item.text}
+            </motion.span>
+          ))}
         </motion.h1>
 
         <motion.p

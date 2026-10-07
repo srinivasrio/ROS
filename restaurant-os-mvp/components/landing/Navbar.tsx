@@ -5,7 +5,7 @@ import { X, Menu } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 
-const navLinks = ["Features", "Panels", "Pricing", "FAQ", "Contact"];
+const navLinks = ["Working", "Features", "Panels", "Pricing", "FAQ", "Contact"];
 
 const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
@@ -19,7 +19,8 @@ const Navbar = () => {
 
   const scrollTo = (id: string) => {
     setMobileOpen(false);
-    const element = document.getElementById(id.toLowerCase());
+    const targetId = id.toLowerCase() === "working" ? "solution" : id.toLowerCase();
+    const element = document.getElementById(targetId);
     if (element) {
       element.scrollIntoView({ behavior: "smooth" });
     }
@@ -30,7 +31,7 @@ const Navbar = () => {
       <nav
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
           scrolled
-            ? "bg-white/90 dark:bg-black/90 backdrop-blur-xl shadow-lg border-b border-neutral-200 dark:border-neutral-800"
+            ? "bg-white/80 dark:bg-black/80 backdrop-blur-xl shadow-xs border-b border-neutral-200/50 dark:border-white/5"
             : "bg-transparent"
         }`}
       >
