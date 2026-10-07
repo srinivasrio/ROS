@@ -154,7 +154,7 @@ const SolutionSection = () => (
 
                 <div className={`w-12 h-12 rounded-xl bg-gradient-to-tr ${node.color} flex items-center justify-center p-2 mb-3 shadow-md group-hover:scale-105 transition-transform`}>
                   {node.iconSrc ? (
-                    <img src={node.iconSrc} alt={node.role} className="w-7 h-7 object-contain" />
+                    <img src={node.iconSrc} alt={node.role} loading="lazy" decoding="async" className="w-7 h-7 object-contain" />
                   ) : (
                     <node.lucideIcon className="w-6 h-6 text-white" />
                   )}

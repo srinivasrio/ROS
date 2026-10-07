@@ -115,7 +115,7 @@ const ProblemSection = () => (
                 <div>
                   <div className="flex items-center justify-between mb-5">
                     <div className={`inline-flex items-center justify-center w-12 h-12 md:w-14 md:h-14 rounded-2xl ${style.iconBg} shadow-inner transition-transform group-hover:scale-105 duration-300`}>
-                      <img src={p.icon} alt={p.title} className="w-6 h-6 md:w-8 md:h-8 object-contain" />
+                      <img src={p.icon} alt={p.title} loading="lazy" decoding="async" className="w-6 h-6 md:w-8 md:h-8 object-contain" />
                     </div>
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${style.tagBg}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${style.dot} animate-pulse`} />

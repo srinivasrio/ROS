@@ -22,6 +22,8 @@ const MarqueeTicker = () => (
               key={`${set}-${i}`}
               src={src}
               alt=""
+              loading="lazy"
+              decoding="async"
               className="w-8 h-8 object-contain drop-shadow-md"
               draggable={false}
             />
