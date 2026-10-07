@@ -56,12 +56,12 @@ const Navbar = () => {
               </button>
             ))}
 
-            <Link
-              href="/login"
+            <a
+              href="https://owner.dineinone.com/login"
               className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 hover:text-[#FF6B6B] transition-colors"
             >
               Login
-            </Link>
+            </a>
 
             <Link href="/register">
               <button className="btn-teal text-sm !py-2.5 !px-5 shadow-sm">
@@ -120,13 +120,13 @@ const Navbar = () => {
               transition={{ delay: 0.28, duration: 0.25 }}
               className="w-full max-w-xs flex flex-col items-center gap-3 mt-4"
             >
-              <Link
-                href="/login"
+              <a
+                href="https://owner.dineinone.com/login"
                 onClick={() => setMobileOpen(false)}
                 className="text-lg font-semibold text-foreground hover:text-[#FF6B6B] transition-colors py-1"
               >
                 Login
-              </Link>
+              </a>
 
               <Link
                 href="/register"
