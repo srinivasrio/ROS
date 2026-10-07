@@ -109,6 +109,16 @@ const pipelineSteps: PipelineStep[] = [
 
 const orderStatusStates = ["Ordered", "Kitchen", "Ready", "Waiter", "Served"];
 
+const mobileWorkflowButtons = [
+  { id: "scan_qr", label: "1. Scan QR", icon: QrCode },
+  { id: "order", label: "2. Order", icon: ShoppingBag },
+  { id: "kitchen", label: "3. Kitchen", icon: ChefHat },
+  { id: "ready", label: "4. Ready", icon: CheckCircle2 },
+  { id: "served", label: "5. Served", icon: Utensils },
+];
+
+const stepDurations = [3500, 4200, 4200, 3500, 4200];
+
 const HeroSection: React.FC = () => {
   const shouldReduceMotion = useReducedMotion();
   const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
@@ -116,13 +126,14 @@ const HeroSection: React.FC = () => {
   const [isManualOverride, setIsManualOverride] = useState<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Auto progression loop (1800ms per step)
+  // Auto progression sequential loop
   useEffect(() => {
     if (!isPlaying || shouldReduceMotion) return;
 
+    const duration = stepDurations[activeStepIndex] || 3800;
     timerRef.current = setTimeout(() => {
       setActiveStepIndex((prev) => (prev + 1) % pipelineSteps.length);
-    }, 2000);
+    }, duration);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -170,7 +181,10 @@ const HeroSection: React.FC = () => {
       <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-purple-500/8 rounded-full blur-[160px] pointer-events-none" />
 
       <div className="relative z-10 max-w-7xl mx-auto w-full">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-8 items-center">
+        {/* ========================================================= */}
+        {/* DESKTOP HERO VIEW (Preserved exactly as-is for lg+ screens) */}
+        {/* ========================================================= */}
+        <div className="hidden lg:grid lg:grid-cols-12 gap-10 lg:gap-8 items-center">
           
           {/* ========================================================= */}
           {/* LEFT COLUMN: Headline, Concept, Operational Pipeline, CTAs */}
@@ -651,6 +665,386 @@ const HeroSection: React.FC = () => {
 
           </div>
 
+        </div>
+
+        {/* ========================================================= */}
+        {/* MOBILE HERO VIEW (Dedicated mobile responsive layout)     */}
+        {/* 70% Animation area (iPhone) + 30% Workflow controls       */}
+        {/* ========================================================= */}
+        <div className="block lg:hidden w-full">
+          {/* Mobile Header: Live Badge & Staggered Word Headline */}
+          <div className="flex flex-col items-start text-left mb-4">
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold tracking-wider uppercase mb-2.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              <span>LIVE RESTAURANT OPERATIONS</span>
+              <span className="text-neutral-400 dark:text-neutral-500 font-mono text-[9px] border-l border-emerald-500/30 pl-1.5">
+                #DIO-108
+              </span>
+            </div>
+
+            <motion.h1
+              variants={containerVariants}
+              initial="hidden"
+              animate="visible"
+              className="text-2xl sm:text-3xl font-extrabold leading-[1.2] tracking-tight mb-2 text-foreground"
+            >
+              {heroWords.map((item, idx) => (
+                <motion.span
+                  key={idx}
+                  variants={wordVariants}
+                  className={`inline-block mr-[0.2em] ${
+                    item.highlight
+                      ? "gradient-text-coral drop-shadow-xs"
+                      : "text-foreground"
+                  }`}
+                >
+                  {item.text}
+                </motion.span>
+              ))}
+            </motion.h1>
+
+            <h2 className="text-sm sm:text-base font-bold text-foreground mb-1">
+              One order. Every operation.
+            </h2>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Watch how Dine in One connects tables, floor staff, and kitchen in real time.
+            </p>
+          </div>
+
+          {/* ========================================================= */}
+          {/* MOBILE 70/30 SPLIT WORKFLOW DEMO                          */}
+          {/* Left (70%): Realistic iPhone Mockup                       */}
+          {/* Right (30%): 5 Vertically Stacked Workflow Controls       */}
+          {/* ========================================================= */}
+          <div className="w-full flex items-center justify-between gap-2.5 sm:gap-4 my-3 max-w-[440px] mx-auto">
+            
+            {/* LEFT SECTION (70%): Realistic iPhone Mockup */}
+            <div className="w-[68%] sm:w-[70%] flex justify-start items-center">
+              <div className="relative w-full max-w-[215px] sm:max-w-[230px] aspect-[9/18.5] rounded-[34px] sm:rounded-[38px] p-2 sm:p-2.5 bg-neutral-950 border-[3.5px] border-neutral-800 shadow-[0_16px_40px_rgba(0,0,0,0.4)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.7)] ring-1 ring-white/10 flex flex-col justify-between overflow-hidden">
+                
+                {/* Dynamic Island Pill */}
+                <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-16 h-3 bg-neutral-900 rounded-full z-30 flex items-center justify-end pr-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-neutral-800 border border-neutral-700/80" />
+                </div>
+
+                {/* iPhone Inner Screen */}
+                <div className="relative rounded-[26px] sm:rounded-[28px] bg-white dark:bg-neutral-900 overflow-hidden border border-neutral-200/80 dark:border-neutral-800/80 flex flex-col justify-between h-full pt-3.5 pb-2 px-2.5 text-foreground select-none">
+                  
+                  {/* Status Bar */}
+                  <div className="flex items-center justify-between text-[9px] font-semibold text-neutral-400 mb-1 px-0.5 shrink-0">
+                    <span>9:41</span>
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span className="text-[8px] font-mono">5G</span>
+                      <span className="text-[8px]">100%</span>
+                    </div>
+                  </div>
+
+                  {/* App Header */}
+                  <div className="flex items-center justify-between pb-1.5 border-b border-border/50 shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-5 h-5 rounded-md bg-[#FF6B6B]/15 flex items-center justify-center text-[#FF6B6B] font-black text-[9px]">
+                        D1
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold leading-none text-foreground">Dine in One</div>
+                        <div className="text-[8px] text-muted-foreground">Live Flow</div>
+                      </div>
+                    </div>
+                    <div className="px-1.5 py-0.5 rounded-full bg-[#FF6B6B]/10 text-[#FF6B6B] border border-[#FF6B6B]/20 text-[9px] font-black">
+                      TABLE 08
+                    </div>
+                  </div>
+
+                  {/* Screen Content Body: 5 Sequential Storytelling Animations */}
+                  <div className="flex-1 py-1 flex flex-col justify-center min-h-[220px]">
+                    <AnimatePresence mode="wait">
+                      {/* STEP 1: SCAN QR */}
+                      {activeStepIndex === 0 && (
+                        <motion.div
+                          key="m-scan"
+                          initial={{ opacity: 0, scale: 0.96 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.96 }}
+                          transition={{ duration: 0.25 }}
+                          className="flex flex-col items-center justify-center text-center my-auto"
+                        >
+                          <div className="relative w-28 h-28 rounded-xl bg-neutral-950 border-2 border-[#FF6B6B]/40 flex items-center justify-center overflow-hidden mb-2 shadow-inner">
+                            {/* Viewfinder Target Brackets */}
+                            <div className="absolute top-1.5 left-1.5 w-3 h-3 border-t-2 border-l-2 border-[#FF6B6B]" />
+                            <div className="absolute top-1.5 right-1.5 w-3 h-3 border-t-2 border-r-2 border-[#FF6B6B]" />
+                            <div className="absolute bottom-1.5 left-1.5 w-3 h-3 border-b-2 border-l-2 border-[#FF6B6B]" />
+                            <div className="absolute bottom-1.5 right-1.5 w-3 h-3 border-b-2 border-r-2 border-[#FF6B6B]" />
+
+                            {/* Animated Laser Scanning Line */}
+                            <motion.div
+                              animate={shouldReduceMotion ? {} : { y: [-38, 38, -38] }}
+                              transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                              className="absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-[#FF6B6B] to-transparent shadow-[0_0_6px_#FF6B6B]"
+                            />
+
+                            {/* QR Code Graphics */}
+                            <div className="p-2 bg-white rounded-lg shadow-sm">
+                              <QrCode className="w-14 h-14 text-neutral-950" />
+                            </div>
+                          </div>
+
+                          <div className="text-[10px] font-bold text-foreground">
+                            Scanning Table QR
+                          </div>
+                          <div className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[8px] font-bold">
+                            <Check className="w-2.5 h-2.5" />
+                            Table 08 Verified
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* STEP 2: ORDER */}
+                      {activeStepIndex === 1 && (
+                        <motion.div
+                          key="m-order"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -8 }}
+                          transition={{ duration: 0.25 }}
+                          className="flex flex-col justify-between h-full py-0.5"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground uppercase">
+                              <span>Menu Selection</span>
+                              <span className="text-emerald-600 dark:text-emerald-400">Cart (3)</span>
+                            </div>
+
+                            <div className="p-1 rounded-md bg-neutral-50 dark:bg-neutral-800/60 border border-border/50 text-[9px] flex items-center justify-between">
+                              <span className="font-semibold text-foreground truncate">Paneer Tikka <span className="text-[#FF6B6B] font-bold">×2</span></span>
+                              <span className="font-mono font-bold text-foreground">₹360</span>
+                            </div>
+                            <div className="p-1 rounded-md bg-neutral-50 dark:bg-neutral-800/60 border border-border/50 text-[9px] flex items-center justify-between">
+                              <span className="font-semibold text-foreground truncate">Garlic Naan <span className="text-[#FF6B6B] font-bold">×1</span></span>
+                              <span className="font-mono font-bold text-foreground">₹80</span>
+                            </div>
+                            <div className="p-1 rounded-md bg-neutral-50 dark:bg-neutral-800/60 border border-border/50 text-[9px] flex items-center justify-between">
+                              <span className="font-semibold text-foreground truncate">Lassi <span className="text-[#FF6B6B] font-bold">×2</span></span>
+                              <span className="font-mono font-bold text-foreground">₹240</span>
+                            </div>
+
+                            <div className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[8px] text-amber-600 dark:text-amber-400 font-medium truncate">
+                              Note: Less spicy
+                            </div>
+                          </div>
+
+                          <div className="pt-1.5 border-t border-border/50 mt-1">
+                            <div className="flex items-center justify-between text-[9px] mb-1">
+                              <span className="text-muted-foreground">Total</span>
+                              <span className="font-mono font-black text-foreground">₹680</span>
+                            </div>
+                            <div className="w-full py-1 rounded-lg bg-[#FF6B6B] text-white text-[9px] font-bold text-center shadow-xs">
+                              Order Confirmed ✓
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* STEP 3: KITCHEN */}
+                      {activeStepIndex === 2 && (
+                        <motion.div
+                          key="m-kitchen"
+                          initial={{ opacity: 0, scale: 0.96 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.96 }}
+                          transition={{ duration: 0.25 }}
+                          className="flex flex-col justify-between h-full py-0.5 text-center"
+                        >
+                          <div className="p-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 mb-1.5">
+                            <div className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 text-[9px] font-bold uppercase">
+                              <ChefHat className="w-3 h-3 animate-bounce" />
+                              <span>Kitchen KDS</span>
+                            </div>
+                            <div className="text-[8px] text-muted-foreground mt-0.5">
+                              Ticket #108 • Table 08
+                            </div>
+                          </div>
+
+                          <div className="p-1.5 rounded-lg bg-card border border-border/50 text-left font-mono text-[8px] space-y-0.5">
+                            <div className="flex justify-between font-bold text-foreground">
+                              <span>Preparing Order</span>
+                              <span className="text-orange-500">04:12</span>
+                            </div>
+                            <div className="text-muted-foreground text-[8px]">
+                              • 2× Paneer Tikka (Less spicy)<br />
+                              • 1× Garlic Naan • 2× Lassi
+                            </div>
+                          </div>
+
+                          {/* Animated Progress Bar */}
+                          <div className="my-1.5">
+                            <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                              <motion.div
+                                initial={{ width: "20%" }}
+                                animate={{ width: "85%" }}
+                                transition={{ duration: 3.5, ease: "linear" }}
+                                className="h-full bg-orange-500 rounded-full"
+                              />
+                            </div>
+                            <div className="text-[8px] text-muted-foreground mt-1">
+                              Cooking in progress...
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* STEP 4: READY */}
+                      {activeStepIndex === 3 && (
+                        <motion.div
+                          key="m-ready"
+                          initial={{ opacity: 0, scale: 0.96 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.96 }}
+                          transition={{ duration: 0.25 }}
+                          className="flex flex-col justify-between h-full py-1 text-center"
+                        >
+                          <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                            <div className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 text-[9px] font-bold uppercase mb-0.5">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Order Ready</span>
+                            </div>
+                            <div className="text-[9px] font-bold text-foreground">
+                              Dishes on hot plate!
+                            </div>
+                          </div>
+
+                          <div className="p-1.5 rounded-lg bg-card border border-border/50 flex items-center gap-1.5 text-left my-auto">
+                            <Bell className="w-3.5 h-3.5 text-[#FF6B6B] shrink-0 animate-pulse" />
+                            <div className="text-[8px] text-foreground leading-tight">
+                              <span className="font-bold">Waiter Notified:</span> Pick up order for Table 08.
+                            </div>
+                          </div>
+
+                          <div className="text-[8px] text-emerald-600 dark:text-emerald-400 font-bold">
+                            ✓ Captain en route to table
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* STEP 5: SERVED */}
+                      {activeStepIndex === 4 && (
+                        <motion.div
+                          key="m-served"
+                          initial={{ opacity: 0, scale: 0.96 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.96 }}
+                          transition={{ duration: 0.25 }}
+                          className="flex flex-col justify-center h-full text-center py-1 my-auto"
+                        >
+                          <div className="w-10 h-10 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center mb-2 shadow-xs">
+                            <Utensils className="w-5 h-5" />
+                          </div>
+
+                          <div className="text-xs font-black text-foreground mb-1">
+                            Order Served!
+                          </div>
+
+                          {/* EXACT USER SPECIFICATION MESSAGE */}
+                          <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 leading-tight mb-2 px-1">
+                            &ldquo;Your food is served. Enjoy!&rdquo;
+                          </p>
+
+                          <div className="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-[8px] font-mono font-bold text-muted-foreground mx-auto">
+                            Table 08 • ₹680 Paid
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Bottom Micro Status Bar */}
+                  <div className="pt-1 border-t border-border/50 shrink-0">
+                    <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground uppercase">
+                      <span>#DIO-108</span>
+                      <span className="text-[#FF6B6B] font-mono">{orderStatusStates[activeStepIndex]}</span>
+                    </div>
+                    {/* 5-step micro indicator dots */}
+                    <div className="grid grid-cols-5 gap-1 mt-1">
+                      {orderStatusStates.map((sName, sIdx) => (
+                        <div
+                          key={sName}
+                          className={`h-1 rounded-full transition-colors duration-300 ${
+                            sIdx === activeStepIndex
+                              ? "bg-[#FF6B6B]"
+                              : sIdx < activeStepIndex
+                              ? "bg-emerald-500"
+                              : "bg-muted"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT SECTION (30%): 5 Vertically Stacked Visual Buttons */}
+            {/* Spec: Non-clickable visual indicators, active button FULLY COLOURED */}
+            <div 
+              className="w-[32%] sm:w-[30%] flex flex-col justify-center gap-2 sm:gap-2.5 pointer-events-none select-none"
+              aria-label="Workflow progress indicators"
+            >
+              {mobileWorkflowButtons.map((btn, idx) => {
+                const isActive = idx === activeStepIndex;
+                const isCompleted = idx < activeStepIndex;
+
+                return (
+                  <div
+                    key={btn.id}
+                    className={`relative px-2 py-2 sm:px-2.5 sm:py-2.5 rounded-xl border text-left transition-all duration-300 flex flex-col justify-center ${
+                      isActive
+                        ? "bg-[#FF6B6B] text-white border-transparent shadow-md shadow-[#FF6B6B]/30 scale-[1.03]"
+                        : isCompleted
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-medium"
+                        : "bg-neutral-100/80 dark:bg-neutral-800/50 text-neutral-400 dark:text-neutral-500 border-neutral-200/50 dark:border-neutral-800/60"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <btn.icon className={`w-3 h-3 shrink-0 ${
+                        isActive ? "text-white" : isCompleted ? "text-emerald-500" : "text-neutral-400"
+                      }`} />
+                      <span className={`text-[10px] sm:text-[11px] font-bold leading-tight truncate ${
+                        isActive ? "text-white" : ""
+                      }`}>
+                        {btn.label}
+                      </span>
+                    </div>
+
+                    {/* Glowing active indicator dot */}
+                    {isActive && (
+                      <span className="absolute top-1.5 right-1.5 flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+          </div>
+
+          {/* Mobile CTAs & Status Indicator */}
+          <div className="flex flex-col items-center gap-2.5 pt-2">
+            <Link href="/register" className="w-full">
+              <button className="w-full btn-primary text-sm font-bold !py-3 shadow-md justify-center">
+                Get Started Free →
+              </button>
+            </Link>
+            <div className="inline-flex items-center gap-2 text-[11px] text-muted-foreground font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Automated workflow simulation • Step {activeStepIndex + 1} of 5</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
