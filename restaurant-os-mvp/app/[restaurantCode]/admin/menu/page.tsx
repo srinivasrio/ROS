@@ -530,7 +530,7 @@ export default function MenuManagement() {
         categoryId: '',
         subCategoryId: '',
         itemType: 'Veg', // Default
-        preparationTime: '15',
+        preparationTime: '',
         taxPercent: '5',
         gstPercentage: '5',
         cgstPercentage: '2.5',
@@ -538,7 +538,7 @@ export default function MenuManagement() {
         isAvailable: true,
         isPopular: false,
         active: true,
-        rating: 4.5,
+        rating: '' as any,
         menuItemType: 'food' as 'food' | 'alcohol',
         priceVariants: [] as Array<{ name: string; price: string }>,
         stockMl: '',
@@ -817,7 +817,7 @@ export default function MenuManagement() {
                 is_available: newItem.isAvailable,
                 is_popular: newItem.isPopular,
                 active: newItem.active,
-                rating: newItem.rating,
+                rating: typeof newItem.rating === 'number' ? newItem.rating : (parseFloat(newItem.rating as any) || 4.5),
                 preparation_time: parseInt(newItem.preparationTime) || 15,
                 tax_percent: parseFloat(newItem.gstPercentage) || 0,
                 gst_percentage: parseFloat(newItem.gstPercentage) || 0,
@@ -984,12 +984,12 @@ export default function MenuManagement() {
     const resetForm = () => {
         setNewItem({
             name: '', price: '', description: '', categoryId: '', subCategoryId: '',
-            itemType: 'Veg', preparationTime: '15', 
+            itemType: 'Veg', preparationTime: '', 
             taxPercent: restaurantGst.gst.toString(),
             gstPercentage: restaurantGst.gst.toString(),
             cgstPercentage: restaurantGst.cgst.toString(),
             sgstPercentage: restaurantGst.sgst.toString(),
-            isAvailable: true, isPopular: false, active: true, rating: 4.5,
+            isAvailable: true, isPopular: false, active: true, rating: '' as any,
             menuItemType: 'food', priceVariants: [], stockMl: '',
             ingredients: [],
             is_today_special: false,
@@ -2911,6 +2911,16 @@ export default function MenuManagement() {
                                                     value={newItem.gstPercentage}
                                                     onChange={(e) => {
                                                         const val = e.target.value;
+                                                        if (val === '') {
+                                                            setNewItem({
+                                                                ...newItem,
+                                                                taxPercent: '',
+                                                                gstPercentage: '',
+                                                                cgstPercentage: '',
+                                                                sgstPercentage: ''
+                                                            });
+                                                            return;
+                                                        }
                                                         const num = parseFloat(val) || 0;
                                                         const half = Number((num / 2).toFixed(2)).toString();
                                                         setNewItem({
@@ -3138,8 +3148,9 @@ export default function MenuManagement() {
                                             step="0.1"
                                             min="0"
                                             max="5"
-                                            value={newItem.rating}
-                                            onChange={(e) => setNewItem({ ...newItem, rating: parseFloat(e.target.value) || 0 })}
+                                            placeholder="4.5"
+                                            value={newItem.rating === 0 ? '' : (newItem.rating ?? '')}
+                                            onChange={(e) => setNewItem({ ...newItem, rating: e.target.value === '' ? ('' as any) : (parseFloat(e.target.value) || 0) })}
                                             className="w-16 px-2 py-1 border border-neutral-200 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500"
                                         />
                                     </div>

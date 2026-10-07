@@ -23,24 +23,29 @@ export default function Settings() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [lastSync, setLastSync] = useState<Date | null>(null);
 
-    const [gst, setGst] = useState('5');
-    const [cgst, setCgst] = useState('2.5');
-    const [sgst, setSgst] = useState('2.5');
+    const [gst, setGst] = useState('');
+    const [cgst, setCgst] = useState('');
+    const [sgst, setSgst] = useState('');
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         if (registrationDetails) {
-            const g = registrationDetails.gst_percentage ?? 5.0;
-            const c = registrationDetails.cgst_percentage ?? (g / 2.0);
-            const s = registrationDetails.sgst_percentage ?? (g / 2.0);
-            setGst(g.toString());
-            setCgst(c.toString());
-            setSgst(s.toString());
+            const g = registrationDetails.gst_percentage != null ? registrationDetails.gst_percentage : '';
+            const c = registrationDetails.cgst_percentage != null ? registrationDetails.cgst_percentage : (g !== '' ? g / 2.0 : '');
+            const s = registrationDetails.sgst_percentage != null ? registrationDetails.sgst_percentage : (g !== '' ? g / 2.0 : '');
+            setGst(g !== '' ? g.toString() : '');
+            setCgst(c !== '' ? c.toString() : '');
+            setSgst(s !== '' ? s.toString() : '');
         }
     }, [registrationDetails]);
 
     const handleGstChange = (val: string) => {
         setGst(val);
+        if (val === '') {
+            setCgst('');
+            setSgst('');
+            return;
+        }
         const num = parseFloat(val);
         if (!isNaN(num) && num >= 0) {
             setCgst((num / 2).toString());
@@ -249,6 +254,7 @@ export default function Settings() {
                                     max="100"
                                     value={gst} 
                                     onChange={(e) => handleGstChange(e.target.value)}
+                                    placeholder="5"
                                     className="w-full px-4 py-2 pr-8 border border-neutral-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
                                 />
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">%</span>
@@ -265,6 +271,7 @@ export default function Settings() {
                                     max="100"
                                     value={cgst} 
                                     onChange={(e) => setCgst(e.target.value)}
+                                    placeholder="2.5"
                                     className="w-full px-4 py-2 pr-8 border border-neutral-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
                                 />
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">%</span>
@@ -281,6 +288,7 @@ export default function Settings() {
                                     max="100"
                                     value={sgst} 
                                     onChange={(e) => setSgst(e.target.value)}
+                                    placeholder="2.5"
                                     className="w-full px-4 py-2 pr-8 border border-neutral-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
                                 />
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">%</span>

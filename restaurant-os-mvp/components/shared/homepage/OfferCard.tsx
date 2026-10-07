@@ -16,6 +16,7 @@ interface OfferCardProps {
     discount_type?: string;
     discount_value?: number;
     valid_until?: string;
+    applicable_order_type?: string;
   };
   onClick?: (offer: any) => void;
 }
@@ -61,7 +62,15 @@ export default function OfferCard({ offer, onClick }: OfferCardProps) {
         <div className="flex items-center justify-between gap-2">
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/20 backdrop-blur-md text-[10px] font-bold text-white uppercase tracking-wider">
             <Sparkles className="size-2.5 fill-white" />
-            <span>Limited Offer</span>
+            <span>
+              {offer.applicable_order_type === 'DINE_IN'
+                ? 'Dine In Only'
+                : offer.applicable_order_type === 'TAKEAWAY'
+                ? 'Take Away Only'
+                : offer.applicable_order_type === 'DELIVERY'
+                ? 'Delivery Only'
+                : 'Limited Offer'}
+            </span>
           </span>
           <span className="text-lg sm:text-xl font-black font-display tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
             {discountText}

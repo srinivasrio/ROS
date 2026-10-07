@@ -3,7 +3,7 @@
 import React, { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { initGlobalSessionInterceptor, handleSessionExpired } from '@/lib/session-manager';
-import { getDineToken } from '@/lib/supabase';
+import { getDineToken, setDineToken } from '@/lib/supabase';
 
 function parseJwtExp(token: string): number | null {
     try {
@@ -28,13 +28,13 @@ function parseRouteContext(pathname: string): {
     let restaurantId: string | null = null;
     let staffMobile: string | null = null;
 
-    if (pathname.includes('/admin')) panel = 'admin';
+    if (pathname.startsWith('/owner') || pathname.includes('/owner')) panel = 'owner';
+    else if (pathname.includes('/admin')) panel = 'admin';
     else if (pathname.includes('/waiter')) panel = 'waiter';
     else if (pathname.includes('/kds')) panel = 'kds';
     else if (pathname.includes('/delivery')) panel = 'delivery';
     else if (pathname.includes('/staff') || pathname.includes('/employee')) panel = 'employee';
     else if (pathname.includes('/supervisor')) panel = 'supervisor';
-    else if (pathname.startsWith('/owner')) panel = 'owner';
 
     if (segments.length > 0 && segments[0] !== 'login' && segments[0] !== 'owner' && segments[0] !== 'access-denied') {
         restaurantId = segments[0];
@@ -111,6 +111,8 @@ export function AutoLogoutProvider({ children }: { children: React.ReactNode }) 
                             return;
                         }
                         handleSessionExpired('passive_check_unauthenticated', { panel, restaurantId });
+                    } else if (data.token) {
+                        setDineToken(data.token, panel);
                     }
                 } else if (res.status === 401) {
                     if (process.env.NODE_ENV === 'development') {

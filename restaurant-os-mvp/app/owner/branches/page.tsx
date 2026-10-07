@@ -10,9 +10,10 @@ import {
     Users, ShoppingBag, TrendingUp, ChevronRight, X, Check,
     ShieldCheck, AlertTriangle, UserCheck, Key, Sparkles, Trash2,
     Copy, ExternalLink, Shield, Star, IndianRupee, CreditCard, ArrowRight,
-    CheckCircle2, FileText, Sliders
+    CheckCircle2, FileText, Sliders, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 interface BranchFormData {
     name: string;
@@ -177,7 +178,7 @@ Admin Login URL: ${origin}/admin/login
         adminEmail: '',
         adminMobile: '',
         adminPassword: '',
-        adminPin: '1234'
+        adminPin: ''
     });
     const [editingBranch, setEditingBranch] = useState<any>(null);
 
@@ -188,7 +189,7 @@ Admin Login URL: ${origin}/admin/login
         adminEmail: '',
         adminMobile: '',
         adminPassword: '',
-        adminPin: '1234'
+        adminPin: ''
     });
     const [assignAdminLoading, setAssignAdminLoading] = useState(false);
     const [showAssignPassword, setShowAssignPassword] = useState(false);
@@ -197,7 +198,12 @@ Admin Login URL: ${origin}/admin/login
     const handleOpenAssignAdmin = (branch: any) => {
         const isActive = (branch.status || '').toLowerCase() === 'active';
         if (!isActive) {
-            toast.error('Admin assignment is prohibited: Restaurant must be approved and ACTIVE by Super Admin.');
+            showWarningPopup({
+                title: 'Admin Assignment Prohibited',
+                message: 'Admin assignment is prohibited: Restaurant/Branch must be approved and ACTIVE by Super Admin before assigning staff.',
+                type: 'restriction',
+                dismissText: 'Dismiss'
+            });
             return;
         }
         setAssigningAdminBranch(branch);
@@ -206,7 +212,7 @@ Admin Login URL: ${origin}/admin/login
             adminEmail: '',
             adminMobile: '',
             adminPassword: '',
-            adminPin: '1234'
+            adminPin: ''
         });
     };
 
@@ -216,7 +222,12 @@ Admin Login URL: ${origin}/admin/login
 
         const isActive = (assigningAdminBranch.status || '').toLowerCase() === 'active';
         if (!isActive) {
-            toast.error('Admin assignment is prohibited while branch status is PENDING_APPROVAL or REJECTED.');
+            showWarningPopup({
+                title: 'Admin Assignment Prohibited',
+                message: 'Admin assignment is prohibited while branch status is PENDING_APPROVAL or REJECTED.',
+                type: 'restriction',
+                dismissText: 'Dismiss'
+            });
             return;
         }
 
@@ -319,7 +330,12 @@ Admin Login URL: ${origin}/admin/login
         if (editingBranch) {
             const isEditingActive = (editingBranch.status || '').toLowerCase() === 'active';
             if (formData.assignAdmin && !isEditingActive) {
-                toast.error('Admin assignment is prohibited: Branch must be approved and ACTIVE by Super Admin.');
+                showWarningPopup({
+                    title: 'Admin Assignment Prohibited',
+                    message: 'Admin assignment is prohibited: Branch must be approved and ACTIVE by Super Admin.',
+                    type: 'restriction',
+                    dismissText: 'Dismiss'
+                });
                 return;
             }
 
@@ -406,7 +422,7 @@ Admin Login URL: ${origin}/admin/login
                 adminEmail: '',
                 adminMobile: '',
                 adminPassword: '',
-                adminPin: '1234'
+                adminPin: ''
             });
             await fetchBranches();
         } catch (err: any) {
@@ -442,8 +458,8 @@ Admin Login URL: ${origin}/admin/login
             adminName: existingAdmin?.name || (branch.adminName && branch.adminName !== branch.name ? branch.adminName : ''),
             adminEmail: existingAdmin?.email || (branch.adminEmail && branch.adminEmail !== branch.email ? branch.adminEmail : ''),
             adminMobile: existingAdmin?.mobile || '',
-            adminPassword: '',
-            adminPin: existingAdmin?.pin ? '' : '1234'
+            adminPassword: branch.adminPassword || existingAdmin?.adminPassword || existingAdmin?.raw_password || '',
+            adminPin: existingAdmin?.raw_pin || branch.adminPin || ''
         });
         setShowAddModal(true);
     };
@@ -491,6 +507,14 @@ Admin Login URL: ${origin}/admin/login
                         />
                     </div>
                     <button
+                        onClick={() => fetchBranches()}
+                        disabled={loading}
+                        className="p-2.5 rounded-xl bg-white dark:bg-zinc-800 border border-neutral-200/60 dark:border-zinc-700/30 text-neutral-600 dark:text-neutral-300 hover:text-indigo-600 transition-colors cursor-pointer shadow-xs"
+                        title="Refresh branches"
+                    >
+                        <RefreshCw size={14} className={loading ? "animate-spin text-indigo-500" : ""} />
+                    </button>
+                    <button
                         onClick={() => {
                             if (isLimitReached) {
                                 setShowLimitWarningModal(true);
@@ -511,7 +535,7 @@ Admin Login URL: ${origin}/admin/login
                                 adminEmail: '',
                                 adminMobile: '',
                                 adminPassword: '',
-                                adminPin: '1234'
+                                adminPin: ''
                             });
                             setShowAddModal(true);
                         }}
@@ -705,6 +729,42 @@ Admin Login URL: ${origin}/admin/login
                                                 {req.super_admin_notes}
                                             </div>
                                         )}
+                                        {req.admin_password && (
+                                            <div className="pt-1.5 border-t border-neutral-200/60 dark:border-zinc-700/60 flex items-center justify-between gap-2">
+                                                <div className="min-w-0 flex-1">
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+                                                        Admin Password:
+                                                    </span>
+                                                    <span className="font-mono text-xs font-bold text-neutral-800 dark:text-neutral-200 truncate mt-0.5 block">
+                                                        {revealedPasswords[req.id] ? (
+                                                            <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{req.admin_password}</span>
+                                                        ) : (
+                                                            <span className="tracking-widest text-neutral-400 select-none">••••••••••••</span>
+                                                        )}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => togglePasswordMask(req.id)}
+                                                        className="p-1 rounded-md bg-white dark:bg-zinc-700 text-neutral-600 dark:text-neutral-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                                                        title={revealedPasswords[req.id] ? "Hide password" : "Show password"}
+                                                        aria-label={revealedPasswords[req.id] ? "Hide password" : "Show password"}
+                                                    >
+                                                        {revealedPasswords[req.id] ? <EyeOff size={12} className="text-indigo-600 dark:text-indigo-400" /> : <Eye size={12} />}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => copyText(req.admin_password, 'Password', `req-pass-${req.id}`)}
+                                                        className="p-1 rounded-md bg-white dark:bg-zinc-700 text-neutral-600 dark:text-neutral-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                                                        title="Copy password"
+                                                        aria-label="Copy password"
+                                                    >
+                                                        {copiedKey === `req-pass-${req.id}` ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <p className="text-[11px] text-amber-700 dark:text-amber-300/90 leading-tight">
@@ -768,7 +828,17 @@ Admin Login URL: ${origin}/admin/login
                         const adminName = assignedAdmin?.name || (branch.adminName && branch.adminName !== branch.name ? branch.adminName : 'Admin');
                         const adminEmail = assignedAdmin?.email || (branch.adminEmail && branch.adminEmail !== branch.email ? branch.adminEmail : '');
                         const adminMobile = assignedAdmin?.mobile || (branch.adminMobile && branch.adminMobile !== branch.phone ? branch.adminMobile : '');
-                        const hasAdmin = Boolean(assignedAdmin?.email || assignedAdmin?.mobile || (branch.adminEmail && branch.adminEmail !== branch.email) || (branch.adminMobile && branch.adminMobile !== branch.phone));
+                        const adminPassword = assignedAdmin?.adminPassword || branch.adminPassword || '';
+                        const adminPin = assignedAdmin?.adminPin || branch.adminPin || assignedAdmin?.pin || '';
+                        const hasAdmin = Boolean(
+                            assignedAdmin?.email || 
+                            assignedAdmin?.mobile || 
+                            (branch.adminEmail && branch.adminEmail !== branch.email) || 
+                            (branch.adminMobile && branch.adminMobile !== branch.phone) ||
+                            adminPassword
+                        );
+                        const isPasswordShown = Boolean(revealedPasswords[branch.id]);
+                        const isPinShown = Boolean(revealedPins[branch.id]);
 
                         return (
                             <motion.div
@@ -863,46 +933,167 @@ Admin Login URL: ${origin}/admin/login
                                         </div>
                                     </div>
 
-                                    {/* Admin Summary Section / Assign Admin Action */}
+                                    {/* Admin Summary Section with Password and Revealing Eye Button */}
                                     {hasAdmin ? (
-                                        <div className="p-3 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/70 dark:border-indigo-900/30 flex items-center justify-between gap-3">
-                                            <div className="flex items-center gap-2.5 min-w-0">
-                                                <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-                                                    <UserCheck size={15} />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="text-xs font-bold text-neutral-900 dark:text-white truncate">
-                                                            {adminName}
-                                                        </span>
-                                                        <span className="text-[9px] font-black px-1.5 py-0.2 rounded-md bg-indigo-100/80 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
-                                                            Admin
-                                                        </span>
+                                        <div className="p-3.5 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/70 dark:border-indigo-900/30 space-y-2.5">
+                                            {/* Top row: Admin info & modal/edit buttons */}
+                                            <div className="flex items-center justify-between gap-2.5">
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                                                        <UserCheck size={15} />
                                                     </div>
-                                                    <p className="text-[10px] text-neutral-400 font-mono truncate">
-                                                        {adminEmail || adminMobile}
-                                                    </p>
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="text-xs font-bold text-neutral-900 dark:text-white truncate">
+                                                                {adminName}
+                                                            </span>
+                                                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded-md bg-indigo-100/80 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                                                                Admin
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[10px] text-neutral-400 font-mono truncate">
+                                                            {adminEmail || adminMobile || 'No login identifier'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setCredentialsModalBranch(branch)}
+                                                        className="px-2 py-1.5 rounded-xl bg-white dark:bg-zinc-800 hover:bg-neutral-100 dark:hover:bg-zinc-700 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/50 text-xs font-bold transition-all cursor-pointer shadow-2xs flex items-center gap-1 shrink-0"
+                                                        title="View all restaurant admin credentials and login link"
+                                                    >
+                                                        <Key size={12} />
+                                                        <span>Credentials</span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleEdit(branch)}
+                                                        className="p-1.5 rounded-xl bg-white dark:bg-zinc-800 hover:bg-neutral-100 dark:hover:bg-zinc-700 text-neutral-600 dark:text-neutral-400 border border-neutral-200 dark:border-zinc-700 text-xs font-bold transition-all cursor-pointer"
+                                                        title="Edit Admin Credentials"
+                                                    >
+                                                        <Edit size={12} />
+                                                    </button>
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center gap-1.5 shrink-0">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setCredentialsModalBranch(branch)}
-                                                    className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-zinc-800 hover:bg-neutral-100 dark:hover:bg-zinc-700 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/50 text-xs font-bold transition-all cursor-pointer shadow-2xs flex items-center gap-1 shrink-0"
-                                                    title="View restaurant admin credentials and login link"
-                                                >
-                                                    <Key size={12} />
-                                                    <span>Credentials</span>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleEdit(branch)}
-                                                    className="p-1.5 rounded-xl bg-white dark:bg-zinc-800 hover:bg-neutral-100 dark:hover:bg-zinc-700 text-neutral-600 dark:text-neutral-400 border border-neutral-200 dark:border-zinc-700 text-xs font-bold transition-all cursor-pointer"
-                                                    title="Edit Admin Credentials"
-                                                >
-                                                    <Edit size={12} />
-                                                </button>
+                                            {/* Password Display with Revealing Eye Button */}
+                                            <div className="pt-2 border-t border-indigo-100/70 dark:border-indigo-900/40 space-y-1.5">
+                                                <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white dark:bg-zinc-900 border border-indigo-100/80 dark:border-zinc-800 shadow-2xs">
+                                                    <div className="min-w-0 flex-1">
+                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1">
+                                                            <Key size={10} className="text-indigo-500 shrink-0" />
+                                                            <span>Password</span>
+                                                        </span>
+                                                        <div className="text-xs font-mono font-bold text-neutral-900 dark:text-white truncate mt-0.5">
+                                                            {adminPassword ? (
+                                                                isPasswordShown ? (
+                                                                    <span className="text-indigo-600 dark:text-indigo-400 font-semibold tracking-normal">
+                                                                        {adminPassword}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="tracking-widest text-neutral-400 select-none">••••••••••••</span>
+                                                                )
+                                                            ) : (
+                                                                <span className="text-neutral-400 font-normal italic text-[11px]">
+                                                                    (Not configured)
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        {adminPassword ? (
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        togglePasswordMask(branch.id);
+                                                                    }}
+                                                                    className="p-1.5 rounded-lg bg-neutral-50 dark:bg-zinc-800 text-neutral-600 dark:text-neutral-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-zinc-700 border border-neutral-200/70 dark:border-zinc-700 transition-colors cursor-pointer"
+                                                                    title={isPasswordShown ? "Hide password" : "Show password"}
+                                                                    aria-label={isPasswordShown ? "Hide password" : "Show password"}
+                                                                >
+                                                                    {isPasswordShown ? (
+                                                                        <EyeOff size={13} className="text-indigo-600 dark:text-indigo-400" />
+                                                                    ) : (
+                                                                        <Eye size={13} />
+                                                                    )}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        copyText(adminPassword, 'Password', `card-pass-${branch.id}`);
+                                                                    }}
+                                                                    className="p-1.5 rounded-lg bg-neutral-50 dark:bg-zinc-800 text-neutral-600 dark:text-neutral-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-zinc-700 border border-neutral-200/70 dark:border-zinc-700 transition-colors cursor-pointer"
+                                                                    title="Copy password"
+                                                                    aria-label="Copy password"
+                                                                >
+                                                                    {copiedKey === `card-pass-${branch.id}` ? (
+                                                                        <Check size={13} className="text-emerald-500" />
+                                                                    ) : (
+                                                                        <Copy size={13} />
+                                                                    )}
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleEdit(branch)}
+                                                                className="px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold border border-indigo-200/50 transition-colors cursor-pointer"
+                                                            >
+                                                                Set
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Security PIN Display if available */}
+                                                {adminPin && (
+                                                    <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-xl bg-white/60 dark:bg-zinc-900/60 border border-neutral-100 dark:border-zinc-800/80">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                                                                Security PIN:
+                                                            </span>
+                                                            <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                                {isPinShown ? adminPin : '••••'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    togglePinMask(branch.id);
+                                                                }}
+                                                                className="p-1 rounded-md text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                                                                title={isPinShown ? "Hide PIN" : "Show PIN"}
+                                                                aria-label={isPinShown ? "Hide PIN" : "Show PIN"}
+                                                            >
+                                                                {isPinShown ? <EyeOff size={12} className="text-indigo-600" /> : <Eye size={12} />}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    copyText(adminPin, 'Security PIN', `card-pin-${branch.id}`);
+                                                                }}
+                                                                className="p-1 rounded-md text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                                                                title="Copy Security PIN"
+                                                                aria-label="Copy Security PIN"
+                                                            >
+                                                                {copiedKey === `card-pin-${branch.id}` ? (
+                                                                    <Check size={12} className="text-emerald-500" />
+                                                                ) : (
+                                                                    <Copy size={12} />
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     ) : isActive ? (

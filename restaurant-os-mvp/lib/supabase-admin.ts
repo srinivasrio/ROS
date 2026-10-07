@@ -31,3 +31,4 @@ const secondaryAdmin = (secondaryUrl && secondaryKey)
     : null;
 
 export const supabaseAdmin = createDualSupabaseClient(primaryAdmin, secondaryAdmin);
+export { primaryAdmin, secondaryAdmin };

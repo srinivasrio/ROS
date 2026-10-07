@@ -169,7 +169,7 @@ function SubscriptionsContent() {
     // Registration Request Action States
     const [selectedReqForAction, setSelectedReqForAction] = useState<any | null>(null);
     const [actionModalType, setActionModalType] = useState<'approve' | 'reject' | 'request_payment' | 'change_plan' | 'set_quota' | 'suspend' | 'cancel' | 'mark_payment' | 'undo_payment' | null>(null);
-    const [reqActionQuota, setReqActionQuota] = useState<number>(1);
+    const [reqActionQuota, setReqActionQuota] = useState<number | string>('');
     const [reqActionPlan, setReqActionPlan] = useState<string>('standard');
     const [reqActionNotes, setReqActionNotes] = useState<string>('');
     const [reqActionReason, setReqActionReason] = useState<string>('');
@@ -201,25 +201,38 @@ function SubscriptionsContent() {
     // Form inputs for modals
     const [modalPlanSlug, setModalPlanSlug] = useState('growth');
     const [modalBillingCycle, setModalBillingCycle] = useState<'monthly' | 'annual'>('monthly');
-    const [modalDays, setModalDays] = useState(30);
+    const [modalDays, setModalDays] = useState<number | string>('');
     const [modalReason, setModalReason] = useState('');
-    const [modalAmount, setModalAmount] = useState<number>(4999);
+    const [modalAmount, setModalAmount] = useState<number | string>('');
     const [modalPayMethod, setModalPayMethod] = useState('UPI AutoDebit');
     const [modalNotes, setModalNotes] = useState('');
     const [modalTargetRestId, setModalTargetRestId] = useState('');
 
     // Plan form state
-    const [planForm, setPlanForm] = useState({
+    const [planForm, setPlanForm] = useState<{
+        name: string;
+        slug: string;
+        tagline: string;
+        priceMonthly: number | string;
+        priceAnnual: number | string;
+        trialDays: number | string;
+        features: string[];
+        featureInput: string;
+        maxBranches: number | string;
+        maxEmployees: number | string;
+        maxOrdersPerMonth: string;
+        isPopular: boolean;
+    }>({
         name: '',
         slug: '',
         tagline: '',
-        priceMonthly: 4999,
-        priceAnnual: 49990,
-        trialDays: 14,
+        priceMonthly: '',
+        priceAnnual: '',
+        trialDays: '',
         features: ['Up to 5 Branches', 'Real-Time POS & KDS', 'QR Digital Ordering', 'Basic Reports'],
         featureInput: '',
-        maxBranches: 5,
-        maxEmployees: 50,
+        maxBranches: '',
+        maxEmployees: '',
         maxOrdersPerMonth: '',
         isPopular: false
     });
@@ -642,12 +655,12 @@ function SubscriptionsContent() {
                     id: editPlan?.id,
                     name: planForm.name,
                     tagline: planForm.tagline,
-                    priceMonthly: planForm.priceMonthly,
-                    priceAnnual: planForm.priceAnnual,
-                    trialDays: planForm.trialDays,
+                    priceMonthly: Number(planForm.priceMonthly) || 0,
+                    priceAnnual: Number(planForm.priceAnnual) || 0,
+                    trialDays: Number(planForm.trialDays) || 0,
                     features: planForm.features,
-                    maxBranches: planForm.maxBranches,
-                    maxEmployees: planForm.maxEmployees,
+                    maxBranches: Number(planForm.maxBranches) || 1,
+                    maxEmployees: Number(planForm.maxEmployees) || 1,
                     maxOrdersPerMonth: planForm.maxOrdersPerMonth || null,
                     isPopular: planForm.isPopular
                 }
@@ -656,12 +669,12 @@ function SubscriptionsContent() {
                     name: planForm.name,
                     slug: planForm.slug,
                     tagline: planForm.tagline,
-                    priceMonthly: planForm.priceMonthly,
-                    priceAnnual: planForm.priceAnnual,
-                    trialDays: planForm.trialDays,
+                    priceMonthly: Number(planForm.priceMonthly) || 0,
+                    priceAnnual: Number(planForm.priceAnnual) || 0,
+                    trialDays: Number(planForm.trialDays) || 0,
                     features: planForm.features,
-                    maxBranches: planForm.maxBranches,
-                    maxEmployees: planForm.maxEmployees,
+                    maxBranches: Number(planForm.maxBranches) || 1,
+                    maxEmployees: Number(planForm.maxEmployees) || 1,
                     maxOrdersPerMonth: planForm.maxOrdersPerMonth || null,
                     isPopular: planForm.isPopular
                 };
@@ -865,13 +878,13 @@ function SubscriptionsContent() {
                                 name: '',
                                 slug: '',
                                 tagline: '',
-                                priceMonthly: 4999,
-                                priceAnnual: 49990,
-                                trialDays: 14,
+                                priceMonthly: '',
+                                priceAnnual: '',
+                                trialDays: '',
                                 features: ['Multi-Branch Support', 'Real-Time POS & KDS', 'QR Digital Ordering'],
                                 featureInput: '',
-                                maxBranches: 5,
-                                maxEmployees: 50,
+                                maxBranches: '',
+                                maxEmployees: '',
                                 maxOrdersPerMonth: '',
                                 isPopular: false
                             });
@@ -3091,8 +3104,9 @@ function SubscriptionsContent() {
                                     type="number"
                                     min="1"
                                     max="365"
+                                    placeholder="30"
                                     value={modalDays}
-                                    onChange={(e) => setModalDays(Number(e.target.value))}
+                                    onChange={(e) => setModalDays(e.target.value === '' ? '' : Number(e.target.value))}
                                     className="w-full px-3.5 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl text-xs font-bold text-[#172033] focus:outline-none focus:border-indigo-600 focus:bg-white"
                                 />
                             </div>
@@ -3512,8 +3526,9 @@ function SubscriptionsContent() {
                                     <label className="font-bold text-[#172033] block mb-1">Monthly (₹) *</label>
                                     <input
                                         type="number"
+                                        placeholder="4999"
                                         value={planForm.priceMonthly}
-                                        onChange={(e) => setPlanForm({ ...planForm, priceMonthly: Number(e.target.value) })}
+                                        onChange={(e) => setPlanForm({ ...planForm, priceMonthly: e.target.value === '' ? '' : Number(e.target.value) })}
                                         className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-bold font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                                     />
                                 </div>
@@ -3521,8 +3536,9 @@ function SubscriptionsContent() {
                                     <label className="font-bold text-[#172033] block mb-1">Annual (₹) *</label>
                                     <input
                                         type="number"
+                                        placeholder="49990"
                                         value={planForm.priceAnnual}
-                                        onChange={(e) => setPlanForm({ ...planForm, priceAnnual: Number(e.target.value) })}
+                                        onChange={(e) => setPlanForm({ ...planForm, priceAnnual: e.target.value === '' ? '' : Number(e.target.value) })}
                                         className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-bold font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                                     />
                                 </div>
@@ -3530,8 +3546,9 @@ function SubscriptionsContent() {
                                     <label className="font-bold text-[#172033] block mb-1">Trial Days</label>
                                     <input
                                         type="number"
+                                        placeholder="14"
                                         value={planForm.trialDays}
-                                        onChange={(e) => setPlanForm({ ...planForm, trialDays: Number(e.target.value) })}
+                                        onChange={(e) => setPlanForm({ ...planForm, trialDays: e.target.value === '' ? '' : Number(e.target.value) })}
                                         className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-bold font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                                     />
                                 </div>
@@ -3542,8 +3559,9 @@ function SubscriptionsContent() {
                                     <label className="font-bold text-[#172033] block mb-1">Max Branches Quota</label>
                                     <input
                                         type="number"
+                                        placeholder="5"
                                         value={planForm.maxBranches}
-                                        onChange={(e) => setPlanForm({ ...planForm, maxBranches: Number(e.target.value) })}
+                                        onChange={(e) => setPlanForm({ ...planForm, maxBranches: e.target.value === '' ? '' : Number(e.target.value) })}
                                         className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-bold font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                                     />
                                 </div>
@@ -3551,8 +3569,9 @@ function SubscriptionsContent() {
                                     <label className="font-bold text-[#172033] block mb-1">Max Staff Members</label>
                                     <input
                                         type="number"
+                                        placeholder="50"
                                         value={planForm.maxEmployees}
-                                        onChange={(e) => setPlanForm({ ...planForm, maxEmployees: Number(e.target.value) })}
+                                        onChange={(e) => setPlanForm({ ...planForm, maxEmployees: e.target.value === '' ? '' : Number(e.target.value) })}
                                         className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-bold font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                                     />
                                 </div>
@@ -3701,8 +3720,9 @@ function SubscriptionsContent() {
                                     <label className="font-bold text-[#172033] block mb-1">Amount (₹) *</label>
                                     <input
                                         type="number"
+                                        placeholder="4999"
                                         value={modalAmount}
-                                        onChange={(e) => setModalAmount(Number(e.target.value))}
+                                        onChange={(e) => setModalAmount(e.target.value === '' ? '' : Number(e.target.value))}
                                         className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-bold font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
                                     />
                                 </div>
@@ -4319,8 +4339,9 @@ function SubscriptionsContent() {
                                             type="number"
                                             min="1"
                                             max="50"
+                                            placeholder="1"
                                             value={reqActionQuota}
-                                            onChange={(e) => setReqActionQuota(Math.max(1, parseInt(e.target.value) || 1))}
+                                            onChange={(e) => setReqActionQuota(e.target.value === '' ? '' : parseInt(e.target.value) || '')}
                                             className="w-16 px-2 py-1 bg-white border border-amber-300 rounded-lg text-center font-bold text-xs text-[#172033]"
                                         />
                                         <span className="text-xs font-bold text-neutral-600">branches</span>
@@ -4415,8 +4436,9 @@ function SubscriptionsContent() {
                                     type="number"
                                     min="1"
                                     max="100"
+                                    placeholder="1"
                                     value={reqActionQuota}
-                                    onChange={(e) => setReqActionQuota(Math.max(1, parseInt(e.target.value) || 1))}
+                                    onChange={(e) => setReqActionQuota(e.target.value === '' ? '' : parseInt(e.target.value) || '')}
                                     className="w-24 px-3 py-2 bg-white border border-[#E4E7EC] rounded-xl font-bold text-sm text-[#172033] focus:outline-none focus:border-indigo-600"
                                 />
                                 <span className="text-xs text-[#667085]">authorized restaurant branches</span>

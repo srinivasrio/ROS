@@ -6,6 +6,8 @@ import { ArrowRight, ShieldCheck, UtensilsCrossed, Loader2, User } from 'lucide-
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { springSnap, haptic } from '../components/ui';
 import { setDineToken } from '@/lib/supabase';
+import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 function WaiterLoginInner() {
     const params = useParams();
@@ -21,6 +23,11 @@ function WaiterLoginInner() {
     useEffect(() => {
         if (errorParam === 'session_expired') {
             setError('Your session has expired. Please sign in again.');
+            showWarningPopup({
+                title: 'Session Expired',
+                message: 'Your shift session has expired. Please sign in again.',
+                type: 'warning'
+            });
         }
     }, [errorParam]);
 
@@ -29,6 +36,11 @@ function WaiterLoginInner() {
         const cleanVal = identifier.trim();
         if (!cleanVal) {
             setError('Please enter your mobile number or employee ID');
+            showWarningPopup({
+                title: 'Missing Identifier',
+                message: 'Please enter your mobile number or employee ID.',
+                type: 'warning'
+            });
             haptic.heavy();
             return;
         }
@@ -43,7 +55,14 @@ function WaiterLoginInner() {
             });
             const data = await res.json();
             if (!res.ok) {
-                setError(data.error || 'Sign-in failed. Please check your credentials.');
+                const errMsg = data.error || 'Sign-in failed. Please check your credentials.';
+                setError(errMsg);
+                showWarningPopup({
+                    title: 'Authentication Failed',
+                    message: errMsg,
+                    type: 'error',
+                    dismissText: 'Try Again'
+                });
                 haptic.heavy();
                 return;
             }
@@ -75,9 +94,15 @@ function WaiterLoginInner() {
                 ? redirectParam
                 : `/${targetRestaurant}/waiter/${waiterMobile}/dashboard`;
             window.location.href = targetUrl;
-        } catch (err) {
-            console.error('Login error', err);
-            setError('Connection failed. Please try again.');
+        } catch (err: any) {
+            const errMsg = err?.message || 'Connection failed. Please try again.';
+            setError(errMsg);
+            showWarningPopup({
+                title: 'Authentication Failed',
+                message: errMsg,
+                type: 'error',
+                dismissText: 'Try Again'
+            });
         } finally {
             setLoading(false);
         }
@@ -92,9 +117,7 @@ function WaiterLoginInner() {
                 className="min-h-full flex flex-col justify-center px-6 py-12 max-w-sm w-full mx-auto"
             >
                 {/* Logo tile */}
-                <div className="size-16 rounded-[20px] bg-w-brand flex items-center justify-center shadow-[0_8px_20px_rgba(255,107,53,0.3)] mb-8">
-                    <UtensilsCrossed size={32} className="text-white" />
-                </div>
+                <DineInOneLogo size={64} className="mb-6" />
 
                 <h1 className="font-display text-2xl font-extrabold text-w-ink tracking-tight">Waiter Sign In</h1>
                 <p className="text-sm text-w-ink-soft mt-2 leading-relaxed">

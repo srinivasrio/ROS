@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useCallback, Suspense } from 'react';
+import { useState, useCallback, Suspense, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-    Bike, KeyRound, Phone, Loader2, ArrowRight, Truck, Navigation
+    KeyRound, Phone, Loader2, ArrowRight, Truck, Navigation
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { setDineToken } from '@/lib/supabase';
+import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 function DeliveryLoginInner() {
     const searchParams = useSearchParams();
@@ -22,18 +24,37 @@ function DeliveryLoginInner() {
         account_inactive: 'Your delivery account is currently inactive. Contact your manager.'
     };
 
+    useEffect(() => {
+        if (errorParam && errorMessages[errorParam]) {
+            showWarningPopup({
+                title: errorParam === 'session_expired' ? 'Session Expired' : 'Access Restricted',
+                message: errorMessages[errorParam],
+                type: 'warning',
+                dismissText: 'Understand'
+            });
+        }
+    }, [errorParam]);
+
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
         const cleanPin = pin.trim();
 
         if (!cleanMobile || cleanMobile.length < 10) {
-            toast.error('Please enter your 10-digit registered mobile number.');
+            showWarningPopup({
+                title: 'Invalid Mobile Number',
+                message: 'Please enter your 10-digit registered mobile number.',
+                type: 'warning'
+            });
             return;
         }
 
         if (!cleanPin || cleanPin.length < 4) {
-            toast.error('Please enter your employee PIN.');
+            showWarningPopup({
+                title: 'Invalid PIN',
+                message: 'Please enter your employee PIN.',
+                type: 'warning'
+            });
             return;
         }
 
@@ -52,7 +73,14 @@ function DeliveryLoginInner() {
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.error || 'Authentication failed');
+                const errMsg = data.error || 'Authentication failed. Please check your credentials.';
+                showWarningPopup({
+                    title: 'Authentication Failed',
+                    message: errMsg,
+                    type: 'error',
+                    dismissText: 'Try Again'
+                });
+                return;
             }
 
             toast.success('Delivery shift active! Opening fleet console...');
@@ -80,11 +108,17 @@ function DeliveryLoginInner() {
             window.location.href = redirectUrl;
 
         } catch (err: any) {
-            toast.error(err.message || 'Login failed. Please check your credentials.');
+            const errMsg = err?.message || 'Login failed. Please check your credentials.';
+            showWarningPopup({
+                title: 'Authentication Failed',
+                message: errMsg,
+                type: 'error',
+                dismissText: 'Try Again'
+            });
         } finally {
             setLoading(false);
         }
-    }, [mobile, pin]);
+    }, [mobile, pin, searchParams]);
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
@@ -93,26 +127,13 @@ function DeliveryLoginInner() {
             <div className="absolute bottom-0 left-1/4 w-[400px] h-[400px] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
 
             <div className="max-w-md w-full relative z-10">
-                {/* Error banner */}
-                {errorParam && errorMessages[errorParam] && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="mb-6 px-4 py-3.5 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-sm font-semibold text-center shadow-xs"
-                    >
-                        {errorMessages[errorParam]}
-                    </motion.div>
-                )}
-
                 {/* Brand Header */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center mb-8"
                 >
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-xl shadow-sky-500/25 mb-4 border border-sky-400/20 text-white">
-                        <Bike size={32} />
-                    </div>
+                    <DineInOneLogo size={64} className="mx-auto mb-4" />
                     <div>
                         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold uppercase tracking-wider mb-2">
                             <Navigation size={12} />

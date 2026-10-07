@@ -195,8 +195,11 @@ export function sanitizeEmployeeProfile(emp: any): any {
     if (!emp) return null;
     const safe = { ...emp };
 
-    // Delete all sensitive authentication fields
-    delete safe.pin;
+    // Preserve staff PIN for authorized admin display if available
+    const displayPin = emp.raw_pin ? String(emp.raw_pin) : (emp.pin && !String(emp.pin).startsWith('$argon2') && !String(emp.pin).startsWith('$2') ? String(emp.pin) : null);
+    safe.pin = displayPin;
+
+    // Delete all sensitive authentication passwords/hashes
     delete safe.raw_pin;
     delete safe.raw_password;
     delete safe.password_hash;

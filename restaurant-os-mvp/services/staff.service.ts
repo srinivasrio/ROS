@@ -57,9 +57,10 @@ export const StaffService = {
             const supabase = createClient();
             let query = supabase
                 .from('employees')
-                .select('id, name, email, mobile, role, restaurant_id, branch_id, status, approval_status, avatar_url, created_at, updated_at')
+                .select('id, name, email, mobile, role, restaurant_id, branch_id, status, approval_status, avatar_url, created_at, updated_at, pin, raw_pin')
                 .eq('restaurant_id', rid)
                 .eq('is_deleted', false)
+                .not('role', 'in', '("owner","restaurant_owner")')
                 .order('name', { ascending: true });
 
             if (branchId && branchId !== 'all') {
@@ -72,7 +73,12 @@ export const StaffService = {
                 console.error('Error fetching employees:', error?.message || error);
                 return [];
             }
-            return data as Staff[];
+            return (data || [])
+                .filter((emp: any) => !['owner', 'restaurant_owner'].includes(String(emp.role || '').toLowerCase()))
+                .map((emp: any) => ({
+                    ...emp,
+                    pin: emp.raw_pin || (emp.pin && !String(emp.pin).startsWith('$argon2') && !String(emp.pin).startsWith('$2') ? String(emp.pin) : null)
+                })) as Staff[];
         });
     },
 
@@ -312,13 +318,14 @@ export const StaffService = {
             .select('id, name, email, mobile, role, restaurant_id, branch_id, status, approval_status, avatar_url, created_at, updated_at')
             .eq('restaurant_id', rid)
             .eq('is_deleted', true)
+            .not('role', 'in', '("owner","restaurant_owner")')
             .order('name', { ascending: true });
 
         if (error) {
             console.error('Error fetching deleted staff:', error?.message || error);
             return [];
         }
-        return data as Staff[];
+        return (data || []).filter((emp: any) => !['owner', 'restaurant_owner'].includes(String(emp.role || '').toLowerCase())) as Staff[];
     },
 
     async searchStaffByPhone(phone: string, restaurantId?: string, branchId?: string): Promise<Staff[]> {

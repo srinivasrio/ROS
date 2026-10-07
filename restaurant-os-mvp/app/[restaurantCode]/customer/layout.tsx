@@ -294,7 +294,7 @@ export default function CustomerLayout({
                         {/* Only show standard children if NOT on a persistent tab */}
                         {!isPersistentTab && children}
                     </div>
-                    {!isWelcomePage && Boolean(tableNumber) && <SharedFloatingCart restaurantCode={restaurantCode} tableNumber={tableNumber} />}
+                    {!isWelcomePage && <SharedFloatingCart restaurantCode={restaurantCode} tableNumber={tableNumber || ''} />}
                     {!isWelcomePage && Boolean(tableNumber) && <CustomerBottomNav restaurantCode={restaurantCode} tableNumber={tableNumber} />}
                 </div>
             </div>

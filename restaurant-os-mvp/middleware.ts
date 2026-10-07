@@ -79,6 +79,7 @@ export async function middleware(request: NextRequest) {
         hostWithoutPort === 'www.dineinone.com'
     );
     const subdomain = extractSubdomain(host, request.nextUrl.searchParams, request.headers);
+    const isPrefetch = request.headers.get('next-router-prefetch') === '1' || request.headers.get('purpose') === 'prefetch';
 
     // Super Admin is now a standalone website on Port 3005
     if (path.startsWith('/super-admin') || (subdomain === 'superadmin' && (path === '/' || path.startsWith('/dashboard')))) {
@@ -346,10 +347,13 @@ export async function middleware(request: NextRequest) {
 
     // Unauthenticated access to protected staff routes:
     if (!token && isProtectedRoute) {
+        if (isPrefetch) {
+            return new NextResponse(null, { status: 204 });
+        }
         const restCode = targetRestaurantCode || segments[0];
         const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, '');
         const response = NextResponse.redirect(new URL(loginUrl, request.url));
-        clearAllAuthCookies(response, request.cookies, restCode);
+        // Do not clear cookies on unauthenticated access: the user merely lacks a token for this specific panel route
         return response;
     }
 
@@ -370,7 +374,9 @@ export async function middleware(request: NextRequest) {
             const restCode = targetRestaurantCode || segments[0];
             const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
             const response = NextResponse.json({ error: 'Access Denied: Invalid staff credentials', code: 'SESSION_EXPIRED', loginUrl }, { status: 401 });
-            clearAllAuthCookies(response, request.cookies, restCode);
+            if (!isPrefetch) {
+                clearAllAuthCookies(response, request.cookies, restCode);
+            }
             return response;
         }
     }
@@ -395,8 +401,14 @@ export async function middleware(request: NextRequest) {
                     { error: 'Invalid or expired session', code: 'SESSION_EXPIRED', loginUrl },
                     { status: 401 }
                 );
-                clearAllAuthCookies(response, request.cookies, restCode);
+                if (!isPrefetch) {
+                    clearAllAuthCookies(response, request.cookies, restCode);
+                }
                 return response;
+            }
+
+            if (isPrefetch) {
+                return new NextResponse(null, { status: 204 });
             }
 
             // Token is invalid/expired (session ended). Clear it and redirect to the SAME panel's login page
@@ -623,13 +635,12 @@ export async function middleware(request: NextRequest) {
                 }
 
                     if (queryFailed) {
-                        const restCode = targetRestaurantCode || segments[0];
-                        const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
-                        const response = path.startsWith('/api/')
-                            ? NextResponse.json({ error: 'Authentication validation is temporarily unavailable', code: 'SESSION_EXPIRED', loginUrl }, { status: 503 })
-                            : NextResponse.redirect(new URL(loginUrl, request.url));
-                        clearAllAuthCookies(response, request.cookies, restCode);
-                        return response;
+                        console.warn('[Middleware] DB validation query encountered a transient error. Permitting request without clearing cookies to prevent false logout.');
+                        if (cachedUser?.data) {
+                            dbUser = cachedUser.data;
+                        } else {
+                            return NextResponse.next();
+                        }
                     }
 
                     if (!dbUser && !isSuperAdmin) {
@@ -708,14 +719,8 @@ export async function middleware(request: NextRequest) {
                     }
                 }
             } catch (err) {
-                console.warn('Database validation in middleware failed closed:', err);
-                const restCode = targetRestaurantCode || segments[0];
-                const loginUrl = resolvePanelLoginUrl(path, subdomain, restCode, 'session_expired');
-                const response = path.startsWith('/api/')
-                    ? NextResponse.json({ error: 'Authentication validation is temporarily unavailable', code: 'SESSION_EXPIRED', loginUrl }, { status: 503 })
-                    : NextResponse.redirect(new URL(loginUrl, request.url));
-                clearAllAuthCookies(response, request.cookies, restCode);
-                return response;
+                console.warn('Database validation in middleware encountered a transient error:', err);
+                return NextResponse.next();
             }
         }
 

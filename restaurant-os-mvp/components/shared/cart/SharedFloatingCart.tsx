@@ -57,7 +57,7 @@ export function SharedFloatingCart({ restaurantCode: propRestaurantCode, tableNu
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.85, opacity: 0, y: 16 }}
                 transition={{ type: 'spring', stiffness: 420, damping: 26 }}
-                className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 w-full max-w-md flex justify-end px-4 pointer-events-none z-[90]"
+                className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 w-full max-w-md flex justify-end px-4 pointer-events-none z-[150]"
             >
                 <button 
                     type="button"

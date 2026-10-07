@@ -133,11 +133,33 @@ export function initGlobalSessionInterceptor() {
         }
 
         // Attach token if present and not already attached
-        const token = getDineToken();
-        if (token && args[1]) {
+        const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
+        let targetPanel: string | null = null;
+        if (currentPath.startsWith('/owner') || currentPath.includes('/owner') || urlStr.includes('/api/owner/')) targetPanel = 'owner';
+        else if (currentPath.includes('/admin') || urlStr.includes('/api/admin/')) targetPanel = 'admin';
+        else if (currentPath.includes('/waiter') || urlStr.includes('/api/waiter/')) targetPanel = 'waiter';
+        else if (currentPath.includes('/kds') || urlStr.includes('/api/kds/')) targetPanel = 'kds';
+        else if (currentPath.includes('/delivery') || urlStr.includes('/api/delivery/')) targetPanel = 'delivery';
+
+        const token = getDineToken(targetPanel);
+        if (token) {
+            if (typeof Request !== 'undefined' && input instanceof Request) {
+                try {
+                    if (!input.headers.has('x-dine-token')) {
+                        input.headers.set('x-dine-token', token);
+                    }
+                    if (!input.headers.has('authorization') && !input.headers.has('Authorization')) {
+                        input.headers.set('Authorization', `Bearer ${token}`);
+                    }
+                } catch (_) {}
+            }
+            args[1] = args[1] || {};
             const headers = new Headers(args[1].headers || {});
             if (!headers.has('x-dine-token')) {
                 headers.set('x-dine-token', token);
+            }
+            if (!headers.has('authorization') && !headers.has('Authorization')) {
+                headers.set('Authorization', `Bearer ${token}`);
             }
             args[1].headers = headers;
         }
@@ -170,14 +192,15 @@ export function initGlobalSessionInterceptor() {
             if (!isLoginAttempt && !isCustomerRoute) {
                 const path = window.location.pathname;
                 const isPanelRoute = (
+                    path.startsWith('/owner') ||
+                    path.includes('/owner') ||
                     path.includes('/admin') ||
                     path.includes('/waiter') ||
                     path.includes('/delivery') ||
                     path.includes('/kds') ||
                     path.includes('/staff') ||
                     path.includes('/supervisor') ||
-                    path.includes('/employee') ||
-                    path.startsWith('/owner')
+                    path.includes('/employee')
                 );
 
                 if (isPanelRoute) {
@@ -190,18 +213,32 @@ export function initGlobalSessionInterceptor() {
                     if (!isSessionEndpoint) {
                         // Extract detected panel from route
                         let detectedPanel: string | null = null;
-                        if (path.includes('/admin')) detectedPanel = 'admin';
+                        if (path.startsWith('/owner') || path.includes('/owner')) detectedPanel = 'owner';
+                        else if (path.includes('/admin')) detectedPanel = 'admin';
                         else if (path.includes('/waiter')) detectedPanel = 'waiter';
                         else if (path.includes('/kds')) detectedPanel = 'kds';
                         else if (path.includes('/delivery')) detectedPanel = 'delivery';
                         else if (path.includes('/staff') || path.includes('/employee')) detectedPanel = 'employee';
-                        else if (path.startsWith('/owner')) detectedPanel = 'owner';
 
                         // Check response clone for explicit SESSION_EXPIRED code
                         try {
                             const clone = response.clone();
                             clone.json().then(data => {
                                 if (data?.code === 'SESSION_EXPIRED') {
+                                    // If client has a valid, fresh token in storage, do not abruptly logout on stale background 401s
+                                    const currentClientToken = getDineToken(detectedPanel);
+                                    if (currentClientToken) {
+                                        try {
+                                            const parts = currentClientToken.split('.');
+                                            if (parts.length === 3) {
+                                                const p = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+                                                if (p?.exp && (p.exp * 1000) > Date.now() + 15000) {
+                                                    console.warn('[SessionManager] Suppressed premature logout: Client token is still valid and active.');
+                                                    return;
+                                                }
+                                            }
+                                        } catch (_) {}
+                                    }
                                     handleSessionExpired('session_expired', { panel: detectedPanel });
                                 }
                             }).catch(() => {});

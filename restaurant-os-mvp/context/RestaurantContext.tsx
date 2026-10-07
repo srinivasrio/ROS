@@ -50,10 +50,17 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
     const fetchProfile = React.useCallback(async (force = false) => {
         const segments = pathname?.split('/').filter(Boolean) || [];
         let staffMobile: string | null = null;
+        let detectedPanel: string | null = null;
+        if (pathname?.includes('/admin')) detectedPanel = 'admin';
+        else if (pathname?.includes('/waiter')) detectedPanel = 'waiter';
+        else if (pathname?.includes('/kds')) detectedPanel = 'kds';
+        else if (pathname?.includes('/delivery')) detectedPanel = 'delivery';
+        else if (pathname?.includes('/owner')) detectedPanel = 'owner';
+
         if (segments.length > 2 && (segments[1] === 'waiter' || segments[1] === 'staff')) {
             staffMobile = segments[2];
         }
-        const currentScope = `${urlRestaurantIdFromPath || ''}_${staffMobile || ''}`;
+        const currentScope = `${urlRestaurantIdFromPath || ''}_${staffMobile || ''}_${detectedPanel || ''}`;
 
         // Skip redundant re-fetching if the restaurant/staff scope hasn't changed
         if (!force && lastScopeRef.current === currentScope && userRef.current) {
@@ -63,7 +70,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
 
         try {
             lastScopeRef.current = currentScope;
-            const profile = await UserService.getCurrentProfile(urlRestaurantIdFromPath, staffMobile);
+            const profile = await UserService.getCurrentProfile(urlRestaurantIdFromPath, staffMobile, force, detectedPanel);
             if (profile) {
                 setUser(profile);
             } else {

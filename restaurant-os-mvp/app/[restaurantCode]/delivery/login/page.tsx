@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { motion } from 'framer-motion';
-import { Truck, ArrowRight, Loader2, User, ShieldCheck, Building2 } from 'lucide-react';
+import { ArrowRight, Loader2, User, ShieldCheck, Building2 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { RestaurantService } from '@/services/restaurant.service';
 import { setDineToken } from '@/lib/supabase';
+import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 function DeliveryLoginInner() {
     const params = useParams();
@@ -23,6 +25,11 @@ function DeliveryLoginInner() {
     useEffect(() => {
         if (errorParam === 'session_expired') {
             setError('Your session has expired. Please sign in again.');
+            showWarningPopup({
+                title: 'Session Expired',
+                message: 'Delivery session has expired. Please sign in again.',
+                type: 'warning'
+            });
         }
     }, [errorParam]);
 
@@ -52,6 +59,11 @@ function DeliveryLoginInner() {
         const cleanVal = identifier.trim();
         if (!cleanVal) {
             if (isMountedRef.current) setError('Please enter your mobile number or employee ID');
+            showWarningPopup({
+                title: 'Missing Identifier',
+                message: 'Please enter your mobile number or employee ID.',
+                type: 'warning'
+            });
             return;
         }
 
@@ -68,10 +80,17 @@ function DeliveryLoginInner() {
             });
             const data = await res.json();
             if (!res.ok) {
+                const errMsg = data.error || 'Sign-in failed. Please check your credentials.';
                 if (isMountedRef.current) {
-                    setError(data.error || 'Sign-in failed. Please check your credentials.');
+                    setError(errMsg);
                     setLoading(false);
                 }
+                showWarningPopup({
+                    title: 'Authentication Failed',
+                    message: errMsg,
+                    type: 'error',
+                    dismissText: 'Try Again'
+                });
                 return;
             }
 
@@ -102,11 +121,17 @@ function DeliveryLoginInner() {
                 ? redirectParam
                 : (data.redirectUrl || `/${targetRestaurant}/delivery/${deliveryBoyId}/dashboard`);
             window.location.href = targetUrl;
-        } catch (err) {
-            console.error('Login error', err);
+        } catch (err: any) {
+            const errMsg = err?.message || 'Connection failed. Please try again.';
             if (isMountedRef.current) {
-                setError('Connection failed. Please try again.');
+                setError(errMsg);
             }
+            showWarningPopup({
+                title: 'Authentication Failed',
+                message: errMsg,
+                type: 'error',
+                dismissText: 'Try Again'
+            });
         } finally {
             if (!succeeded && isMountedRef.current) {
                 setLoading(false);
@@ -128,9 +153,7 @@ function DeliveryLoginInner() {
                         {restaurantLogo ? (
                             <img src={restaurantLogo} alt={restaurantName || 'Restaurant'} className="w-full h-full rounded-2xl object-cover" />
                         ) : (
-                            <div className="w-full h-full rounded-2xl bg-gradient-to-br from-orange-500 to-rose-500 flex items-center justify-center">
-                                <Truck size={28} className="text-white" />
-                            </div>
+                            <DineInOneLogo size={52} className="w-full h-full !rounded-2xl" />
                         )}
                     </div>
                     {restaurantName && (

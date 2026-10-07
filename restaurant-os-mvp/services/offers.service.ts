@@ -13,6 +13,7 @@ export interface Offer {
     status: 'active' | 'paused' | 'expired';
     usage_count: number;
     restaurant_id: string;
+    applicable_order_type?: 'all' | 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
     end_datetime?: string | null;
 }
 
@@ -58,7 +59,7 @@ export const OfferService = {
                 const supabase = createClient();
                 const { data, error } = await supabase
                     .from('offers')
-                    .select('id, code, title, description, discount_type, discount_value, max_discount, status, usage_count, restaurant_id, end_datetime')
+                    .select('id, code, title, description, discount_type, discount_value, max_discount, status, usage_count, restaurant_id, end_datetime, applicable_order_type')
                     .eq('restaurant_id', restaurantId)
                     .order('created_at', { ascending: false });
 
@@ -120,11 +121,11 @@ export const OfferService = {
         this.clearCache(restaurantId);
     },
 
-    async validateCoupon(code: string, restaurantId: string): Promise<Offer | null> {
+    async validateCoupon(code: string, restaurantId: string, currentOrderType?: string): Promise<Offer | null> {
         const supabase = createClient();
         const { data, error } = await supabase
             .from('offers')
-            .select('id, code, title, description, discount_type, discount_value, max_discount, status, usage_count, restaurant_id, end_datetime')
+            .select('id, code, title, description, discount_type, discount_value, max_discount, status, usage_count, restaurant_id, end_datetime, applicable_order_type')
             .eq('code', code.toUpperCase().trim())
             .eq('restaurant_id', restaurantId)
             .eq('status', 'active')
@@ -134,7 +135,27 @@ export const OfferService = {
             console.error('Error validating coupon:', error);
             return null;
         }
-        return data as Offer | null;
+        if (!data) return null;
+
+        if (data.end_datetime && new Date(data.end_datetime) <= new Date()) {
+            throw new Error('This coupon has expired.');
+        }
+
+        if (currentOrderType && data.applicable_order_type && data.applicable_order_type !== 'all') {
+            const normalizedOrderType = currentOrderType.toUpperCase().replace(/\s+/g, '_');
+            const targetType = data.applicable_order_type.toUpperCase();
+            if (normalizedOrderType !== targetType) {
+                const labelMap: Record<string, string> = {
+                    DINE_IN: 'Dine-In',
+                    TAKEAWAY: 'Takeaway',
+                    DELIVERY: 'Delivery',
+                };
+                const friendlyLabel = labelMap[targetType] || targetType;
+                throw new Error(`This coupon is only valid for ${friendlyLabel} orders.`);
+            }
+        }
+
+        return data as Offer;
     },
 
     async incrementUsage(offerId: string, restaurantId: string) {

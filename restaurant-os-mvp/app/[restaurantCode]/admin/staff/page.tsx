@@ -16,7 +16,9 @@ import {
     Edit as LucideEdit, 
     Trash2 as LucideTrash2, 
     Shield as LucideShield,
-    Bike as LucideBike 
+    Bike as LucideBike,
+    Eye as LucideEye,
+    EyeOff as LucideEyeOff
 } from 'lucide-react';
 
 // Payroll Sub-tabs
@@ -49,7 +51,8 @@ export default function StaffManagement() {
     // Legacy Staff Login States
     const cacheKey = `staff-${activeResId}`;
     const cached = getCached<Staff[]>(cacheKey) || (restaurantId ? getCached<Staff[]>(`staff-${restaurantId}`) : null);
-    const [staffList, setStaffList] = useState<Staff[]>(cached || []);
+    const initialStaff = (cached || []).filter(s => !['owner', 'restaurant_owner'].includes(String(s.role || '').toLowerCase()));
+    const [staffList, setStaffList] = useState<Staff[]>(initialStaff);
     const staffListRef = useRef<Staff[]>(staffList);
     staffListRef.current = staffList;
     const [loadingLogins, setLoadingLogins] = useState(!cached && staffList.length === 0);
@@ -57,6 +60,43 @@ export default function StaffManagement() {
     const [lastSync, setLastSync] = useState<Date | null>(null);
     const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
     const [selectedStaff, setSelectedStaff] = useState<Staff | undefined>();
+    const [revealedPins, setRevealedPins] = useState<Set<string>>(new Set());
+    const [showAllPins, setShowAllPins] = useState(false);
+    const [isOwner, setIsOwner] = useState(false);
+
+    useEffect(() => {
+        fetch('/api/auth/session')
+            .then(res => res.json())
+            .then(data => {
+                const role = (data?.user?.role || '').toLowerCase();
+                const ownerRoles = ['owner', 'restaurant_owner', 'super_admin', 'superadmin'];
+                setIsOwner(ownerRoles.includes(role));
+            })
+            .catch(() => setIsOwner(false));
+    }, []);
+
+    const toggleRevealPin = (id: string) => {
+        setRevealedPins(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
+    const toggleRevealAllPins = () => {
+        if (showAllPins) {
+            setRevealedPins(new Set());
+            setShowAllPins(false);
+        } else {
+            const allIds = new Set(staffList.map(s => s.id));
+            setRevealedPins(allIds);
+            setShowAllPins(true);
+        }
+    };
 
     // Delete Modal State
     const [deleteModal, setDeleteModal] = useState<{
@@ -78,7 +118,8 @@ export default function StaffManagement() {
             clearCache(key);
             if (restaurantId) clearCache(`staff-${restaurantId}`);
         } else if (currentCached && staffListRef.current.length === 0) {
-            setStaffList(currentCached);
+            const nonOwner = currentCached.filter(s => !['owner', 'restaurant_owner'].includes(String(s.role || '').toLowerCase()));
+            setStaffList(nonOwner);
             setLoadingLogins(false);
         }
 
@@ -96,9 +137,10 @@ export default function StaffManagement() {
         try {
             const data = await requestManager.coalesce(key, () => StaffService.fetchStaff(restaurantId || targetId), 3);
             if (data) {
-                setStaffList(data);
-                setCache(key, data, { ttlMs: 15 * 60 * 1000 });
-                if (restaurantId) setCache(`staff-${restaurantId}`, data, { ttlMs: 15 * 60 * 1000 });
+                const nonOwner = data.filter(s => !['owner', 'restaurant_owner'].includes(String(s.role || '').toLowerCase()));
+                setStaffList(nonOwner);
+                setCache(key, nonOwner, { ttlMs: 15 * 60 * 1000 });
+                if (restaurantId) setCache(`staff-${restaurantId}`, nonOwner, { ttlMs: 15 * 60 * 1000 });
                 setLastSync(new Date());
             }
         } catch (error) {
@@ -283,19 +325,31 @@ export default function StaffManagement() {
                                                 <th className="px-6 py-4">Availability</th>
                                                 <th className="px-6 py-4">Contact</th>
                                                 <th className="px-6 py-4">Account Status</th>
-                                                <th className="px-6 py-4 text-center">PIN</th>
+                                                <th className="px-6 py-4 text-center">
+                                                    <div className="inline-flex items-center justify-center gap-1.5">
+                                                        <span>PIN</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={toggleRevealAllPins}
+                                                            className="p-1 rounded hover:bg-neutral-200 text-neutral-500 hover:text-black transition-colors"
+                                                            title={showAllPins ? "Hide all staff PINs" : "Reveal all staff PINs"}
+                                                        >
+                                                            {showAllPins ? <LucideEyeOff size={15} className="text-blue-600" /> : <LucideEye size={15} />}
+                                                        </button>
+                                                    </div>
+                                                </th>
                                                 <th className="px-6 py-4 text-right">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-neutral-200">
-                                            {staffList.length === 0 ? (
+                                            {staffList.filter(s => !['owner', 'restaurant_owner'].includes(String(s.role || '').toLowerCase())).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={7} className="px-6 py-10 text-center text-neutral-500">
                                                         No logins configured yet.
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                staffList.map((member) => (
+                                                staffList.filter(s => !['owner', 'restaurant_owner'].includes(String(s.role || '').toLowerCase())).map((member) => (
                                                     <tr key={member.id} className="hover:bg-neutral-50 transition-colors">
                                                         <td className="px-6 py-4 font-medium text-black">
                                                             <div className="flex items-center">
@@ -350,8 +404,24 @@ export default function StaffManagement() {
                                                                 {member.status === 'active' ? 'Active' : 'Inactive'}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 text-center font-mono text-neutral-700 font-bold">
-                                                            {member.pin ? '••••' : '-'}
+                                                        <td className="px-6 py-4 text-center">
+                                                            {member.pin ? (
+                                                                <div className="inline-flex items-center justify-center gap-1.5">
+                                                                    <span className="font-mono text-xs font-bold text-neutral-800 bg-neutral-100 px-2 py-1 rounded border border-neutral-200 tracking-wider">
+                                                                        {revealedPins.has(member.id) || showAllPins ? member.pin : '••••'}
+                                                                    </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => toggleRevealPin(member.id)}
+                                                                        className="p-1 text-neutral-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                                                        title={revealedPins.has(member.id) || showAllPins ? "Hide PIN" : "Reveal PIN"}
+                                                                    >
+                                                                        {revealedPins.has(member.id) || showAllPins ? <LucideEyeOff size={14} /> : <LucideEye size={14} />}
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-neutral-400 font-mono text-xs">—</span>
+                                                            )}
                                                         </td>
                                                         <td className="px-6 py-4 text-right">
                                                             <div className="flex justify-end gap-2">
@@ -388,6 +458,7 @@ export default function StaffManagement() {
                 onClose={() => setIsLoginModalOpen(false)}
                 onSuccess={() => loadStaffLogins(true)}
                 staff={selectedStaff}
+                isOwner={isOwner}
             />
 
             {/* Beautiful Delete Confirmation Modal */}

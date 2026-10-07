@@ -55,13 +55,13 @@ export default function SpecialsSlider({
   const scrollPrev = () => {
     const el = containerRef.current;
     if (!el) return;
-    el.scrollBy({ left: -340, behavior: 'smooth' });
+    el.scrollBy({ left: -250, behavior: 'smooth' });
   };
 
   const scrollNext = () => {
     const el = containerRef.current;
     if (!el) return;
-    el.scrollBy({ left: 340, behavior: 'smooth' });
+    el.scrollBy({ left: 250, behavior: 'smooth' });
   };
 
   if (!specials || specials.length === 0) {
@@ -93,7 +93,7 @@ export default function SpecialsSlider({
       {/* Single Row, Multiple Columns Horizontal Scrollable Track */}
       <div
         ref={containerRef}
-        className="flex items-start gap-4 sm:gap-6 overflow-x-auto no-scrollbar py-2.5 px-1 scroll-smooth overscroll-x-contain"
+        className="flex items-stretch gap-3.5 sm:gap-5 overflow-x-auto no-scrollbar py-2.5 px-1 scroll-smooth overscroll-x-contain"
       >
         {specials.map((special: any) => {
           // CartContext stores specials with key `special-{id}`, so use that prefix for lookups
@@ -101,7 +101,7 @@ export default function SpecialsSlider({
           return (
             <div
               key={special.id}
-              className="w-[280px] sm:w-[320px] md:w-[340px] shrink-0 snap-start"
+              className="w-[225px] sm:w-[250px] md:w-[270px] shrink-0 snap-start flex"
             >
               <SpecialCard
                 special={special}

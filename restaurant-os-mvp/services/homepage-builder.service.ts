@@ -144,6 +144,7 @@ export interface HomepageOffer {
     expiry_datetime?: string | null; // for backward compatibility
     active?: boolean;
     status?: 'active' | 'paused' | 'expired';
+    applicable_order_type?: 'all' | 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
 }
 
 
@@ -996,7 +997,8 @@ const HomepageBuilderService = {
             end_datetime: offer.end_datetime || (offer as any).expiry_datetime || null,
             image_url: offer.image_url || (offer as any).banner_image || '',
             active: offer.active !== false,
-            status: offer.status || (offer.active === false ? 'paused' : 'active')
+            status: offer.status || (offer.active === false ? 'paused' : 'active'),
+            applicable_order_type: offer.applicable_order_type || 'all'
         };
 
         if (offer.id && UUID_RE.test(offer.id)) {

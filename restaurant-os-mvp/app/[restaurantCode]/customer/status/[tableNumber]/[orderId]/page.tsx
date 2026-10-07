@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { OfferService } from '@/services/offers.service';
 import { toast } from 'sonner';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 import SharedComboCard from '@/components/shared/SharedComboCard';
 import { motion } from 'framer-motion';
 
@@ -260,9 +261,14 @@ export default function OrderStatusPage() {
         if (!couponInput.trim() || !order) return;
         setCouponLoading(true);
         try {
-            const offer = await OfferService.validateCoupon(couponInput.trim(), urlRestaurantId);
+            const offer = await OfferService.validateCoupon(couponInput.trim(), urlRestaurantId, order.order_type);
             if (!offer) {
-                toast.error('Invalid or expired coupon code');
+                showWarningPopup({
+                    title: 'Invalid Coupon',
+                    message: 'The coupon code entered is invalid, inactive, or has expired.',
+                    type: 'coupon',
+                    dismissText: 'Dismiss',
+                });
                 setCouponLoading(false);
                 return;
             }
@@ -283,9 +289,13 @@ export default function OrderStatusPage() {
             toast.success(`Coupon ${offer.code} applied successfully!`);
             setCouponInput('');
             loadOrder();
-        } catch (error) {
-            console.error('Failed to apply coupon', error);
-            toast.error('Failed to apply coupon. Please try again.');
+        } catch (error: any) {
+            showWarningPopup({
+                title: 'Coupon Restriction',
+                message: error?.message || 'Failed to apply coupon. Please check the order requirements.',
+                type: 'coupon',
+                dismissText: 'Dismiss',
+            });
         } finally {
             setCouponLoading(false);
         }
@@ -297,9 +307,13 @@ export default function OrderStatusPage() {
             await OrderService.updateOrderCoupon(order.id, urlRestaurantId, '', 0);
             toast.success('Coupon removed');
             loadOrder();
-        } catch (error) {
-            console.error('Failed to remove coupon', error);
-            toast.error('Failed to remove coupon');
+        } catch (error: any) {
+            showWarningPopup({
+                title: 'Coupon Notice',
+                message: error?.message || 'Failed to remove coupon.',
+                type: 'coupon',
+                dismissText: 'Dismiss',
+            });
         }
     };
 

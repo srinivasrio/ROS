@@ -320,6 +320,15 @@ export default function OwnerDashboard() {
                         <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
                         <span className="hidden sm:inline">Refresh</span>
                     </button>
+                    {(!restaurant?.hasMultiRestaurant) && (
+                        <Link
+                            href="/owner/billing"
+                            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+                        >
+                            <Sparkles size={14} />
+                            <span>Upgrade to Pro</span>
+                        </Link>
+                    )}
                     <Link
                         href="/owner/branches"
                         className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-violet-500 text-white rounded-xl text-sm font-bold shadow-md shadow-indigo-500/20 hover:shadow-lg hover:shadow-indigo-500/30 transition-all cursor-pointer"
@@ -353,27 +362,6 @@ export default function OwnerDashboard() {
                         <Building2 size={16} />
                         <span>Create Restaurant & Branches</span>
                         <ArrowRight size={14} />
-                    </Link>
-                </div>
-            )}
-
-            {/* Pro Multi-Restaurant Banner when applicable */}
-            {isAllBranches && branches.length > 1 && !restaurant?.hasMultiRestaurant && (
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-800/50 flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">
-                            <Building2 size={18} />
-                        </div>
-                        <div>
-                            <h4 className="text-xs font-bold text-amber-900 dark:text-amber-200">Multi-Restaurant Central Command is a Pro Feature</h4>
-                            <p className="text-[11px] text-amber-700 dark:text-amber-300">Upgrade to Pro to unlock central menu synchronization, consolidated reporting, and cross-outlet performance.</p>
-                        </div>
-                    </div>
-                    <Link
-                        href="/owner/billing"
-                        className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition-all"
-                    >
-                        Upgrade to Pro
                     </Link>
                 </div>
             )}

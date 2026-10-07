@@ -64,43 +64,43 @@ export default function SettingsPage() {
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+    const fetchSettings = async () => {
+        try {
+            setLoading(true);
+            const res = await fetch('/api/owner/settings');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.restaurant) {
+                    setProfile({
+                        id: data.restaurant.id || '',
+                        name: data.restaurant.name || '',
+                        legal_name: data.restaurant.legal_name || '',
+                        phone: data.restaurant.phone || '',
+                        email: data.restaurant.email || '',
+                        address: typeof data.restaurant.address === 'string' 
+                            ? data.restaurant.address 
+                            : data.restaurant.address ? JSON.stringify(data.restaurant.address) : '',
+                        logo_url: data.restaurant.logo_url || '',
+                        status: data.restaurant.status,
+                        created_at: data.restaurant.created_at
+                    });
+                }
+                if (data.terms) {
+                    setTerms(data.terms);
+                }
+                if (data.deletionRequest) {
+                    setDeletionRequest(data.deletionRequest);
+                }
+            }
+        } catch (err) {
+            console.error('[Settings] Fetch error:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // Fetch initial settings
     useEffect(() => {
-        async function fetchSettings() {
-            try {
-                setLoading(true);
-                const res = await fetch('/api/owner/settings');
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.restaurant) {
-                        setProfile({
-                            id: data.restaurant.id || '',
-                            name: data.restaurant.name || '',
-                            legal_name: data.restaurant.legal_name || '',
-                            phone: data.restaurant.phone || '',
-                            email: data.restaurant.email || '',
-                            address: typeof data.restaurant.address === 'string' 
-                                ? data.restaurant.address 
-                                : data.restaurant.address ? JSON.stringify(data.restaurant.address) : '',
-                            logo_url: data.restaurant.logo_url || '',
-                            status: data.restaurant.status,
-                            created_at: data.restaurant.created_at
-                        });
-                    }
-                    if (data.terms) {
-                        setTerms(data.terms);
-                    }
-                    if (data.deletionRequest) {
-                        setDeletionRequest(data.deletionRequest);
-                    }
-                }
-            } catch (err) {
-                console.error('[Settings] Fetch error:', err);
-            } finally {
-                setLoading(false);
-            }
-        }
-
         fetchSettings();
     }, []);
 
@@ -193,9 +193,19 @@ export default function SettingsPage() {
     return (
         <div className="p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
             {/* Header */}
-            <div>
-                <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">Settings</h2>
-                <p className="text-sm text-neutral-400 mt-0.5">Manage organization profile, security, and governance</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h2 className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">Settings</h2>
+                    <p className="text-sm text-neutral-400 mt-0.5">Manage organization profile, security, and governance</p>
+                </div>
+                <button
+                    onClick={() => fetchSettings()}
+                    disabled={loading}
+                    className="p-2.5 self-start sm:self-auto rounded-xl border border-neutral-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-800/80 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-zinc-700 transition cursor-pointer shadow-xs"
+                    title="Refresh settings"
+                >
+                    <RefreshCw size={14} className={loading ? 'animate-spin text-indigo-500' : ''} />
+                </button>
             </div>
 
             {/* Navigation Tabs */}

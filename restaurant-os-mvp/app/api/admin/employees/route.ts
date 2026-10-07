@@ -71,6 +71,13 @@ export async function GET(req: NextRequest) {
             }
         }
 
+        // Fetch restaurant details to resolve owner_id
+        const { data: restRec } = await supabaseAdmin
+            .from('restaurants')
+            .select('owner_id')
+            .eq('id', resolvedId)
+            .maybeSingle();
+
         let query = supabaseAdmin
             .from('employees')
             .select(`
@@ -80,7 +87,12 @@ export async function GET(req: NextRequest) {
                     name
                 )
             `)
-            .eq('restaurant_id', resolvedId);
+            .eq('restaurant_id', resolvedId)
+            .not('role', 'in', '("owner","restaurant_owner")');
+
+        if (restRec?.owner_id) {
+            query = query.neq('id', restRec.owner_id);
+        }
 
         if (targetBranchId) {
             query = query.eq('branch_id', targetBranchId);
@@ -122,7 +134,12 @@ export async function GET(req: NextRequest) {
             let fallbackQuery = supabaseAdmin
                 .from('employees')
                 .select('*')
-                .eq('restaurant_id', resolvedId);
+                .eq('restaurant_id', resolvedId)
+                .not('role', 'in', '("owner","restaurant_owner")');
+
+            if (restRec?.owner_id) {
+                fallbackQuery = fallbackQuery.neq('id', restRec.owner_id);
+            }
 
             if (targetBranchId) {
                 fallbackQuery = fallbackQuery.eq('branch_id', targetBranchId);
@@ -160,11 +177,25 @@ export async function GET(req: NextRequest) {
                 console.error('[api/admin/employees] Error fetching employees:', fallbackError);
                 return NextResponse.json({ error: fallbackError.message }, { status: 500 });
             }
-            const sanitizedFallback = (fallbackData || []).map(sanitizeEmployeeProfile);
+            const sanitizedFallback = (fallbackData || [])
+                .filter((e: any) => {
+                    const roleLower = String(e.role || '').toLowerCase();
+                    const isOwnerRole = roleLower === 'owner' || roleLower === 'restaurant_owner';
+                    const isOwnerId = restRec?.owner_id && e.id === restRec.owner_id;
+                    return !isOwnerRole && !isOwnerId;
+                })
+                .map(sanitizeEmployeeProfile);
             return NextResponse.json({ success: true, employees: sanitizedFallback });
         }
 
-        const sanitized = (data || []).map(sanitizeEmployeeProfile);
+        const sanitized = (data || [])
+            .filter((e: any) => {
+                const roleLower = String(e.role || '').toLowerCase();
+                const isOwnerRole = roleLower === 'owner' || roleLower === 'restaurant_owner';
+                const isOwnerId = restRec?.owner_id && e.id === restRec.owner_id;
+                return !isOwnerRole && !isOwnerId;
+            })
+            .map(sanitizeEmployeeProfile);
         return NextResponse.json({ success: true, employees: sanitized });
     } catch (err: any) {
         console.error('[api/admin/employees] Unexpected error:', err);
@@ -235,9 +266,22 @@ export async function PUT(req: NextRequest) {
         if (user) {
             const userRole = String(user.role || '').toLowerCase();
             const isSuperAdmin = userRole === 'super_admin' || userRole === 'superadmin';
+            const isOwner = userRole === 'owner' || userRole === 'restaurant_owner';
             const userRests = user.restaurantIds || (user.restaurantId ? [user.restaurantId] : []);
             if (!isSuperAdmin && targetRestaurantId && userRests.length > 0 && !userRests.includes(targetRestaurantId)) {
                 return NextResponse.json({ error: 'Access denied: You cannot modify employees of another restaurant' }, { status: 403 });
+            }
+
+            // Protect owner accounts from modification by regular staff admins
+            const targetEmpRole = String(existingEmp.role || '').toLowerCase();
+            if (['owner', 'restaurant_owner'].includes(targetEmpRole) && !isSuperAdmin && !isOwner) {
+                return NextResponse.json({ error: 'Protected Account: Restaurant owner accounts cannot be modified by staff' }, { status: 403 });
+            }
+
+            // Only Owner or Super Admin can assign or change role to admin / restaurant_admin
+            const targetNewRole = role !== undefined ? String(role).toLowerCase().trim() : undefined;
+            if (targetNewRole && ['admin', 'restaurant_admin'].includes(targetNewRole) && !isSuperAdmin && !isOwner) {
+                return NextResponse.json({ error: 'Access Denied: Only restaurant owners can create or assign administrator accounts.' }, { status: 403 });
             }
         }
 
@@ -302,6 +346,7 @@ export async function PUT(req: NextRequest) {
             const cleanPin = String(pin).trim();
             if (/^\d{4,6}$/.test(cleanPin)) {
                 updates.pin = await hashPin(cleanPin);
+                updates.raw_pin = cleanPin;
                 // Also update auth table
                 await supabaseAdmin
                     .from('auth')

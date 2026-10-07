@@ -33,7 +33,15 @@ export default function InventoryDashboard() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [showSupplierModal, setShowSupplierModal] = useState(false);
     const [editItemId, setEditItemId] = useState<string | null>(null);
-    const [newItem, setNewItem] = useState({ name: '', category_id: '', item_type: 'Veg', unit: 'kg', min_threshold: 5, cost_per_unit: 100, current_stock: 0 });
+    const [newItem, setNewItem] = useState<{
+        name: string;
+        category_id: string;
+        item_type: string;
+        unit: string;
+        min_threshold: string | number;
+        cost_per_unit: string | number;
+        current_stock: string | number;
+    }>({ name: '', category_id: '', item_type: 'Veg', unit: 'kg', min_threshold: '', cost_per_unit: '', current_stock: '' });
 
     const [showCategoryModal, setShowCategoryModal] = useState(false);
     const [newCategoryName, setNewCategoryName] = useState('');
@@ -112,9 +120,9 @@ export default function InventoryDashboard() {
                 category_id: newItem.category_id,
                 item_type: newItem.item_type,
                 unit: newItem.unit,
-                min_threshold: Number(newItem.min_threshold),
-                cost_per_unit: Number(newItem.cost_per_unit),
-                current_stock: Number(newItem.current_stock)
+                min_threshold: Number(newItem.min_threshold) || 0,
+                cost_per_unit: Number(newItem.cost_per_unit) || 0,
+                current_stock: Number(newItem.current_stock) || 0
             };
 
             if (editItemId) {
@@ -125,7 +133,7 @@ export default function InventoryDashboard() {
             }
             setShowAddModal(false);
             setEditItemId(null);
-            setNewItem({ name: '', category_id: '', item_type: 'Veg', unit: 'kg', min_threshold: 5, cost_per_unit: 100, current_stock: 0 });
+            setNewItem({ name: '', category_id: '', item_type: 'Veg', unit: 'kg', min_threshold: '', cost_per_unit: '', current_stock: '' });
             loadData();
         } catch (e) {
             setModalConfig({
@@ -147,9 +155,9 @@ export default function InventoryDashboard() {
             category_id: item.category_id || '',
             item_type: item.item_type || 'Veg',
             unit: item.unit,
-            min_threshold: item.min_threshold,
-            cost_per_unit: item.cost_per_unit,
-            current_stock: item.current_stock
+            min_threshold: item.min_threshold ?? '',
+            cost_per_unit: item.cost_per_unit ?? '',
+            current_stock: item.current_stock ?? ''
         });
         setShowAddModal(true);
     };
@@ -446,16 +454,16 @@ export default function InventoryDashboard() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-black mb-1">Cost per {newItem.unit || 'Unit'} (₹)</label>
-                                    <input required type="number" step="0.01" value={newItem.cost_per_unit} onChange={e => setNewItem({ ...newItem, cost_per_unit: Number(e.target.value) })} className="w-full border border-neutral-200 rounded-lg p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                                    <input required type="number" step="0.01" placeholder="e.g. 50.00" value={newItem.cost_per_unit} onChange={e => setNewItem({ ...newItem, cost_per_unit: e.target.value })} className="w-full border border-neutral-200 rounded-lg p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
                                 </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-black mb-1">Min Threshold Alert</label>
-                                <input required type="number" step="0.1" value={newItem.min_threshold} onChange={e => setNewItem({ ...newItem, min_threshold: Number(e.target.value) })} className="w-full border border-neutral-200 rounded-lg p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                                <input required type="number" step="0.1" placeholder="e.g. 5" value={newItem.min_threshold} onChange={e => setNewItem({ ...newItem, min_threshold: e.target.value })} className="w-full border border-neutral-200 rounded-lg p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-black mb-1">{editItemId ? 'Current Stock' : 'Initial Stock'}</label>
-                                <input required type="number" step="0.01" value={newItem.current_stock} onChange={e => setNewItem({ ...newItem, current_stock: Number(e.target.value) })} className="w-full border border-neutral-200 rounded-lg p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                                <input required type="number" step="0.01" placeholder="e.g. 10" value={newItem.current_stock} onChange={e => setNewItem({ ...newItem, current_stock: e.target.value })} className="w-full border border-neutral-200 rounded-lg p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
                             </div>
                             <div className="pt-4 flex justify-end gap-3">
                                 <button type="button" onClick={() => setShowAddModal(false)} className="px-5 py-2.5 text-sm font-semibold text-black hover:bg-neutral-100 rounded-lg">Cancel</button>

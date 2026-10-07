@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     const restaurantIds = auth.restaurantIds && auth.restaurantIds.length > 0 ? auth.restaurantIds : [];
 
-    const [restRes, branchRes, empRes, regReqRes, ownerEmpRes, subRes] = await Promise.all([
+    const [restRes, branchRes, empRes, regReqRes, ownerEmpRes, subRes, allRegReqRes] = await Promise.all([
         restaurantIds.length > 0
             ? supabaseAdmin
                 .from('restaurants')
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
         restaurantIds.length > 0
             ? supabaseAdmin
                 .from('employees')
-                .select('id, name, email, mobile, role, restaurant_id, branch_id, pin, status, approval_status')
+                .select('id, name, email, mobile, role, restaurant_id, branch_id, pin, raw_password, raw_pin, status, approval_status')
                 .in('restaurant_id', restaurantIds)
                 .in('role', ['restaurant_admin', 'admin'])
                 .neq('id', auth.userId)
@@ -72,6 +72,12 @@ export async function GET(request: NextRequest) {
                 .select('*')
                 .in('restaurant_id', restaurantIds)
                 .in('status', ['active', 'trialing'])
+            : Promise.resolve({ data: [], error: null }),
+        restaurantIds.length > 0
+            ? supabaseAdmin
+                .from('restaurant_registration_requests')
+                .select('restaurant_id, admin_name, admin_email, admin_mobile, admin_password, admin_pin')
+                .in('restaurant_id', restaurantIds)
             : Promise.resolve({ data: [], error: null })
     ]);
 
@@ -83,6 +89,7 @@ export async function GET(request: NextRequest) {
     const regRequests = regReqRes.data || [];
     const ownerEmp = ownerEmpRes.data;
     const activeSubs = subRes.data || [];
+    const allRegRequests = allRegReqRes?.data || [];
     const primaryActiveSub = activeSubs[0] || null;
     const hasActiveSubscription = !!primaryActiveSub;
 
@@ -105,6 +112,10 @@ export async function GET(request: NextRequest) {
         ) || null;
         const isMain = hasAnyMain ? Boolean(r.is_main_branch) : idx === 0;
 
+        const matchedRegReq = allRegRequests.find((rr: any) => rr.restaurant_id === r.id);
+        const resolvedPassword = admin?.raw_password || matchedRegReq?.admin_password || null;
+        const resolvedPin = admin?.raw_pin || matchedRegReq?.admin_pin || (admin?.pin ? '••••' : null);
+
         return {
             id: r.id, // primary identifier
             restaurant_id: r.id,
@@ -120,12 +131,14 @@ export async function GET(request: NextRequest) {
             created_at: r.created_at,
             branch_id: primaryBranch?.id || `BR-${r.id.slice(-6)}-01`,
             internal_id: primaryBranch?.internal_id || null,
-            adminName: admin?.name || null,
-            adminEmail: admin?.email || null,
-            adminMobile: admin?.mobile || null,
+            adminName: admin?.name || matchedRegReq?.admin_name || null,
+            adminEmail: admin?.email || matchedRegReq?.admin_email || null,
+            adminMobile: admin?.mobile || matchedRegReq?.admin_mobile || null,
+            adminPassword: resolvedPassword,
+            adminPin: resolvedPin,
             adminId: admin?.id || null,
             adminStatus: admin?.status || 'active',
-            hasPin: Boolean(admin?.pin)
+            hasPin: Boolean(admin?.pin || resolvedPin)
         };
     });
 
@@ -194,11 +207,18 @@ export async function GET(request: NextRequest) {
     // Format admins with branch_id = restaurant_id so UI easily pairs each admin to its restaurant
     const formattedAdmins = admins
         .filter(a => ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) && a.id !== auth.userId)
-        .map(a => ({
-            ...a,
-            branch_id: a.restaurant_id,
-            hasPin: Boolean(a.pin)
-        }));
+        .map(a => {
+            const matchedRegReq = allRegRequests.find((rr: any) => rr.restaurant_id === a.restaurant_id);
+            const resolvedPassword = a.raw_password || matchedRegReq?.admin_password || null;
+            const resolvedPin = a.raw_pin || matchedRegReq?.admin_pin || (a.pin ? '••••' : null);
+            return {
+                ...a,
+                branch_id: a.restaurant_id,
+                adminPassword: resolvedPassword,
+                adminPin: resolvedPin,
+                hasPin: Boolean(a.pin || resolvedPin)
+            };
+        });
 
     return NextResponse.json({
         branches: formattedBranches,
@@ -416,6 +436,11 @@ export async function POST(request: NextRequest) {
                 owner_name: auth.name || 'Owner',
                 owner_email: auth.email,
                 owner_phone: auth.mobile || phone,
+                admin_name: adminName?.trim() || null,
+                admin_email: adminEmail?.trim() || null,
+                admin_mobile: adminMobile?.trim() || null,
+                admin_password: adminPassword?.trim() || null,
+                admin_pin: adminPin?.trim() || null,
                 plan_slug: planSlug,
                 plan_name: planDef.name,
                 plan_limit: planDefaultLimit,
@@ -852,6 +877,42 @@ export async function PUT(request: NextRequest) {
                 return NextResponse.json({ error: 'Failed to update admin: ' + updateErr.message }, { status: 500 });
             }
 
+            if (adminPassword?.trim() || adminPin?.trim()) {
+                const regUpdates: any = { updated_at: new Date().toISOString() };
+                if (adminPassword?.trim()) regUpdates.admin_password = adminPassword.trim();
+                if (adminPin?.trim()) regUpdates.admin_pin = adminPin.trim();
+                if (empUpdates.name) regUpdates.admin_name = empUpdates.name;
+                if (empUpdates.email) regUpdates.admin_email = empUpdates.email;
+                if (empUpdates.mobile) regUpdates.admin_mobile = empUpdates.mobile;
+                const { data: updatedReqs } = await supabaseAdmin
+                    .from('restaurant_registration_requests')
+                    .update(regUpdates)
+                    .eq('restaurant_id', targetRestaurantId)
+                    .select('id');
+
+                if (!updatedReqs || updatedReqs.length === 0) {
+                    await supabaseAdmin
+                        .from('restaurant_registration_requests')
+                        .insert({
+                            id: crypto.randomUUID(),
+                            request_number: `REQ-${Date.now().toString().slice(-6)}`,
+                            restaurant_id: targetRestaurantId,
+                            restaurant_name: name || 'Restaurant',
+                            owner_id: auth.userId,
+                            owner_name: auth.name || 'Owner',
+                            owner_email: auth.email,
+                            admin_name: empUpdates.name || adminName?.trim() || 'Admin',
+                            admin_email: empUpdates.email || cleanEmail || null,
+                            admin_mobile: empUpdates.mobile || cleanMobile || null,
+                            admin_password: adminPassword?.trim() || null,
+                            admin_pin: adminPin?.trim() || null,
+                            approval_status: 'APPROVED',
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
+                        });
+                }
+            }
+
             if (adminPassword?.trim()) {
                 const hashedPassword = await hashPassword(adminPassword.trim());
                 await supabaseAdmin
@@ -915,6 +976,8 @@ export async function PUT(request: NextRequest) {
                 mobile: empUpdates.mobile || existingAdmin.mobile,
                 restaurant_id: targetRestaurantId,
                 branch_id: targetBranchId,
+                adminPassword: adminPassword?.trim() || existingAdmin.raw_password || null,
+                adminPin: adminPin?.trim() || existingAdmin.raw_pin || null,
                 hasPin: Boolean(empUpdates.pin || existingAdmin.pin)
             };
         } else if (cleanEmail || cleanMobile || adminName?.trim()) {
@@ -964,6 +1027,42 @@ export async function PUT(request: NextRequest) {
                 if (cleanMobile) empUpdates.mobile = cleanMobile;
 
                 await supabaseAdmin.from('employees').update(empUpdates).eq('id', candidateAdmin.id);
+
+                if (adminPassword?.trim() || adminPin?.trim()) {
+                    const regUpdates: any = { updated_at: new Date().toISOString() };
+                    if (adminPassword?.trim()) regUpdates.admin_password = adminPassword.trim();
+                    if (adminPin?.trim()) regUpdates.admin_pin = adminPin.trim();
+                    if (cleanAdminName) regUpdates.admin_name = cleanAdminName;
+                    if (cleanEmail) regUpdates.admin_email = cleanEmail;
+                    if (cleanMobile) regUpdates.admin_mobile = cleanMobile;
+                    const { data: updatedReqs } = await supabaseAdmin
+                        .from('restaurant_registration_requests')
+                        .update(regUpdates)
+                        .eq('restaurant_id', targetRestaurantId)
+                        .select('id');
+
+                    if (!updatedReqs || updatedReqs.length === 0) {
+                        await supabaseAdmin
+                            .from('restaurant_registration_requests')
+                            .insert({
+                                id: crypto.randomUUID(),
+                                request_number: `REQ-${Date.now().toString().slice(-6)}`,
+                                restaurant_id: targetRestaurantId,
+                                restaurant_name: name || 'Restaurant',
+                                owner_id: auth.userId,
+                                owner_name: auth.name || 'Owner',
+                                owner_email: auth.email,
+                                admin_name: cleanAdminName || 'Admin',
+                                admin_email: cleanEmail || null,
+                                admin_mobile: cleanMobile || null,
+                                admin_password: adminPassword?.trim() || null,
+                                admin_pin: adminPin?.trim() || null,
+                                approval_status: 'APPROVED',
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString()
+                            });
+                    }
+                }
 
                 if (adminPassword?.trim()) {
                     const hashedPassword = await hashPassword(adminPassword.trim());
@@ -1027,7 +1126,9 @@ export async function PUT(request: NextRequest) {
                     mobile: cleanMobile || candidateAdmin.mobile,
                     restaurant_id: targetRestaurantId,
                     branch_id: targetBranchId,
-                    hasPin: Boolean(hashedPin)
+                    adminPassword: adminPassword?.trim() || candidateAdmin.raw_password || null,
+                    adminPin: rawPin || candidateAdmin.raw_pin || null,
+                    hasPin: Boolean(hashedPin || rawPin)
                 };
             } else {
                 // Insert brand new admin
@@ -1061,6 +1162,42 @@ export async function PUT(request: NextRequest) {
                 if (createAdminErr) {
                     console.error('[PUT /branches create admin error]:', createAdminErr);
                     return NextResponse.json({ error: 'Failed to create restaurant admin: ' + createAdminErr.message }, { status: 500 });
+                }
+
+                if (adminPassword?.trim() || adminPin?.trim()) {
+                    const regUpdates: any = { updated_at: new Date().toISOString() };
+                    if (adminPassword?.trim()) regUpdates.admin_password = adminPassword.trim();
+                    if (adminPin?.trim()) regUpdates.admin_pin = adminPin.trim();
+                    if (cleanAdminName) regUpdates.admin_name = cleanAdminName;
+                    if (cleanEmail) regUpdates.admin_email = cleanEmail;
+                    if (cleanMobile) regUpdates.admin_mobile = cleanMobile;
+                    const { data: updatedReqs } = await supabaseAdmin
+                        .from('restaurant_registration_requests')
+                        .update(regUpdates)
+                        .eq('restaurant_id', targetRestaurantId)
+                        .select('id');
+
+                    if (!updatedReqs || updatedReqs.length === 0) {
+                        await supabaseAdmin
+                            .from('restaurant_registration_requests')
+                            .insert({
+                                id: crypto.randomUUID(),
+                                request_number: `REQ-${Date.now().toString().slice(-6)}`,
+                                restaurant_id: targetRestaurantId,
+                                restaurant_name: name || 'Restaurant',
+                                owner_id: auth.userId,
+                                owner_name: auth.name || 'Owner',
+                                owner_email: auth.email,
+                                admin_name: cleanAdminName || 'Admin',
+                                admin_email: cleanEmail || null,
+                                admin_mobile: cleanMobile || null,
+                                admin_password: adminPassword?.trim() || null,
+                                admin_pin: adminPin?.trim() || null,
+                                approval_status: 'APPROVED',
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString()
+                            });
+                    }
                 }
 
                 if (adminPassword?.trim()) {

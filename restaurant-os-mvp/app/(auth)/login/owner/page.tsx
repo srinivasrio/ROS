@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useCallback, Suspense } from 'react';
+import { useState, useCallback, Suspense, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-    ShieldCheck, Eye, EyeOff, Loader2, ArrowRight, Lock, Mail, Building2, Sparkles
+    ShieldCheck, Eye, EyeOff, Loader2, ArrowRight, Lock, Mail, Sparkles
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { setDineToken } from '@/lib/supabase';
+import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 function OwnerLoginInner() {
     const searchParams = useSearchParams();
@@ -24,11 +26,26 @@ function OwnerLoginInner() {
         invalid_restaurant: 'Tenant mismatch: You cannot access restaurants you do not manage.'
     };
 
+    useEffect(() => {
+        if (errorParam && errorMessages[errorParam]) {
+            showWarningPopup({
+                title: errorParam === 'session_expired' ? 'Session Expired' : 'Access Restricted',
+                message: errorMessages[errorParam],
+                type: 'warning',
+                dismissText: 'Understand'
+            });
+        }
+    }, [errorParam]);
+
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         const cleanId = identifier.trim();
         if (!cleanId || !password) {
-            toast.error('Please enter both your email and password.');
+            showWarningPopup({
+                title: 'Missing Credentials',
+                message: 'Please enter both your email and password.',
+                type: 'warning'
+            });
             return;
         }
 
@@ -48,11 +65,18 @@ function OwnerLoginInner() {
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.error || 'Authentication failed');
+                const errMsg = data.error || 'Authentication failed. Please check your credentials.';
+                showWarningPopup({
+                    title: 'Authentication Failed',
+                    message: errMsg,
+                    type: 'error',
+                    dismissText: 'Try Again'
+                });
+                return;
             }
 
             if (data.token) {
-                setDineToken(data.token);
+                setDineToken(data.token, 'owner');
             }
 
             toast.success('Owner authentication successful! Redirecting...');
@@ -63,11 +87,17 @@ function OwnerLoginInner() {
             window.location.href = redirectUrl;
 
         } catch (err: any) {
-            toast.error(err.message || 'Login failed. Please check your credentials.');
+            const errMsg = err?.message || 'Login failed. Please check your credentials.';
+            showWarningPopup({
+                title: 'Authentication Failed',
+                message: errMsg,
+                type: 'error',
+                dismissText: 'Try Again'
+            });
         } finally {
             setLoading(false);
         }
-    }, [identifier, password]);
+    }, [identifier, password, searchParams]);
 
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 relative overflow-hidden font-sans">
@@ -82,9 +112,7 @@ function OwnerLoginInner() {
             >
                 {/* Brand Badge */}
                 <div className="text-center mb-8">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-600 mx-auto flex items-center justify-center shadow-xl shadow-indigo-500/25 mb-4 text-white">
-                        <Building2 size={26} />
-                    </div>
+                    <DineInOneLogo size={64} className="mx-auto mb-4" />
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200/60 text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">
                         <Sparkles size={11} /> Multi-Branch Architecture
                     </div>

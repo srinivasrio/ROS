@@ -25,8 +25,17 @@ export const UserService = {
         profileCache.clear();
     },
 
-    async getCurrentProfile(restaurantId?: string | null, staffMobile?: string | null, forceRefresh: boolean = false): Promise<UserProfile | null> {
-        const cacheKey = `${restaurantId || 'default'}_${staffMobile || 'default'}`;
+    async getCurrentProfile(restaurantId?: string | null, staffMobile?: string | null, forceRefresh: boolean = false, panel?: string | null): Promise<UserProfile | null> {
+        let detectedPanel = panel;
+        if (!detectedPanel && typeof window !== 'undefined') {
+            const p = window.location.pathname.toLowerCase();
+            if (p.startsWith('/owner') || p.includes('/owner')) detectedPanel = 'owner';
+            else if (p.includes('/admin')) detectedPanel = 'admin';
+            else if (p.includes('/waiter')) detectedPanel = 'waiter';
+            else if (p.includes('/kds') || p.includes('/kitchen')) detectedPanel = 'kds';
+            else if (p.includes('/delivery')) detectedPanel = 'delivery';
+        }
+        const cacheKey = `${restaurantId || 'default'}_${staffMobile || 'default'}_${detectedPanel || 'default'}`;
         const now = Date.now();
         if (!forceRefresh) {
             const cached = profileCache.get(cacheKey);
@@ -39,6 +48,7 @@ export const UserService = {
             const params = new URLSearchParams();
             if (restaurantId) params.set('restaurantId', restaurantId);
             if (staffMobile) params.set('staffMobile', staffMobile);
+            if (detectedPanel) params.set('panel', detectedPanel);
             const query = params.toString();
             const url = query ? `/api/auth/session?${query}` : '/api/auth/session';
             const res = await fetch(url);

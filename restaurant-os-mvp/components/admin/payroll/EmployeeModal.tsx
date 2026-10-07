@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X as LucideX, Loader2 as LucideLoader2, Clipboard, Check, Bike as LucideBike } from 'lucide-react';
+import { X as LucideX, Loader2 as LucideLoader2, Bike as LucideBike } from 'lucide-react';
 import { Employee, Branch } from '@/services/payroll.service';
 import { StaffService } from '@/services/staff.service';
 import { useRestaurantId } from '@/hooks/useRestaurantId';
@@ -14,6 +14,7 @@ interface EmployeeModalProps {
     onSuccess: () => void;
     employee?: Employee;
     branches: Branch[];
+    isOwner?: boolean;
 }
 
 const WEEKDAYS = [
@@ -27,50 +28,69 @@ const WEEKDAYS = [
     { value: 'none', label: 'None (No weekly off)' }
 ];
 
-export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, branches }: EmployeeModalProps) {
+function formatNumberOrEmpty(val: string | number | null | undefined): string {
+    if (val === null || val === undefined || val === '') return '';
+    const num = Number(val);
+    if (isNaN(num) || num <= 0) return '';
+    return String(val);
+}
+
+export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, branches, isOwner }: EmployeeModalProps) {
     const { restaurantId } = useRestaurantId();
     const [loading, setLoading] = useState(false);
-    const [activationLink, setActivationLink] = useState<string | null>(null);
-    const [copied, setCopied] = useState(false);
+    const [currentUserIsOwner, setCurrentUserIsOwner] = useState<boolean>(isOwner ?? false);
+
+    useEffect(() => {
+        if (typeof isOwner === 'boolean') {
+            setCurrentUserIsOwner(isOwner);
+            return;
+        }
+        fetch('/api/auth/session')
+            .then(res => res.json())
+            .then(data => {
+                const role = (data?.user?.role || '').toLowerCase();
+                const ownerRoles = ['owner', 'restaurant_owner', 'super_admin', 'superadmin'];
+                setCurrentUserIsOwner(ownerRoles.includes(role));
+            })
+            .catch(() => setCurrentUserIsOwner(false));
+    }, [isOwner]);
 
     const [formData, setFormData] = useState({
         name: '',
         email: '',
         phone: '',
-        role: 'waiter',
+        role: '',
         branch_id: '' as string,
         salary_type: 'monthly' as 'monthly' | 'daily',
-        weekly_off: 'sunday',
-        monthly_salary: 0,
-        per_day_salary: '' as string | number,
-        overtime_per_hour: '' as string | number,
-        joining_date: new Date().toISOString().split('T')[0],
+        weekly_off: '',
+        monthly_salary: '',
+        per_day_salary: '',
+        overtime_per_hour: '',
+        joining_date: '',
         status: 'active' as 'active' | 'inactive',
-        vehicle_type: 'Motorcycle',
+        vehicle_type: '',
         vehicle_number: ''
     });
 
     useEffect(() => {
-        setActivationLink(null);
-        setCopied(false);
         if (employee) {
             setFormData({
-                name: employee.name,
+                name: employee.name || '',
                 email: (employee as any).email || '',
-                phone: employee.phone,
-                role: employee.role,
+                phone: employee.phone || '',
+                role: employee.role || '',
                 branch_id: (() => {
                     const match = branches.find(b => b.id === employee.branch_id || (b as any).internal_id === employee.branch_id);
                     return match ? match.id : (employee.branch_id || '');
                 })(),
                 salary_type: employee.salary_type || 'monthly',
-                weekly_off: employee.weekly_off || 'sunday',
-                monthly_salary: employee.monthly_salary,
-                per_day_salary: employee.per_day_salary !== null ? employee.per_day_salary : '',
-                overtime_per_hour: employee.overtime_per_hour !== null ? employee.overtime_per_hour : '',
-                joining_date: employee.joining_date ? employee.joining_date.split('T')[0] : new Date().toISOString().split('T')[0],
-                status: employee.status,
-                vehicle_type: (employee as any).vehicle_type || 'Motorcycle',
+                weekly_off: employee.weekly_off && employee.weekly_off !== 'none' ? employee.weekly_off : '',
+                monthly_salary: formatNumberOrEmpty(employee.monthly_salary),
+                per_day_salary: formatNumberOrEmpty(employee.per_day_salary),
+                overtime_per_hour: formatNumberOrEmpty(employee.overtime_per_hour),
+                joining_date: employee.joining_date ? employee.joining_date.split('T')[0] : '',
+                status: employee.status || 'active',
+                vehicle_type: (employee as any).vehicle_type || '',
                 vehicle_number: (employee as any).vehicle_number || ''
             });
 
@@ -86,7 +106,7 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                         if (data) {
                             setFormData(prev => ({
                                 ...prev,
-                                vehicle_type: data.vehicle_type || 'Motorcycle',
+                                vehicle_type: data.vehicle_type || '',
                                 vehicle_number: data.vehicle_number || ''
                             }));
                         }
@@ -97,49 +117,74 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                 name: '',
                 email: '',
                 phone: '',
-                role: 'waiter',
+                role: '',
                 branch_id: '',
                 salary_type: 'monthly',
-                weekly_off: 'sunday',
-                monthly_salary: 0,
+                weekly_off: '',
+                monthly_salary: '',
                 per_day_salary: '',
                 overtime_per_hour: '',
-                joining_date: new Date().toISOString().split('T')[0],
+                joining_date: '',
                 status: 'active',
-                vehicle_type: 'Motorcycle',
+                vehicle_type: '',
                 vehicle_number: ''
             });
         }
     }, [employee, isOpen]);
 
-    const handleMonthlySalaryChange = (val: number) => {
-        const perDay = val > 0 ? Number((val / 30).toFixed(2)) : 0;
+    const handleMonthlySalaryChange = (val: string | number) => {
+        const strVal = String(val);
+        if (strVal === '' || strVal === '0' || Number(strVal) <= 0) {
+            setFormData(prev => ({
+                ...prev,
+                monthly_salary: '',
+                per_day_salary: ''
+            }));
+            return;
+        }
+        const num = Number(strVal);
+        const perDay = num > 0 ? String(Number((num / 30).toFixed(2))) : '';
         setFormData(prev => ({
             ...prev,
-            monthly_salary: val,
-            per_day_salary: prev.per_day_salary === '' || prev.per_day_salary === Number((prev.monthly_salary / 30).toFixed(2)) ? perDay : prev.per_day_salary
+            monthly_salary: strVal,
+            per_day_salary: prev.per_day_salary === '' || prev.per_day_salary === String(Number((Number(prev.monthly_salary || 0) / 30).toFixed(2))) ? perDay : prev.per_day_salary
         }));
     };
 
     const handlePerDaySalaryChange = (val: string | number) => {
-        const numVal = Number(val) || 0;
+        const strVal = String(val);
+        if (strVal === '' || strVal === '0' || Number(strVal) <= 0) {
+            setFormData(prev => ({
+                ...prev,
+                per_day_salary: '',
+                monthly_salary: prev.salary_type === 'daily' ? '' : prev.monthly_salary
+            }));
+            return;
+        }
+        const numVal = Number(strVal) || 0;
         setFormData(prev => ({
             ...prev,
-            per_day_salary: val,
-            monthly_salary: prev.salary_type === 'daily' ? Math.round(numVal * 30) : prev.monthly_salary
+            per_day_salary: strVal,
+            monthly_salary: prev.salary_type === 'daily' ? (numVal > 0 ? String(Math.round(numVal * 30)) : '') : prev.monthly_salary
+        }));
+    };
+
+    const handleOvertimeChange = (val: string | number) => {
+        const strVal = String(val);
+        if (strVal === '' || strVal === '0' || Number(strVal) <= 0) {
+            setFormData(prev => ({
+                ...prev,
+                overtime_per_hour: ''
+            }));
+            return;
+        }
+        setFormData(prev => ({
+            ...prev,
+            overtime_per_hour: strVal
         }));
     };
 
     if (!isOpen) return null;
-
-    const copyToClipboard = () => {
-        if (!activationLink) return;
-        const fullLink = `${window.location.origin}${activationLink}`;
-        navigator.clipboard.writeText(fullLink);
-        setCopied(true);
-        toast.success('Activation link copied to clipboard!');
-        setTimeout(() => setCopied(false), 2000);
-    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -148,25 +193,34 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
             return;
         }
 
+        if (['admin', 'restaurant_admin'].includes(formData.role) && !currentUserIsOwner) {
+            toast.error('Only restaurant owners can create or assign administrator accounts.');
+            return;
+        }
+
         setLoading(true);
         try {
             const cleanEmail = formData.email?.trim() ? formData.email.toLowerCase().trim() : null;
+            const cleanMonthly = formData.monthly_salary !== '' && Number(formData.monthly_salary) > 0 ? Number(formData.monthly_salary) : 0;
+            const cleanPerDay = formData.per_day_salary !== '' && Number(formData.per_day_salary) > 0 ? Number(formData.per_day_salary) : null;
+            const cleanOvertime = formData.overtime_per_hour !== '' && Number(formData.overtime_per_hour) > 0 ? Number(formData.overtime_per_hour) : null;
+
             const payload = {
                 restaurant_id: restaurantId,
                 name: formData.name.trim(),
                 email: cleanEmail,
                 mobile: formData.phone || null,
-                role: formData.role,
+                role: formData.role || 'waiter',
                 branch_id: formData.branch_id || null,
-                monthly_salary: Number(formData.monthly_salary),
-                per_day_salary: formData.per_day_salary !== '' ? Number(formData.per_day_salary) : null,
-                overtime_per_hour: formData.overtime_per_hour !== '' ? Number(formData.overtime_per_hour) : null,
-                joining_date: formData.joining_date,
-                status: formData.status,
-                weekly_off: formData.weekly_off,
-                salary_type: formData.salary_type,
-                vehicle_type: formData.role === 'delivery_boy' ? formData.vehicle_type : null,
-                vehicle_number: formData.role === 'delivery_boy' ? formData.vehicle_number : null,
+                monthly_salary: cleanMonthly,
+                per_day_salary: cleanPerDay,
+                overtime_per_hour: cleanOvertime,
+                joining_date: formData.joining_date || new Date().toISOString().split('T')[0],
+                status: formData.status || 'active',
+                weekly_off: formData.weekly_off || 'none',
+                salary_type: formData.salary_type || 'monthly',
+                vehicle_type: formData.role === 'delivery_boy' ? (formData.vehicle_type || 'Motorcycle') : null,
+                vehicle_number: formData.role === 'delivery_boy' ? (formData.vehicle_number || null) : null,
             };
 
             if (employee) {
@@ -195,15 +249,10 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                 onSuccess();
                 onClose();
             } else {
-                const res = await StaffService.createStaff(payload as any);
-                if (res.activationLink) {
-                    setActivationLink(res.activationLink);
-                    toast.success('Employee created! Please copy the activation link.');
-                } else {
-                    toast.success('Employee created successfully');
-                    onSuccess();
-                    onClose();
-                }
+                await StaffService.createStaff(payload as any);
+                toast.success('Employee created successfully');
+                onSuccess();
+                onClose();
             }
         } catch (error: any) {
             console.error(error);
@@ -237,50 +286,14 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                     </button>
                 </div>
 
-                {activationLink ? (
-                    <div className="p-6 space-y-6 text-center">
-                        <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto text-green-500">
-                            <Check size={32} />
-                        </div>
-                        <div>
-                            <h4 className="text-lg font-black text-black">Activation Link Generated</h4>
-                            <p className="text-neutral-500 text-xs mt-1.5 px-4">
-                                Copy the link below and send it to the employee. They will use this link to set their password and configure TOTP MFA.
-                            </p>
-                        </div>
-
-                        <div className="flex gap-2 bg-neutral-50 border border-neutral-200 rounded-xl p-3 items-center">
-                            <input 
-                                readOnly
-                                className="bg-transparent flex-1 text-xs text-neutral-600 font-mono focus:outline-none select-all"
-                                value={`${window.location.origin}${activationLink}`}
-                            />
-                            <button
-                                onClick={copyToClipboard}
-                                className="p-2 bg-white hover:bg-neutral-100 border border-neutral-200 rounded-lg text-neutral-500 hover:text-black transition-colors"
-                            >
-                                {copied ? <Check size={16} className="text-green-500" /> : <Clipboard size={16} />}
-                            </button>
-                        </div>
-
-                        <button
-                            onClick={() => {
-                                onSuccess();
-                                onClose();
-                            }}
-                            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-colors shadow-md"
-                        >
-                            Done & Close
-                        </button>
-                    </div>
-                ) : (
-                    <form onSubmit={handleSubmit} className="p-5 space-y-4 max-h-[85vh] overflow-y-auto no-scrollbar">
+                <form onSubmit={handleSubmit} className="p-5 space-y-4 max-h-[85vh] overflow-y-auto no-scrollbar">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="col-span-2">
                                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Full Name *</label>
                                 <input
                                     type="text"
                                     required
+                                    placeholder="e.g. Rahul Sharma"
                                     className="w-full px-3 py-2.5 border border-neutral-200 rounded-xl focus:outline-none focus:border-blue-500 text-black text-sm"
                                     value={formData.name}
                                     onChange={e => setFormData({ ...formData, name: e.target.value })}
@@ -312,10 +325,12 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                             <div>
                                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Role *</label>
                                 <select
+                                    required
                                     className="w-full px-3 py-2.5 border border-neutral-200 rounded-xl focus:outline-none focus:border-blue-500 text-black text-sm bg-white capitalize"
                                     value={formData.role}
                                     onChange={e => setFormData({ ...formData, role: e.target.value })}
                                 >
+                                    <option value="">Select Role</option>
                                     <option value="waiter">Waiter</option>
                                     <option value="chef">Chef</option>
                                     <option value="supervisor">Supervisor</option>
@@ -324,8 +339,16 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                                     <option value="kitchen">Kitchen Staff</option>
                                     <option value="cashier">Cashier</option>
                                     <option value="delivery_boy">Delivery Boy</option>
-                                    <option value="restaurant_admin">Restaurant Admin</option>
-                                    <option value="admin">Admin</option>
+                                    {currentUserIsOwner ? (
+                                        <>
+                                            <option value="restaurant_admin">Restaurant Admin</option>
+                                            <option value="admin">Admin</option>
+                                        </>
+                                    ) : (formData.role === 'restaurant_admin' || formData.role === 'admin') ? (
+                                        <option value={formData.role} disabled>
+                                            {formData.role === 'restaurant_admin' ? 'Restaurant Admin' : 'Admin'} (Owner only)
+                                        </option>
+                                    ) : null}
                                 </select>
                             </div>
 
@@ -351,6 +374,7 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                                     value={formData.weekly_off}
                                     onChange={e => setFormData({ ...formData, weekly_off: e.target.value })}
                                 >
+                                    <option value="">Select Weekly Off Day</option>
                                     {WEEKDAYS.map(w => (
                                         <option key={w.value} value={w.value}>{w.label}</option>
                                     ))}
@@ -383,6 +407,7 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                                                 value={formData.vehicle_type}
                                                 onChange={e => setFormData({ ...formData, vehicle_type: e.target.value })}
                                             >
+                                                <option value="">Select Vehicle Type</option>
                                                 <option value="Motorcycle">Motorcycle</option>
                                                 <option value="Scooter">Scooter</option>
                                                 <option value="EV Scooter">EV Scooter</option>
@@ -406,21 +431,21 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
 
                             <div>
                                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">
-                                    {formData.salary_type === 'daily' ? 'Monthly Equivalent (Approx)' : 'Monthly Salary *'}
+                                    {formData.salary_type === 'daily' ? 'Monthly Equivalent (Approx)' : 'Monthly Salary'}
                                 </label>
                                 <input
                                     type="number"
-                                    required
                                     min={0}
+                                    placeholder="e.g. 20000"
                                     className="w-full px-3 py-2.5 border border-neutral-200 rounded-xl focus:outline-none focus:border-blue-500 text-black text-sm"
-                                    value={formData.monthly_salary}
-                                    onChange={e => handleMonthlySalaryChange(Number(e.target.value))}
+                                    value={formatNumberOrEmpty(formData.monthly_salary)}
+                                    onChange={e => handleMonthlySalaryChange(e.target.value)}
                                 />
                             </div>
 
                             <div>
                                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-500 mb-1">
-                                    {formData.salary_type === 'daily' ? 'Per Day Wage *' : 'Per Day Salary'}
+                                    {formData.salary_type === 'daily' ? 'Per Day Wage' : 'Per Day Salary'}
                                 </label>
                                 <input
                                     type="number"
@@ -428,7 +453,7 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                                     step="0.01"
                                     placeholder="Auto-calculated"
                                     className="w-full px-3 py-2.5 border border-neutral-200 rounded-xl focus:outline-none focus:border-blue-500 text-black text-sm"
-                                    value={formData.per_day_salary}
+                                    value={formatNumberOrEmpty(formData.per_day_salary)}
                                     onChange={e => handlePerDaySalaryChange(e.target.value)}
                                 />
                             </div>
@@ -441,8 +466,8 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                                     step="0.01"
                                     placeholder="e.g. 150"
                                     className="w-full px-3 py-2.5 border border-neutral-200 rounded-xl focus:outline-none focus:border-blue-500 text-black text-sm"
-                                    value={formData.overtime_per_hour}
-                                    onChange={e => setFormData({ ...formData, overtime_per_hour: e.target.value })}
+                                    value={formatNumberOrEmpty(formData.overtime_per_hour)}
+                                    onChange={e => handleOvertimeChange(e.target.value)}
                                 />
                             </div>
 
@@ -475,7 +500,6 @@ export default function EmployeeModal({ isOpen, onClose, onSuccess, employee, br
                             </button>
                         </div>
                     </form>
-                )}
             </div>
         </div>
     );

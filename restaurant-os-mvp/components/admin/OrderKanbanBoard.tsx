@@ -21,6 +21,7 @@ import { UserService } from '@/services/users.service';
 import { useRestaurantId } from '@/hooks/useRestaurantId';
 import { getCached, setCache } from '@/lib/data-cache';
 import { toast } from 'sonner';
+import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
 interface OrderKanbanBoardProps {
     isReadOnly?: boolean;
@@ -129,22 +130,23 @@ export default function OrderKanbanBoard({
 
     // Initial Fetch & Real-time Subscription
     useEffect(() => {
-        if (profileLoading || !restaurantId) return;
+        const effectiveRestaurantId = restaurantId || urlRestaurantCode;
+        if (!effectiveRestaurantId) return;
 
         let isFetching = false;
         let pendingFetch = false;
         let debounceTimer: NodeJS.Timeout | null = null;
 
         const loadOrders = async () => {
-            if (!restaurantId || isFetching) {
+            if (!effectiveRestaurantId || isFetching) {
                 if (isFetching) pendingFetch = true;
                 return;
             }
             isFetching = true;
             try {
                 const [ordersRes, groupsRes] = await Promise.allSettled([
-                    OrderService.fetchActiveOrders(restaurantId, undefined, branchId || undefined),
-                    OrderService.fetchMergeGroups(restaurantId, undefined, branchId || undefined)
+                    OrderService.fetchActiveOrders(effectiveRestaurantId, undefined, branchId || undefined),
+                    OrderService.fetchMergeGroups(effectiveRestaurantId, undefined, branchId || undefined)
                 ]);
                 const finalOrders = ordersRes.status === 'fulfilled' ? (ordersRes.value || []) : [];
                 const finalGroups = groupsRes.status === 'fulfilled' ? (groupsRes.value || []) : [];
@@ -161,7 +163,7 @@ export default function OrderKanbanBoard({
                     const msg = groupsRes.reason?.message || groupsRes.reason?.details || String(groupsRes.reason);
                     console.error('Failed to load merge groups:', msg);
                 }
-                if (restaurantId && (ordersRes.status === 'fulfilled' || groupsRes.status === 'fulfilled')) {
+                if (effectiveRestaurantId && (ordersRes.status === 'fulfilled' || groupsRes.status === 'fulfilled')) {
                     setCache(cacheKey, { orders: finalOrders, mergeGroups: finalGroups });
                 }
             } catch (err: any) {
@@ -198,7 +200,12 @@ export default function OrderKanbanBoard({
 
         loadOrders();
 
-        const subscription = OrderService.subscribeToOrders(restaurantId, (payload) => {
+        // Safety fallback heartbeat (ensures KDS tablet receives orders even across network hiccups)
+        const safetyInterval = setInterval(() => {
+            debouncedLoadOrders();
+        }, 8000);
+
+        const subscription = OrderService.subscribeToOrders(effectiveRestaurantId, (payload) => {
             if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
                 debouncedLoadOrders();
             } else if (payload.eventType === 'UPDATE') {
@@ -233,7 +240,7 @@ export default function OrderKanbanBoard({
             }
         });
 
-        const itemSubscription = OrderService.subscribeToOrderItems(restaurantId, (payload) => {
+        const itemSubscription = OrderService.subscribeToOrderItems(effectiveRestaurantId, (payload) => {
             if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
                 debouncedLoadOrders();
             } else if (payload.eventType === 'UPDATE') {
@@ -272,12 +279,13 @@ export default function OrderKanbanBoard({
 
         return () => {
             if (debounceTimer) clearTimeout(debounceTimer);
+            clearInterval(safetyInterval);
             window.removeEventListener('online', handleOnline);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             subscription.unsubscribe();
             itemSubscription.unsubscribe();
         };
-    }, [profileLoading, restaurantId, branchId]);
+    }, [restaurantId, urlRestaurantCode, branchId]);
 
     const getEffectiveOrderStatus = (order: Order): OrderStatus => {
         const activeItems = (order.items || []).filter(item => item.status !== 'cancelled');
@@ -316,7 +324,12 @@ export default function OrderKanbanBoard({
         
         // Chef in KDS cannot mark served - only waiter can mark served
         if (newStatus === 'served') {
-            toast.error('Only waiters can mark orders as served after delivering to the customer.');
+            showWarningPopup({
+                title: 'Action Restricted',
+                message: 'Only waiters can mark orders as served after delivering to the customer.',
+                type: 'restriction',
+                dismissText: 'Dismiss'
+            });
             return;
         }
 
@@ -328,9 +341,13 @@ export default function OrderKanbanBoard({
             const staffId = currentProfileRef.current?.id;
             await OrderService.updateOrderStatus(orderId, restaurantId, newStatus, staffId);
         } catch (err: any) {
-            console.error('Failed to update status', err);
             setOrders(prevOrders);
-            toast.error('Failed to update order status. Rolling back.');
+            showWarningPopup({
+                title: 'Order Status Update Failed',
+                message: err?.message || 'Failed to update order status. Rolling back changes.',
+                type: 'error',
+                dismissText: 'Dismiss'
+            });
         }
     };
 
@@ -339,7 +356,12 @@ export default function OrderKanbanBoard({
 
         // Chef in KDS cannot mark served - only waiter can mark served
         if (newStatus === 'served') {
-            toast.error('Only waiters can mark items as served after delivering to the customer.');
+            showWarningPopup({
+                title: 'Action Restricted',
+                message: 'Only waiters can mark items as served after delivering to the customer.',
+                type: 'restriction',
+                dismissText: 'Dismiss'
+            });
             return;
         }
 
@@ -361,9 +383,13 @@ export default function OrderKanbanBoard({
             const staffId = currentProfileRef.current?.id;
             await OrderService.updateOrderItemStatus(itemId, restaurantId, newStatus, staffId);
         } catch (err: any) {
-            console.error('Failed to update item status', err);
             setOrders(prevOrders);
-            toast.error('Failed to update item status. Rolling back.');
+            showWarningPopup({
+                title: 'Item Status Update Failed',
+                message: err?.message || 'Failed to update item status. Rolling back changes.',
+                type: 'error',
+                dismissText: 'Dismiss'
+            });
         }
     };
 

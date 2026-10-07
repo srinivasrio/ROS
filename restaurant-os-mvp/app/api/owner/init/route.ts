@@ -82,6 +82,8 @@ export async function GET(request: NextRequest) {
                 id: r.id,
                 restaurant_id: r.id,
                 name: r.name,
+                logoUrl: r.logo_url || null,
+                logo_url: r.logo_url || null,
                 code: primaryBranch?.code || primaryBranch?.id || r.id,
                 status: (r.status || 'ACTIVE').toLowerCase() === 'active' ? 'active' : 'inactive',
                 phone: r.phone || primaryBranch?.phone || null,

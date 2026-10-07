@@ -65,7 +65,7 @@ function OwnersContent() {
 
     // Approve Registration Modal
     const [ownerToApprove, setOwnerToApprove] = useState<any | null>(null);
-    const [approveQuota, setApproveQuota] = useState(0);
+    const [approveQuota, setApproveQuota] = useState<number | string>('');
     const [approveLoading, setApproveLoading] = useState(false);
 
     // Reject Registration Modal
@@ -79,8 +79,8 @@ function OwnersContent() {
     // Approve Branch Modal
     const [branchToApprove, setBranchToApprove] = useState<any | null>(null);
     const [branchApprovePlan, setBranchApprovePlan] = useState('standard');
-    const [branchApproveQuota, setBranchApproveQuota] = useState(1);
-    const [branchApproveAmount, setBranchApproveAmount] = useState(999);
+    const [branchApproveQuota, setBranchApproveQuota] = useState<number | string>('');
+    const [branchApproveAmount, setBranchApproveAmount] = useState<number | string>('');
     const [branchApproveLoading, setBranchApproveLoading] = useState(false);
 
     // Reject Branch Modal
@@ -90,7 +90,7 @@ function OwnersContent() {
 
     // Create Owner Modal
     const [createModalOpen, setCreateModalOpen] = useState(actionQuery === 'new');
-    const [newOwnerData, setNewOwnerData] = useState({ name: '', email: '', phone: '', restaurantId: '', maxBranches: 0, password: '' });
+    const [newOwnerData, setNewOwnerData] = useState<{ name: string; email: string; phone: string; restaurantId: string; maxBranches: number | string; password: string }>({ name: '', email: '', phone: '', restaurantId: '', maxBranches: '', password: '' });
     const [inviteLinkCreated, setInviteLinkCreated] = useState<string | null>(null);
     const [createLoading, setCreateLoading] = useState(false);
 
@@ -276,7 +276,7 @@ function OwnersContent() {
             const res = await fetch('/api/admin/owners', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newOwnerData),
+                body: JSON.stringify({ ...newOwnerData, maxBranches: Number(newOwnerData.maxBranches) || 1 }),
             });
             const data = await res.json();
             if (res.ok && data.success) {
@@ -446,7 +446,7 @@ function OwnersContent() {
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => {
-                            setNewOwnerData({ name: '', email: '', phone: '', restaurantId: '', maxBranches: 5, password: '' });
+                            setNewOwnerData({ name: '', email: '', phone: '', restaurantId: '', maxBranches: '', password: '' });
                             setInviteLinkCreated(null);
                             setCreateModalOpen(true);
                         }}
@@ -1659,9 +1659,10 @@ function OwnersContent() {
                                             type="number"
                                             min="0"
                                             max="50"
+                                            placeholder="e.g. 5"
                                             value={newOwnerData.maxBranches}
                                             onChange={(e) =>
-                                                setNewOwnerData({ ...newOwnerData, maxBranches: parseInt(e.target.value) || 0 })
+                                                setNewOwnerData({ ...newOwnerData, maxBranches: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })
                                             }
                                             className="mt-1 w-full text-xs p-3 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl focus:outline-none focus:border-indigo-600 font-medium"
                                         />
@@ -1845,8 +1846,9 @@ function OwnersContent() {
                                     type="number"
                                     min="0"
                                     max="50"
-                                    value={approveQuota}
-                                    onChange={(e) => setApproveQuota(Math.max(0, parseInt(e.target.value) || 0))}
+                                    placeholder="0"
+                                    value={approveQuota === 0 ? '' : approveQuota}
+                                    onChange={(e) => setApproveQuota(e.target.value === '' ? ('' as any) : Math.max(0, parseInt(e.target.value) || 0))}
                                     className="w-16 px-2.5 py-1.5 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl text-xs font-bold text-center text-neutral-900 focus:outline-none focus:border-emerald-600"
                                 />
                             </div>
@@ -2053,8 +2055,9 @@ function OwnersContent() {
                                 type="number"
                                 min={1}
                                 max={50}
+                                placeholder="1"
                                 value={branchApproveQuota}
-                                onChange={(e) => setBranchApproveQuota(Math.max(1, parseInt(e.target.value) || 1))}
+                                onChange={(e) => setBranchApproveQuota(e.target.value === '' ? '' : parseInt(e.target.value) || '')}
                                 className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl text-xs font-bold text-[#172033] focus:outline-none focus:border-emerald-600"
                             />
                             <p className="text-[11px] text-neutral-400">
@@ -2070,8 +2073,9 @@ function OwnersContent() {
                             <input
                                 type="number"
                                 min={0}
-                                value={branchApproveAmount}
-                                onChange={(e) => setBranchApproveAmount(Math.max(0, parseInt(e.target.value) || 0))}
+                                placeholder="0"
+                                value={branchApproveAmount === 0 || branchApproveAmount === '' ? '' : branchApproveAmount}
+                                onChange={(e) => setBranchApproveAmount(e.target.value === '' ? '' : parseInt(e.target.value) || '')}
                                 className="w-full px-3 py-2 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl text-xs font-bold text-[#172033] focus:outline-none focus:border-emerald-600"
                             />
                         </div>

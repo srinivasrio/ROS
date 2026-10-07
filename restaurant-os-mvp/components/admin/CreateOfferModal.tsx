@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X as LucideX, Loader2 as LucideLoader2 } from 'lucide-react';
+import { X as LucideX, Loader2 as LucideLoader2, Utensils, ShoppingBag, Truck, Layers } from 'lucide-react';
 import { OfferService, Offer } from '@/services/offers.service';
 
 interface CreateOfferModalProps {
@@ -19,8 +19,9 @@ export default function CreateOfferModal({ isOpen, onClose, onSuccess, restauran
         title: offer?.title || '',
         description: offer?.description || '',
         discount_type: (offer?.discount_type || 'percentage') as Offer['discount_type'],
-        discount_value: offer?.discount_value || 0,
+        discount_value: offer?.discount_value !== undefined && offer?.discount_value !== null ? offer.discount_value : ('' as any),
         max_discount: offer?.max_discount || '',
+        applicable_order_type: (offer?.applicable_order_type || 'all') as 'all' | 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY',
         status: (offer?.status || 'active') as Offer['status'],
         end_datetime: offer?.end_datetime ? new Date(offer.end_datetime).toISOString().slice(0, 16) : ''
     });
@@ -35,6 +36,7 @@ export default function CreateOfferModal({ isOpen, onClose, onSuccess, restauran
                 discount_type: offer.discount_type,
                 discount_value: offer.discount_value,
                 max_discount: offer.max_discount || '',
+                applicable_order_type: (offer.applicable_order_type || 'all') as any,
                 status: offer.status,
                 end_datetime: offer.end_datetime ? new Date(offer.end_datetime).toISOString().slice(0, 16) : ''
             });
@@ -44,8 +46,9 @@ export default function CreateOfferModal({ isOpen, onClose, onSuccess, restauran
                 title: '',
                 description: '',
                 discount_type: 'percentage',
-                discount_value: 0,
+                discount_value: '' as any,
                 max_discount: '',
+                applicable_order_type: 'all',
                 status: 'active',
                 end_datetime: ''
             });
@@ -60,7 +63,9 @@ export default function CreateOfferModal({ isOpen, onClose, onSuccess, restauran
         try {
             const payload = {
                 ...formData,
+                discount_value: Number(formData.discount_value) || 0,
                 max_discount: formData.discount_type === 'percentage' && formData.max_discount ? Number(formData.max_discount) : null,
+                applicable_order_type: formData.applicable_order_type || 'all',
                 end_datetime: formData.end_datetime ? new Date(formData.end_datetime).toISOString() : null,
                 restaurant_id: restaurantId
             };
@@ -142,9 +147,10 @@ export default function CreateOfferModal({ isOpen, onClose, onSuccess, restauran
                                 type="number"
                                 required
                                 min="1"
+                                placeholder={formData.discount_type === 'percentage' ? 'e.g. 10' : 'e.g. 50'}
                                 className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 value={formData.discount_value}
-                                onChange={e => setFormData({ ...formData, discount_value: parseInt(e.target.value) || 0 })}
+                                onChange={e => setFormData({ ...formData, discount_value: e.target.value === '' ? '' : (parseInt(e.target.value) || '') as any })}
                             />
                         </div>
                     </div>
@@ -163,6 +169,39 @@ export default function CreateOfferModal({ isOpen, onClose, onSuccess, restauran
                             <p className="text-[10px] text-black mt-1 uppercase font-bold">Cap the maximum discount amount</p>
                         </div>
                     )}
+
+                    <div>
+                        <label className="block text-sm font-medium text-black mb-1.5">Applicable Order Type</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {[
+                                { value: 'all', label: 'All Orders', desc: 'Dine-In, Takeaway & Delivery', icon: Layers },
+                                { value: 'DINE_IN', label: 'Dine In Only', desc: 'Table dining orders only', icon: Utensils },
+                                { value: 'TAKEAWAY', label: 'Take Away Only', desc: 'Pickup orders only', icon: ShoppingBag },
+                                { value: 'DELIVERY', label: 'Delivery Only', desc: 'Delivery orders only', icon: Truck },
+                            ].map(item => {
+                                const Icon = item.icon;
+                                const isSelected = formData.applicable_order_type === item.value;
+                                return (
+                                    <button
+                                        key={item.value}
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, applicable_order_type: item.value as any })}
+                                        className={`flex flex-col items-start p-2.5 rounded-lg border text-left transition-all ${
+                                            isSelected
+                                                ? 'border-blue-600 bg-blue-50/70 ring-2 ring-blue-500/20 text-blue-900 shadow-sm'
+                                                : 'border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50 text-neutral-800'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-1.5">
+                                            <Icon size={15} className={isSelected ? 'text-blue-600' : 'text-neutral-500'} />
+                                            <span className="text-xs font-bold">{item.label}</span>
+                                        </div>
+                                        <span className="text-[10px] text-neutral-500 mt-1 font-medium leading-tight">{item.desc}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
 
                     <div>
                         <label className="block text-sm font-medium text-black mb-1">Status</label>
