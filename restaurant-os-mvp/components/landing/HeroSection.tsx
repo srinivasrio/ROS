@@ -1,59 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Rocket, Check, Smartphone, Receipt } from "lucide-react";
 import Link from "next/link";
-
-import RevealMotion from "./RevealMotion";
-
-const stats = [
-  { value: 5, label: "Smart Panels", prefix: "", suffix: "" },
-  { value: 10000, label: "Orders Processed", prefix: "", suffix: "+" },
-  { value: 0, label: "Setup Cost", prefix: "₹", suffix: "" },
-  { value: 0, label: "Support", prefix: "", suffix: "", text: "24/7" },
-];
-
-const Counter = ({ value, prefix, suffix, text }: { value: number; prefix: string; suffix: string; text?: string }) => {
-  const [count, setCount] = useState(0);
-  const ref = useRef<HTMLDivElement>(null);
-  const animated = useRef(false);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !animated.current) {
-          animated.current = true;
-          if (text) { setCount(0); return; }
-          const duration = 1500;
-          const steps = 40;
-          const increment = value / steps;
-          let current = 0;
-          const timer = setInterval(() => {
-            current += increment;
-            if (current >= value) {
-              setCount(value);
-              clearInterval(timer);
-            } else {
-              setCount(Math.floor(current));
-            }
-          }, duration / steps);
-        }
-      },
-      { threshold: 0.5 }
-    );
-    if (ref.current) observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [value, text]);
-
-  return (
-    <div ref={ref} className="text-center">
-      <div className="stat-number text-3xl md:text-4xl font-bold gradient-text-coral">
-        {text || `${prefix}${count.toLocaleString()}${suffix}`}
-      </div>
-    </div>
-  );
-};
 
 const smoothScrollTo = (id: string) => {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -116,39 +64,6 @@ const HeroSection = () => {
             See How It Works
           </motion.button>
         </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.6, delay: 0.65 }}
-          className="flex flex-row md:flex-row flex-wrap justify-center items-center gap-3 mb-14"
-        >
-          {[
-            { icon: Check, text: "No Setup Fee" },
-            { icon: Smartphone, text: "Works on Any Device" },
-            { icon: Receipt, text: "GST-Ready" },
-          ].map((t, i) => (
-            <motion.span
-              key={t.text}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.4, delay: 0.7 + i * 0.1 }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-neutral-100 dark:bg-neutral-800 border border-border text-sm font-medium text-muted-foreground"
-            >
-              <t.icon className="w-4 h-4 text-emerald-500" />
-              {t.text}
-            </motion.span>
-          ))}
-        </motion.div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-          {stats.map((s, i) => (
-            <RevealMotion key={s.label} delay={0.1 * i}>
-              <Counter value={s.value} prefix={s.prefix} suffix={s.suffix} text={s.text} />
-              <p className="text-sm text-black mt-1">{s.label}</p>
-            </RevealMotion>
-          ))}
-        </div>
       </div>
     </section>
   );

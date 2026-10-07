@@ -1,0 +1,35 @@
+name: Deploy to Hostinger VPS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'restaurant-os-mvp/**'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    name: Auto Deploy to VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into Hostinger VPS and Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_PASSPHRASE }}
+          password: ${{ secrets.HOSTINGER_PASSWORD }}
+          port: ${{ secrets.HOSTINGER_PORT || 22 }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            export PATH=$PATH:/usr/local/bin:/usr/bin:~/.npm-global/bin
+            
+            # Navigate to project location on VPS
+            cd /var/www/dineinone/restaurant-os-mvp || cd /var/www/dineinone || cd ~/ROS/restaurant-os-mvp
+            
+            # Make sure deploy script is executable and run it
+            chmod +x deploy.sh
+            ./deploy.sh

@@ -231,6 +231,27 @@ h1, h2, h3, h4, h5, h6 {
     transform: translateY(-3px) scale(1.04);
     border-color: rgba(255, 107, 107, 0.5);
   }
+
+  .btn-teal {
+    background: linear-gradient(135deg, #4ECDC4, #26A69A);
+    color: white;
+    padding: 0.9rem 2.2rem;
+    border-radius: 50px;
+    font-weight: 700;
+    font-size: 1rem;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 8px 32px rgba(78, 205, 196, 0.35);
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .btn-teal:hover {
+    transform: translateY(-3px) scale(1.04);
+    box-shadow: 0 16px 48px rgba(78, 205, 196, 0.55);
+  }
+  .btn-teal:active { transform: scale(0.97); }
   
   .reveal {
     opacity: 0;

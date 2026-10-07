@@ -27,6 +27,10 @@ export default function AdminDashboard() {
         totalRevenue: 0, totalOrders: 0, avgOrderValue: 0, cancellationRate: 0, 
         activeTables: 0, pendingKitchenOrders: 0 
     });
+    const safeMetrics = metrics || { 
+        totalRevenue: 0, totalOrders: 0, avgOrderValue: 0, cancellationRate: 0, 
+        activeTables: 0, pendingKitchenOrders: 0 
+    };
     const [revenueData, setRevenueData] = useState(cached?.revenueData || []);
     const [statusData, setStatusData] = useState(cached?.statusData || []);
     const [peakData, setPeakData] = useState(cached?.peakData || []);
@@ -130,7 +134,7 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <KPICard 
                     label="Today's Revenue" 
-                    value={formatCurrency(metrics.totalRevenue)} 
+                    value={formatCurrency(safeMetrics.totalRevenue || 0)} 
                     icon={LucideTrendingUp}
                     color="text-emerald-500"
                     bg="bg-emerald-500/10"
@@ -138,7 +142,7 @@ export default function AdminDashboard() {
                 />
                 <KPICard 
                     label="Orders Placed" 
-                    value={(metrics.totalOrders ?? 0).toString()} 
+                    value={(safeMetrics.totalOrders ?? 0).toString()} 
                     icon={LucideUtensils}
                     color="text-orange-500"
                     bg="bg-orange-500/10"
@@ -146,7 +150,7 @@ export default function AdminDashboard() {
                 />
                 <KPICard 
                     label="Active Tables" 
-                    value={(metrics.activeTables ?? 0).toString()} 
+                    value={(safeMetrics.activeTables ?? 0).toString()} 
                     icon={LucideUtensils}
                     color="text-blue-500"
                     bg="bg-blue-500/10"
@@ -155,7 +159,7 @@ export default function AdminDashboard() {
                 />
                 <KPICard 
                     label="Kitchen Progress" 
-                    value={(metrics.pendingKitchenOrders ?? 0).toString()} 
+                    value={(safeMetrics.pendingKitchenOrders ?? 0).toString()} 
                     icon={LucideTimer}
                     color="text-purple-500"
                     bg="bg-purple-500/10"
@@ -176,7 +180,7 @@ export default function AdminDashboard() {
                         </div>
                         <div>
                             <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Avg Order Value</p>
-                            <h3 className="text-2xl font-black text-neutral-800 dark:text-white mt-0.5">{formatCurrency(metrics.avgOrderValue)}</h3>
+                            <h3 className="text-2xl font-black text-neutral-800 dark:text-white mt-0.5">{formatCurrency(safeMetrics.avgOrderValue || 0)}</h3>
                         </div>
                     </div>
                 </motion.div>
@@ -185,12 +189,12 @@ export default function AdminDashboard() {
                     className="premium-glass-card p-6 rounded-3xl flex items-center justify-between premium-shadow-soft relative overflow-hidden group border-neutral-200/40"
                 >
                     <div className="flex items-center gap-4 relative z-10">
-                        <div className={`p-3.5 rounded-2xl transition-transform group-hover:scale-110 ${metrics.cancellationRate > 10 ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
-                            {metrics.cancellationRate > 10 ? <LucideAlertCircle className="w-6 h-6" /> : <LucideCheckCircle2 className="w-6 h-6" />}
+                        <div className={`p-3.5 rounded-2xl transition-transform group-hover:scale-110 ${(safeMetrics.cancellationRate || 0) > 10 ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                            {(safeMetrics.cancellationRate || 0) > 10 ? <LucideAlertCircle className="w-6 h-6" /> : <LucideCheckCircle2 className="w-6 h-6" />}
                         </div>
                         <div>
                             <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Cancellation Rate</p>
-                            <h3 className="text-2xl font-black text-neutral-800 dark:text-white mt-0.5">{metrics.cancellationRate}%</h3>
+                            <h3 className="text-2xl font-black text-neutral-800 dark:text-white mt-0.5">{safeMetrics.cancellationRate || 0}%</h3>
                         </div>
                     </div>
                 </motion.div>
