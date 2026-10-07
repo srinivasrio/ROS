@@ -127,7 +127,7 @@ const SolutionSection = () => (
           The Unified Architecture
         </span>
         <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight mt-2 text-foreground">
-          Dine in One Fixes All of It
+          Working of Dine in one
         </h2>
         <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto mt-3">
           One continuous data pipeline connecting customers, dining floor, kitchen stations, delivery fleets, and management in real time.

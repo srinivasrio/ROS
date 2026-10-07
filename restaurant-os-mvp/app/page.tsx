@@ -1,7 +1,5 @@
 import Navbar from "@/components/landing/Navbar";
 import HeroSection from "@/components/landing/HeroSection";
-import MarqueeTicker from "@/components/landing/MarqueeTicker";
-import ProblemSection from "@/components/landing/ProblemSection";
 import SolutionSection from "@/components/landing/SolutionSection";
 import FeaturesGrid from "@/components/landing/FeaturesGrid";
 import PanelsSection from "@/components/landing/PanelsSection";
@@ -18,8 +16,6 @@ export default function LandingPage() {
     <main className="min-h-screen bg-background selection:bg-[#FF6B6B]/30 relative overflow-x-hidden">
       <Navbar />
       <HeroSection />
-      <MarqueeTicker />
-      <ProblemSection />
       <SolutionSection />
       <FeaturesGrid />
       <PanelsSection />

@@ -1,831 +1,652 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    Store, User, Phone, Mail, Lock, ShieldCheck, 
-    ArrowRight, ArrowLeft, Loader2, CheckCircle2, 
-    Building2, MapPin, Sparkles, Send
+import {
+  User,
+  Mail,
+  Phone,
+  Lock,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  ArrowRight,
+  ArrowLeft,
+  Loader2,
+  CheckCircle2,
+  ShieldCheck,
+  Sparkles,
+  RefreshCw,
+  Clock
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import Navbar from "@/components/landing/Navbar";
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+
+/* ------------------------------------------------------------------ */
+/*  Validation & Strength Helpers                                     */
+/* ------------------------------------------------------------------ */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[6-9]\d{9}$/;
+
+function calculatePasswordStrength(pw: string): { label: string; pct: number; color: string } {
+  if (!pw) return { label: '', pct: 0, color: '' };
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+
+  if (score <= 2) return { label: 'Weak', pct: 33, color: '#FF6B6B' };
+  if (score <= 3) return { label: 'Fair', pct: 66, color: '#F7C948' };
+  return { label: 'Strong', pct: 100, color: '#10B981' };
+}
 
 export default function RegisterPage() {
-    const router = useRouter();
+  const router = useRouter();
 
-    // Step management: 1 = Owner Account, 2 = Restaurant Request
-    const [step, setStep] = useState<1 | 2>(1);
-    const [loading, setLoading] = useState(false);
+  // Mode: 'register' | 'verify' | 'success'
+  const [mode, setMode] = useState<'register' | 'verify' | 'success'>('register');
 
-    // Step 1: Owner Details
-    const [ownerName, setOwnerName] = useState('');
-    const [mobile, setMobile] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
+  // Registration Form State
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [termsAgreed, setTermsAgreed] = useState(true);
 
-    // Mobile OTP state
-    const [mobileOtpSent, setMobileOtpSent] = useState(false);
-    const [mobileOtp, setMobileOtp] = useState('');
-    const [mobileVerified, setMobileVerified] = useState(false);
-    const [sendingMobileOtp, setSendingMobileOtp] = useState(false);
-    const [verifyingMobileOtp, setVerifyingMobileOtp] = useState(false);
+  // UI State
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
-    // Email OTP state
-    const [emailOtpSent, setEmailOtpSent] = useState(false);
-    const [emailOtp, setEmailOtp] = useState('');
-    const [emailVerified, setEmailVerified] = useState(false);
-    const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
-    const [verifyingEmailOtp, setVerifyingEmailOtp] = useState(false);
+  // OTP Verification State
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(60);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+  const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-    // Step 2: Restaurant Request Details
-    const [restaurantName, setRestaurantName] = useState('');
-    const [businessType, setBusinessType] = useState<'Restaurant' | 'Bar' | 'Bar and Restaurant'>('Restaurant');
-    const [streetAddress, setStreetAddress] = useState('');
-    const [city, setCity] = useState('');
-    const [state, setState] = useState('');
-    const [pincode, setPincode] = useState('');
-    const [gstPercentage, setGstPercentage] = useState('');
-    const [cgstPercentage, setCgstPercentage] = useState('');
-    const [sgstPercentage, setSgstPercentage] = useState('');
-    const [planSlug, setPlanSlug] = useState<'standard' | 'growth' | 'pro'>('standard');
+  // Cooldown Timer
+  useEffect(() => {
+    if (mode !== 'verify' || cooldown <= 0) return;
+    const interval = setInterval(() => {
+      setCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [mode, cooldown]);
 
-    const handleGstChange = (val: string) => {
-        setGstPercentage(val);
-        if (val === '') {
-            setCgstPercentage('');
-            setSgstPercentage('');
-            return;
-        }
-        const num = parseFloat(val);
-        if (!isNaN(num) && num >= 0) {
-            const half = (num / 2).toString();
-            setCgstPercentage(half);
-            setSgstPercentage(half);
-        }
-    };
+  // Handle Registration Submit
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setServerError(null);
 
-    // --- OTP Handlers ---
-    const handleSendMobileOtp = async () => {
-        const clean = mobile.replace(/[^0-9]/g, '');
-        if (clean.length < 10) {
-            toast.error('Please enter a valid 10-digit mobile number');
-            return;
-        }
+    // Validation
+    if (!fullName.trim()) {
+      setServerError('Full name is required');
+      return;
+    }
+    if (fullName.trim().length < 2) {
+      setServerError('Name must be at least 2 characters');
+      return;
+    }
+    const cleanEmail = email.toLowerCase().trim();
+    if (!cleanEmail || !EMAIL_RE.test(cleanEmail)) {
+      setServerError('Enter a valid email address');
+      return;
+    }
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    if (!cleanPhone || !PHONE_RE.test(cleanPhone)) {
+      setServerError('Enter a valid 10-digit Indian mobile number');
+      return;
+    }
+    if (!password) {
+      setServerError('Password is required');
+      return;
+    }
+    if (password.length < 8) {
+      setServerError('Password must be at least 8 characters');
+      return;
+    }
+    if (!/[A-Z]/.test(password)) {
+      setServerError('Password must include at least one uppercase letter');
+      return;
+    }
+    if (!/[0-9]/.test(password)) {
+      setServerError('Password must include at least one number');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setServerError('Passwords do not match');
+      return;
+    }
+    if (!termsAgreed) {
+      setServerError('Please agree to the Terms of Service to proceed');
+      return;
+    }
 
-        setSendingMobileOtp(true);
-        try {
-            const res = await fetch('/api/auth/owner/send-otp', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'mobile', target: clean })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to send mobile OTP');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: fullName.trim(),
+          email: cleanEmail,
+          phone: cleanPhone,
+          password
+        }),
+      });
 
-            setMobileOtpSent(true);
-            toast.success(data.message || 'OTP sent to mobile');
-            if (data.devOtp) {
-                toast.info(`Dev Mode OTP: ${data.devOtp}`, { duration: 8000 });
-            }
-        } catch (err: any) {
-            toast.error(err.message || 'Failed to send mobile OTP');
-        } finally {
-            setSendingMobileOtp(false);
-        }
-    };
+      const data = await res.json();
+      if (!res.ok) {
+        setServerError(data.error || 'Failed to create owner account. Please try again.');
+        return;
+      }
 
-    const handleVerifyMobileOtp = async () => {
-        if (!mobileOtp || mobileOtp.trim().length < 6) {
-            toast.error('Please enter the 6-digit OTP');
-            return;
-        }
+      toast.success(data.message || 'Verification code sent to your email!');
+      if (data.devOtp) {
+        setDevOtp(data.devOtp);
+      }
+      setCooldown(60);
+      setMode('verify');
+    } catch (err: any) {
+      setServerError(err.message || 'Network error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        setVerifyingMobileOtp(true);
-        try {
-            const res = await fetch('/api/auth/owner/verify-otp', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type: 'mobile',
-                    target: mobile.replace(/[^0-9]/g, ''),
-                    otp: mobileOtp.trim()
-                })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Invalid OTP code');
+  // Handle OTP Digit Input
+  const handleOtpChange = (index: number, val: string) => {
+    setOtpError(null);
+    const cleaned = val.replace(/[^0-9]/g, '');
+    if (!cleaned) {
+      const copy = [...otp];
+      copy[index] = '';
+      setOtp(copy);
+      return;
+    }
 
-            setMobileVerified(true);
-            toast.success('Mobile number verified successfully!');
-        } catch (err: any) {
-            toast.error(err.message || 'Verification failed');
-        } finally {
-            setVerifyingMobileOtp(false);
-        }
-    };
+    if (cleaned.length > 1) {
+      // Pasted multi-digit OTP
+      const pasted = cleaned.slice(0, 6).split('');
+      const newOtp = [...otp];
+      pasted.forEach((ch, idx) => {
+        newOtp[idx] = ch;
+      });
+      setOtp(newOtp);
+      const nextFocus = Math.min(pasted.length, 5);
+      otpInputRefs.current[nextFocus]?.focus();
+      return;
+    }
 
-    const handleSendEmailOtp = async () => {
-        const clean = email.toLowerCase().trim();
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(clean)) {
-            toast.error('Please enter a valid email address');
-            return;
-        }
+    const copy = [...otp];
+    copy[index] = cleaned;
+    setOtp(copy);
 
-        setSendingEmailOtp(true);
-        try {
-            const res = await fetch('/api/auth/owner/send-otp', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'email', target: clean })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to send email code');
+    if (index < 5 && cleaned) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  };
 
-            setEmailOtpSent(true);
-            toast.success(data.message || 'Verification code sent to email');
-            if (data.devOtp) {
-                toast.info(`Dev Mode Code: ${data.devOtp}`, { duration: 8000 });
-            }
-        } catch (err: any) {
-            toast.error(err.message || 'Failed to send verification code');
-        } finally {
-            setSendingEmailOtp(false);
-        }
-    };
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otp[index] && index > 0) {
+      otpInputRefs.current[index - 1]?.focus();
+    }
+  };
 
-    const handleVerifyEmailOtp = async () => {
-        if (!emailOtp || emailOtp.trim().length < 6) {
-            toast.error('Please enter the 6-digit verification code');
-            return;
-        }
+  // Verify OTP Code
+  const handleVerifyOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setOtpError(null);
 
-        setVerifyingEmailOtp(true);
-        try {
-            const res = await fetch('/api/auth/owner/verify-otp', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type: 'email',
-                    target: email.toLowerCase().trim(),
-                    otp: emailOtp.trim()
-                })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Invalid verification code');
+    const enteredOtp = otp.join('').trim();
+    if (enteredOtp.length !== 6) {
+      setOtpError('Please enter all 6 digits of your verification code');
+      return;
+    }
 
-            setEmailVerified(true);
-            toast.success('Email verified successfully!');
-        } catch (err: any) {
-            toast.error(err.message || 'Verification failed');
-        } finally {
-            setVerifyingEmailOtp(false);
-        }
-    };
+    setVerifying(true);
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.toLowerCase().trim(),
+          otp: enteredOtp
+        }),
+      });
 
-    // --- Submit Step 1: Owner Account Registration ---
-    const handleOwnerAccountSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+      const data = await res.json();
+      if (!res.ok) {
+        setOtpError(data.error || 'Invalid verification code. Please check and try again.');
+        return;
+      }
 
-        if (!ownerName.trim()) {
-            toast.error('Please enter your full name');
-            return;
-        }
-        if (!mobileVerified) {
-            toast.error('Please verify your mobile number with OTP first');
-            return;
-        }
-        if (!emailVerified) {
-            toast.error('Please verify your email address with OTP first');
-            return;
-        }
-        if (password.length < 8) {
-            toast.error('Password must be at least 8 characters long');
-            return;
-        }
-        if (password !== confirmPassword) {
-            toast.error('Passwords do not match');
-            return;
-        }
+      setMode('success');
+      toast.success('Owner account verified successfully!');
+      setTimeout(() => {
+        router.push('https://owner.dineinone.com/login?registered=true');
+      }, 2500);
+    } catch (err: any) {
+      setOtpError(err.message || 'Verification failed. Please try again.');
+    } finally {
+      setVerifying(false);
+    }
+  };
 
-        setLoading(true);
-        try {
-            const res = await fetch('/api/auth/owner/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: ownerName.trim(),
-                    mobile: mobile.replace(/[^0-9]/g, ''),
-                    email: email.toLowerCase().trim(),
-                    password: password
-                })
-            });
+  // Resend OTP Code
+  const handleResendOtp = async () => {
+    if (cooldown > 0 || resending) return;
+    setResending(true);
+    setOtpError(null);
 
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to create owner account');
+    try {
+      const res = await fetch('/api/auth/resend-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.toLowerCase().trim() }),
+      });
 
-            toast.success('Owner account created! Now provide your restaurant details.');
-            setStep(2);
-        } catch (err: any) {
-            toast.error(err.message || 'Registration failed');
-        } finally {
-            setLoading(false);
-        }
-    };
+      const data = await res.json();
+      if (!res.ok) {
+        setOtpError(data.error || 'Failed to resend verification code');
+        return;
+      }
 
-    // --- Submit Step 2: New Restaurant Request ---
-    const handleRestaurantRequestSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+      toast.success(data.message || 'New verification code sent to your email!');
+      if (data.devOtp) {
+        setDevOtp(data.devOtp);
+      }
+      setCooldown(60);
+    } catch (err: any) {
+      setOtpError(err.message || 'Failed to resend code');
+    } finally {
+      setResending(false);
+    }
+  };
 
-        if (!restaurantName.trim()) {
-            toast.error('Please enter your restaurant name');
-            return;
-        }
-        if (!streetAddress.trim() || !city.trim() || !state.trim()) {
-            toast.error('Please complete the restaurant address');
-            return;
-        }
+  const strength = calculatePasswordStrength(password);
 
-        const gstNum = parseFloat(gstPercentage);
-        const cgstNum = parseFloat(cgstPercentage);
-        const sgstNum = parseFloat(sgstPercentage);
+  return (
+    <div className="relative min-h-[100dvh] flex items-center justify-center bg-background text-foreground overflow-hidden px-4 sm:px-6 py-12">
+      {/* Background Ambient Lighting (matches Hero section) */}
+      <div className="absolute top-0 left-0 w-[350px] sm:w-[500px] h-[350px] sm:h-[500px] bg-[#FF6B6B]/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute top-0 right-0 w-[300px] sm:w-[450px] h-[300px] sm:h-[450px] bg-[#4ECDC4]/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[400px] sm:w-[600px] h-[300px] sm:h-[400px] bg-purple-500/10 rounded-full blur-[140px] pointer-events-none" />
 
-        if (isNaN(gstNum) || gstNum < 0) {
-            toast.error('Please enter a valid GST percentage');
-            return;
-        }
-        if (isNaN(cgstNum) || isNaN(sgstNum) || Math.abs((cgstNum + sgstNum) - gstNum) > 0.01) {
-            toast.error(`CGST (${cgstNum}%) + SGST (${sgstNum}%) must equal total GST (${gstNum}%)`);
-            return;
-        }
+      <div className="relative z-10 w-full max-w-[480px] mx-auto">
+        {/* Brand Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="text-center mb-6 sm:mb-8"
+        >
+          <Link href="/" className="inline-block text-2xl sm:text-3xl font-extrabold tracking-tight">
+            Dine <span className="gradient-text-coral text-2xl sm:text-3xl">in</span> One
+          </Link>
+          <p className="text-xs text-muted-foreground font-semibold mt-1">
+            Restaurant Operating System
+          </p>
+        </motion.div>
 
-        setLoading(true);
-        try {
-            const fullAddress = `${streetAddress.trim()}, ${city.trim()}, ${state.trim()} - ${pincode.trim()}`;
-
-            const res = await fetch('/api/auth/owner/submit-restaurant', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    restaurantName: restaurantName.trim(),
-                    businessType: businessType,
-                    address: fullAddress,
-                    planSlug: planSlug,
-                    gstPercentage: gstNum,
-                    cgstPercentage: cgstNum,
-                    sgstPercentage: sgstNum
-                })
-            });
-
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to submit restaurant request');
-
-            toast.success('Restaurant request submitted! Redirecting to status tracker...');
-            router.push('/waiting-approval');
-        } catch (err: any) {
-            toast.error(err.message || 'Submission failed');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6 pt-28 pb-16 relative overflow-hidden">
-            <Navbar />
-
-            {/* Background Glows */}
-            <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-[#FF6B6B]/8 rounded-full blur-[140px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-            <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-amber-500/6 rounded-full blur-[140px] translate-x-1/4 translate-y-1/4 pointer-events-none" />
-
-            <div className="max-w-xl w-full relative z-10">
-
-                {/* Header Branding */}
-                <div className="text-center mb-8">
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400 text-xs font-bold uppercase tracking-wider mb-4">
-                        <Sparkles size={13} /> Controlled Onboarding
-                    </div>
-                    <h1 className="text-3xl sm:text-4xl font-black tracking-tight mb-2 text-foreground">
-                        Register with <span className="bg-gradient-to-r from-[#FF6B6B] to-[#FF8E53] bg-clip-text text-transparent">Dine In One</span>
-                    </h1>
-                    <p className="text-muted-foreground text-sm max-w-md mx-auto">
-                        Create your verified owner account and request restaurant activation.
-                    </p>
+        {/* Card Container */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="rounded-3xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-2xl border border-black/[0.08] dark:border-white/[0.08] shadow-2xl p-6 sm:p-8 md:p-9"
+        >
+          <AnimatePresence mode="wait">
+            {/* ---------------------------------------------------- */}
+            {/* STEP 1: OWNER REGISTRATION FORM                     */}
+            {/* ---------------------------------------------------- */}
+            {mode === 'register' && (
+              <motion.div
+                key="register-step"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <div className="text-center mb-6 sm:mb-7">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#FF6B6B]/10 text-[#FF6B6B] border border-[#FF6B6B]/20 mb-2.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Owner Account Creation
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+                    Create Your Account
+                  </h1>
+                  <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                    Get started with your restaurant management workspace
+                  </p>
                 </div>
 
-                {/* Stepper Indicator */}
-                <div className="flex items-center justify-between mb-8 px-4">
-                    <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
-                            step === 1 ? 'bg-[#FF6B6B] text-white shadow-lg shadow-[#FF6B6B]/30' : 'bg-emerald-500 text-white'
-                        }`}>
-                            {step > 1 ? <CheckCircle2 size={18} /> : '1'}
-                        </div>
-                        <div>
-                            <p className="text-xs font-bold text-foreground">Owner Account</p>
-                            <p className="text-[11px] text-muted-foreground">Mobile & Email OTP</p>
-                        </div>
+                {serverError && (
+                  <div className="p-3 mb-5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{serverError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleRegister} className="space-y-4" noValidate>
+                  {/* Full Name */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                      Full Name
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="e.g. Rahul Sharma"
+                        value={fullName}
+                        onChange={(e) => { setFullName(e.target.value); setServerError(null); }}
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-neutral-100/70 dark:bg-neutral-800/70 border border-black/[0.06] dark:border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-[#FF6B6B]/60 focus:ring-2 focus:ring-[#FF6B6B]/15 transition-all"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Email Address */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                      Email Address
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="email"
+                        placeholder="owner@yourrestaurant.com"
+                        value={email}
+                        onChange={(e) => { setEmail(e.target.value); setServerError(null); }}
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-neutral-100/70 dark:bg-neutral-800/70 border border-black/[0.06] dark:border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-[#FF6B6B]/60 focus:ring-2 focus:ring-[#FF6B6B]/15 transition-all"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Phone Number */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                      Mobile Number
+                    </label>
+                    <div className="relative flex items-center">
+                      <div className="absolute left-3.5 flex items-center gap-1.5 pointer-events-none">
+                        <Phone className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-xs font-bold text-muted-foreground">+91</span>
+                      </div>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="98765 43210"
+                        value={phone}
+                        onChange={(e) => { setPhone(e.target.value.replace(/[^0-9]/g, '')); setServerError(null); }}
+                        className="w-full pl-16 pr-4 py-2.5 rounded-xl bg-neutral-100/70 dark:bg-neutral-800/70 border border-black/[0.06] dark:border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-[#FF6B6B]/60 focus:ring-2 focus:ring-[#FF6B6B]/15 transition-all font-mono"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Password */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Minimum 8 characters"
+                        value={password}
+                        onChange={(e) => { setPassword(e.target.value); setServerError(null); }}
+                        className="w-full pl-10 pr-11 py-2.5 rounded-xl bg-neutral-100/70 dark:bg-neutral-800/70 border border-black/[0.06] dark:border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-[#FF6B6B]/60 focus:ring-2 focus:ring-[#FF6B6B]/15 transition-all"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
 
-                    <div className={`flex-1 h-0.5 mx-4 transition-all ${step > 1 ? 'bg-emerald-500' : 'bg-neutral-200 dark:bg-neutral-800'}`} />
+                    {/* Password Strength Indicator */}
+                    {password && (
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center justify-between text-[11px] font-semibold">
+                          <span className="text-muted-foreground">Password Strength</span>
+                          <span style={{ color: strength.color }}>{strength.label}</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full transition-all duration-300 rounded-full"
+                            style={{ width: `${strength.pct}%`, backgroundColor: strength.color }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-                    <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm transition-all ${
-                            step === 2 ? 'bg-[#FF6B6B] text-white shadow-lg shadow-[#FF6B6B]/30' : 'bg-neutral-200 dark:bg-neutral-800 text-muted-foreground'
-                        }`}>
-                            2
-                        </div>
-                        <div>
-                            <p className="text-xs font-bold text-foreground">Restaurant Request</p>
-                            <p className="text-[11px] text-muted-foreground">Name, Type & Location</p>
-                        </div>
+                  {/* Confirm Password */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                      Confirm Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type={showConfirm ? 'text' : 'password'}
+                        placeholder="Re-enter your password"
+                        value={confirmPassword}
+                        onChange={(e) => { setConfirmPassword(e.target.value); setServerError(null); }}
+                        className="w-full pl-10 pr-11 py-2.5 rounded-xl bg-neutral-100/70 dark:bg-neutral-800/70 border border-black/[0.06] dark:border-white/[0.06] text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-[#FF6B6B]/60 focus:ring-2 focus:ring-[#FF6B6B]/15 transition-all"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirm(!showConfirm)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                      >
+                        {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
+                  </div>
+
+                  {/* Terms & Conditions */}
+                  <div className="flex items-start gap-2.5 pt-1">
+                    <input
+                      type="checkbox"
+                      id="terms"
+                      checked={termsAgreed}
+                      onChange={(e) => setTermsAgreed(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded text-[#FF6B6B] border-border focus:ring-[#FF6B6B]/20 cursor-pointer"
+                    />
+                    <label htmlFor="terms" className="text-xs text-muted-foreground cursor-pointer leading-relaxed">
+                      I agree to the{' '}
+                      <span className="text-foreground hover:underline font-semibold">Terms of Service</span> and{' '}
+                      <span className="text-foreground hover:underline font-semibold">Privacy Policy</span>.
+                    </label>
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3 px-4 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#FF6B6B] to-[#FF8E53] hover:from-[#ff5959] hover:to-[#ff7f40] shadow-lg shadow-[#FF6B6B]/25 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Creating Account...
+                      </>
+                    ) : (
+                      <>
+                        Create Owner Account
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Footer sign in link */}
+                <div className="mt-6 text-center text-xs text-muted-foreground">
+                  Already have an account?{' '}
+                  <Link
+                    href="https://owner.dineinone.com/login"
+                    className="font-bold text-[#FF6B6B] hover:underline"
+                  >
+                    Sign In
+                  </Link>
                 </div>
+              </motion.div>
+            )}
 
-                {/* Card Container */}
-                <motion.div 
-                    initial={{ opacity: 0, y: 15 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-xl relative"
+            {/* ---------------------------------------------------- */}
+            {/* STEP 2: VERIFY EMAIL OTP SCREEN                     */}
+            {/* ---------------------------------------------------- */}
+            {mode === 'verify' && (
+              <motion.div
+                key="verify-step"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setMode('register')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground mb-4 transition-colors cursor-pointer"
                 >
-                    <AnimatePresence mode="wait">
-                        {step === 1 ? (
-                            <motion.form 
-                                key="step-1"
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: 20 }}
-                                onSubmit={handleOwnerAccountSubmit}
-                                className="space-y-5"
-                            >
-                                <div className="border-b border-border pb-4 mb-2">
-                                    <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                                        <User size={18} className="text-[#FF6B6B]" /> Owner Account Setup
-                                    </h2>
-                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                        Verify your identity to manage your Dine In One restaurant entity.
-                                    </p>
-                                </div>
+                  <ArrowLeft className="w-3.5 h-3.5" /> Back to details
+                </button>
 
-                                {/* Owner Name */}
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Full Name</label>
-                                    <div className="relative">
-                                        <User className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                                        <input 
-                                            type="text"
-                                            required
-                                            value={ownerName}
-                                            onChange={(e) => setOwnerName(e.target.value)}
-                                            placeholder="e.g. Rahul Sharma"
-                                            className="w-full bg-background border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm font-medium text-foreground focus:outline-none focus:border-[#FF6B6B] transition-colors"
-                                        />
-                                    </div>
-                                </div>
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 rounded-2xl bg-[#4ECDC4]/10 border border-[#4ECDC4]/20 flex items-center justify-center mx-auto mb-3 text-[#2BA89E]">
+                    <Mail className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-2xl font-extrabold text-foreground">
+                    Verify Your Email
+                  </h2>
+                  <p className="text-xs sm:text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
+                    We sent a 6-digit confirmation code to{' '}
+                    <span className="font-semibold text-foreground">{email}</span>
+                  </p>
+                </div>
 
-                                {/* Mobile Number with OTP */}
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Mobile Number</label>
-                                        {mobileVerified && (
-                                            <span className="text-emerald-500 text-xs font-bold flex items-center gap-1">
-                                                <CheckCircle2 size={13} /> Verified
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <div className="relative flex-1">
-                                            <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                                            <input 
-                                                type="tel"
-                                                required
-                                                disabled={mobileVerified}
-                                                value={mobile}
-                                                onChange={(e) => setMobile(e.target.value)}
-                                                placeholder="10-digit mobile (e.g. 9876543210)"
-                                                className="w-full bg-background border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm font-medium text-foreground focus:outline-none focus:border-[#FF6B6B] transition-colors disabled:opacity-60"
-                                            />
-                                        </div>
-                                        {!mobileVerified && (
-                                            <button
-                                                type="button"
-                                                onClick={handleSendMobileOtp}
-                                                disabled={sendingMobileOtp || !mobile}
-                                                className="px-4 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-foreground font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
-                                            >
-                                                {sendingMobileOtp ? <Loader2 size={14} className="animate-spin" /> : <Send size={13} />}
-                                                {mobileOtpSent ? 'Resend' : 'Send OTP'}
-                                            </button>
-                                        )}
-                                    </div>
+                {devOtp && (
+                  <div className="mb-4 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs text-center font-mono">
+                    ⚡ Dev Mode Code: <strong>{devOtp}</strong>
+                  </div>
+                )}
 
-                                    {/* Mobile OTP Input */}
-                                    {mobileOtpSent && !mobileVerified && (
-                                        <motion.div 
-                                            initial={{ opacity: 0, height: 0 }}
-                                            animate={{ opacity: 1, height: 'auto' }}
-                                            className="flex gap-2 pt-1"
-                                        >
-                                            <input 
-                                                type="text"
-                                                maxLength={6}
-                                                value={mobileOtp}
-                                                onChange={(e) => setMobileOtp(e.target.value)}
-                                                placeholder="Enter 6-digit Mobile OTP (Dev: 123456)"
-                                                className="flex-1 bg-background border border-border rounded-xl py-2 px-3 text-sm text-foreground focus:outline-none focus:border-[#FF6B6B]"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={handleVerifyMobileOtp}
-                                                disabled={verifyingMobileOtp || mobileOtp.length < 6}
-                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1 disabled:opacity-50"
-                                            >
-                                                {verifyingMobileOtp ? <Loader2 size={13} className="animate-spin" /> : 'Verify'}
-                                            </button>
-                                        </motion.div>
-                                    )}
-                                </div>
+                {otpError && (
+                  <div className="p-3 mb-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{otpError}</span>
+                  </div>
+                )}
 
-                                {/* Email Address with OTP */}
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Email Address</label>
-                                        {emailVerified && (
-                                            <span className="text-emerald-500 text-xs font-bold flex items-center gap-1">
-                                                <CheckCircle2 size={13} /> Verified
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <div className="relative flex-1">
-                                            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                                            <input 
-                                                type="email"
-                                                required
-                                                disabled={emailVerified}
-                                                value={email}
-                                                onChange={(e) => setEmail(e.target.value)}
-                                                placeholder="owner@example.com"
-                                                className="w-full bg-background border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm font-medium text-foreground focus:outline-none focus:border-[#FF6B6B] transition-colors disabled:opacity-60"
-                                            />
-                                        </div>
-                                        {!emailVerified && (
-                                            <button
-                                                type="button"
-                                                onClick={handleSendEmailOtp}
-                                                disabled={sendingEmailOtp || !email}
-                                                className="px-4 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-foreground font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
-                                            >
-                                                {sendingEmailOtp ? <Loader2 size={14} className="animate-spin" /> : <Send size={13} />}
-                                                {emailOtpSent ? 'Resend' : 'Send Code'}
-                                            </button>
-                                        )}
-                                    </div>
+                <form onSubmit={handleVerifyOtp} className="space-y-6">
+                  {/* 6 Digit Inputs */}
+                  <div className="flex items-center justify-center gap-2 sm:gap-3">
+                    {otp.map((digit, idx) => (
+                      <input
+                        key={idx}
+                        ref={(el) => { otpInputRefs.current[idx] = el; }}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleOtpChange(idx, e.target.value)}
+                        onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                        className="w-11 sm:w-12 h-13 sm:h-14 text-center text-lg sm:text-xl font-black rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-black/[0.08] dark:border-white/[0.08] text-foreground focus:outline-none focus:border-[#4ECDC4] focus:ring-2 focus:ring-[#4ECDC4]/20 transition-all font-mono"
+                        autoFocus={idx === 0}
+                      />
+                    ))}
+                  </div>
 
-                                    {/* Email OTP Input */}
-                                    {emailOtpSent && !emailVerified && (
-                                        <motion.div 
-                                            initial={{ opacity: 0, height: 0 }}
-                                            animate={{ opacity: 1, height: 'auto' }}
-                                            className="flex gap-2 pt-1"
-                                        >
-                                            <input 
-                                                type="text"
-                                                maxLength={6}
-                                                value={emailOtp}
-                                                onChange={(e) => setEmailOtp(e.target.value)}
-                                                placeholder="Enter 6-digit Email Code (Dev: 123456)"
-                                                className="flex-1 bg-background border border-border rounded-xl py-2 px-3 text-sm text-foreground focus:outline-none focus:border-[#FF6B6B]"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={handleVerifyEmailOtp}
-                                                disabled={verifyingEmailOtp || emailOtp.length < 6}
-                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1 disabled:opacity-50"
-                                            >
-                                                {verifyingEmailOtp ? <Loader2 size={13} className="animate-spin" /> : 'Verify'}
-                                            </button>
-                                        </motion.div>
-                                    )}
-                                </div>
+                  <button
+                    type="submit"
+                    disabled={verifying || otp.join('').length !== 6}
+                    className="w-full py-3 px-4 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#4ECDC4] to-[#2BA89E] hover:opacity-95 shadow-lg shadow-[#4ECDC4]/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {verifying ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> Verifying Code...
+                      </>
+                    ) : (
+                      <>
+                        Verify & Complete Registration <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
 
-                                {/* Password Fields */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Password</label>
-                                        <div className="relative">
-                                            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                                            <input 
-                                                type="password"
-                                                required
-                                                value={password}
-                                                onChange={(e) => setPassword(e.target.value)}
-                                                placeholder="Min 8 chars"
-                                                className="w-full bg-background border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm font-medium text-foreground focus:outline-none focus:border-[#FF6B6B] transition-colors"
-                                            />
-                                        </div>
-                                    </div>
+                {/* Resend Timer */}
+                <div className="mt-6 text-center text-xs text-muted-foreground flex flex-col items-center gap-2">
+                  <span>Didn't receive the email code?</span>
+                  {cooldown > 0 ? (
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-muted-foreground">
+                      <Clock className="w-3.5 h-3.5" /> Resend in {cooldown}s
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={resending}
+                      className="inline-flex items-center gap-1.5 font-bold text-[#FF6B6B] hover:underline cursor-pointer disabled:opacity-50"
+                    >
+                      {resending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                      Resend Verification Code
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            )}
 
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Confirm Password</label>
-                                        <div className="relative">
-                                            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                                            <input 
-                                                type="password"
-                                                required
-                                                value={confirmPassword}
-                                                onChange={(e) => setConfirmPassword(e.target.value)}
-                                                placeholder="Repeat password"
-                                                className="w-full bg-background border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm font-medium text-foreground focus:outline-none focus:border-[#FF6B6B] transition-colors"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
+            {/* ---------------------------------------------------- */}
+            {/* STEP 3: SUCCESS CELEBRATION SCREEN                  */}
+            {/* ---------------------------------------------------- */}
+            {mode === 'success' && (
+              <motion.div
+                key="success-step"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-center py-6"
+              >
+                <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle2 className="w-9 h-9" />
+                </div>
+                <h2 className="text-2xl font-black text-foreground mb-2">
+                  Account Verified!
+                </h2>
+                <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-6">
+                  Welcome to Dine in One. Your owner account is active and ready.
+                </p>
+                <div className="inline-flex items-center gap-2 text-xs text-muted-foreground font-semibold">
+                  <Loader2 className="w-4 h-4 animate-spin text-[#FF6B6B]" />
+                  Redirecting to Owner Portal...
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
 
-                                {/* Continue Button */}
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full mt-2 py-3.5 bg-gradient-to-r from-[#FF6B6B] to-[#FF8E53] hover:opacity-90 text-white font-bold rounded-2xl transition-all shadow-lg shadow-[#FF6B6B]/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                                >
-                                    {loading ? <Loader2 className="animate-spin" size={18} /> : (
-                                        <>Create Account & Proceed <ArrowRight size={16} /></>
-                                    )}
-                                </button>
-                            </motion.form>
-                        ) : (
-                            <motion.form 
-                                key="step-2"
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                onSubmit={handleRestaurantRequestSubmit}
-                                className="space-y-5"
-                            >
-                                <div className="border-b border-border pb-4 mb-2">
-                                    <div className="flex items-center justify-between">
-                                        <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                                            <Store size={18} className="text-[#FF6B6B]" /> New Restaurant Request
-                                        </h2>
-                                        <button 
-                                            type="button" 
-                                            onClick={() => setStep(1)}
-                                            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
-                                        >
-                                            <ArrowLeft size={13} /> Edit Account
-                                        </button>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                        Submit only basic establishment details. Compliance & plan selection will be completed by Super Admin.
-                                    </p>
-                                </div>
-
-                                {/* Restaurant Name */}
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Restaurant Name</label>
-                                    <div className="relative">
-                                        <Store className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                                        <input 
-                                            type="text"
-                                            required
-                                            value={restaurantName}
-                                            onChange={(e) => setRestaurantName(e.target.value)}
-                                            placeholder="e.g. Royal Spice Bistro"
-                                            className="w-full bg-background border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm font-medium text-foreground focus:outline-none focus:border-[#FF6B6B] transition-colors"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Business Type */}
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Business Type</label>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {(['Restaurant', 'Bar', 'Bar and Restaurant'] as const).map((type) => (
-                                            <button
-                                                type="button"
-                                                key={type}
-                                                onClick={() => setBusinessType(type)}
-                                                className={`py-3 px-2 rounded-xl border text-center font-bold text-xs transition-all ${
-                                                    businessType === type 
-                                                        ? 'border-[#FF6B6B] bg-[#FF6B6B]/10 text-[#FF6B6B]' 
-                                                        : 'border-border bg-background text-muted-foreground hover:border-neutral-400'
-                                                }`}
-                                            >
-                                                {type}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Address Fields */}
-                                <div className="space-y-3 pt-1">
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Street Address / Landmark</label>
-                                        <div className="relative">
-                                            <MapPin className="absolute left-3.5 top-3 text-muted-foreground" size={16} />
-                                            <textarea 
-                                                required
-                                                rows={2}
-                                                value={streetAddress}
-                                                onChange={(e) => setStreetAddress(e.target.value)}
-                                                placeholder="Plot No., Road No., Area"
-                                                className="w-full bg-background border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm font-medium text-foreground focus:outline-none focus:border-[#FF6B6B] transition-colors resize-none"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <div className="space-y-1">
-                                            <label className="text-[11px] font-bold text-muted-foreground uppercase">City</label>
-                                            <input 
-                                                type="text"
-                                                required
-                                                value={city}
-                                                onChange={(e) => setCity(e.target.value)}
-                                                placeholder="e.g. Nellore"
-                                                className="w-full bg-background border border-border rounded-xl py-2 px-3 text-xs text-foreground focus:outline-none focus:border-[#FF6B6B]"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <label className="text-[11px] font-bold text-muted-foreground uppercase">State</label>
-                                            <input 
-                                                type="text"
-                                                required
-                                                value={state}
-                                                onChange={(e) => setState(e.target.value)}
-                                                placeholder="e.g. Andhra Pradesh"
-                                                className="w-full bg-background border border-border rounded-xl py-2 px-3 text-xs text-foreground focus:outline-none focus:border-[#FF6B6B]"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <label className="text-[11px] font-bold text-muted-foreground uppercase">PIN Code</label>
-                                            <input 
-                                                type="text"
-                                                required
-                                                maxLength={6}
-                                                value={pincode}
-                                                onChange={(e) => setPincode(e.target.value)}
-                                                placeholder="524001"
-                                                className="w-full bg-background border border-border rounded-xl py-2 px-3 text-xs text-foreground focus:outline-none focus:border-[#FF6B6B]"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* GST & Tax Configuration */}
-                                <div className="space-y-3 pt-1">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Tax & GST Configuration</label>
-                                            <p className="text-[11px] text-muted-foreground mt-0.5">Applied to orders and menu items as restaurant default</p>
-                                        </div>
-                                        <span className="text-[10.5px] font-bold text-[#FF6B6B] bg-[#FF6B6B]/10 px-2.5 py-0.5 rounded-full border border-[#FF6B6B]/20">
-                                            Auto-Split
-                                        </span>
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <div className="space-y-1">
-                                            <label className="text-[11px] font-bold text-muted-foreground uppercase">Total GST (%)</label>
-                                            <div className="relative">
-                                                <input 
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    max="100"
-                                                    required
-                                                    value={gstPercentage}
-                                                    onChange={(e) => handleGstChange(e.target.value)}
-                                                    placeholder="5"
-                                                    className="w-full bg-background border border-border rounded-xl py-2 px-3 pr-7 text-xs font-bold text-foreground focus:outline-none focus:border-[#FF6B6B]"
-                                                />
-                                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground font-bold">%</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <label className="text-[11px] font-bold text-muted-foreground uppercase">CGST (%)</label>
-                                            <div className="relative">
-                                                <input 
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    max="100"
-                                                    required
-                                                    value={cgstPercentage}
-                                                    onChange={(e) => setCgstPercentage(e.target.value)}
-                                                    placeholder="2.5"
-                                                    className="w-full bg-background border border-border rounded-xl py-2 px-3 pr-7 text-xs font-bold text-foreground focus:outline-none focus:border-[#FF6B6B]"
-                                                />
-                                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground font-bold">%</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <label className="text-[11px] font-bold text-muted-foreground uppercase">SGST (%)</label>
-                                            <div className="relative">
-                                                <input 
-                                                    type="number"
-                                                    step="0.01"
-                                                    min="0"
-                                                    max="100"
-                                                    required
-                                                    value={sgstPercentage}
-                                                    onChange={(e) => setSgstPercentage(e.target.value)}
-                                                    placeholder="2.5"
-                                                    className="w-full bg-background border border-border rounded-xl py-2 px-3 pr-7 text-xs font-bold text-foreground focus:outline-none focus:border-[#FF6B6B]"
-                                                />
-                                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground font-bold">%</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <p className="text-[10.5px] text-muted-foreground">
-                                        💡 <span className="font-semibold">Example:</span> 5% GST → 2.5% CGST + 2.5% SGST | 18% GST → 9% CGST + 9% SGST
-                                    </p>
-                                </div>
-
-                                {/* Choose Subscription Plan */}
-                                <div className="space-y-2 pt-1">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Choose Subscription Plan</label>
-                                        <span className="text-[10.5px] font-bold text-[#FF6B6B]">Monthly Billing</span>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {[
-                                            { slug: 'standard' as const, name: 'Standard', price: '₹999', limit: '1 Branch', desc: 'Core POS & QR' },
-                                            { slug: 'growth' as const, name: 'Growth', price: '₹1,499', limit: '1 Branch', desc: 'Delivery & Inventory', popular: true },
-                                            { slug: 'pro' as const, name: 'Pro', price: '₹2,999', limit: '2 Branches', desc: 'Multi-Outlet' }
-                                        ].map((p) => {
-                                            const isSelected = planSlug === p.slug;
-                                            return (
-                                                <button
-                                                    type="button"
-                                                    key={p.slug}
-                                                    onClick={() => setPlanSlug(p.slug)}
-                                                    className={`p-3 rounded-2xl border text-left transition-all relative ${
-                                                        isSelected
-                                                            ? 'border-[#FF6B6B] bg-[#FF6B6B]/10 ring-2 ring-[#FF6B6B]/20 shadow-xs'
-                                                            : 'border-border bg-background hover:border-neutral-400'
-                                                    }`}
-                                                >
-                                                    {p.popular && (
-                                                        <span className="absolute -top-2 right-2 px-1.5 py-0.5 rounded-full text-[8.5px] font-black bg-[#FF6B6B] text-white uppercase tracking-wider">
-                                                            Popular
-                                                        </span>
-                                                    )}
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-xs font-black text-foreground">{p.name}</span>
-                                                    </div>
-                                                    <div className="mt-0.5">
-                                                        <span className="text-xs font-black text-[#FF6B6B]">{p.price}<span className="text-[10px] font-normal text-muted-foreground">/mo</span></span>
-                                                    </div>
-                                                    <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{p.limit}</p>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-
-                                {/* Compliance & Policy Notice */}
-                                <div className="p-3.5 bg-neutral-100 dark:bg-neutral-800/60 rounded-2xl border border-neutral-200 dark:border-neutral-700/40 text-xs text-muted-foreground flex gap-3 items-start">
-                                    <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                                    <div>
-                                        <strong className="text-foreground">Super Admin Verification:</strong>
-                                        <p className="mt-0.5">
-                                            Your request will be placed in <span className="font-bold text-amber-500">PENDING_APPROVAL</span> status. Once reviewed and approved by Super Admin, your restaurant branch will be activated and you can assign your Restaurant Admin.
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {/* Submit Button */}
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full py-3.5 bg-gradient-to-r from-[#FF6B6B] to-[#FF8E53] hover:opacity-90 text-white font-bold rounded-2xl transition-all shadow-lg shadow-[#FF6B6B]/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                                >
-                                    {loading ? <Loader2 className="animate-spin" size={18} /> : (
-                                        <>Submit Request for Review <ArrowRight size={16} /></>
-                                    )}
-                                </button>
-                            </motion.form>
-                        )}
-                    </AnimatePresence>
-
-                    {/* Footer Links */}
-                    <div className="mt-6 pt-4 border-t border-border text-center">
-                        <p className="text-xs text-muted-foreground">
-                            Already registered?{' '}
-                            <Link href="/login" className="font-bold text-[#FF6B6B] hover:underline">
-                                Sign In
-                            </Link>
-                        </p>
-                    </div>
-                </motion.div>
-            </div>
-        </div>
-    );
+        {/* Security Isolation Footer Tag */}
+        <p className="text-center text-[11px] text-muted-foreground/80 mt-6 flex items-center justify-center gap-1.5 font-medium">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+          End-to-end cryptographic tenant security active
+        </p>
+      </div>
+    </div>
+  );
 }

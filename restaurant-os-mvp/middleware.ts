@@ -110,7 +110,7 @@ export async function middleware(request: NextRequest) {
             return NextResponse.next();
         }
 
-        if (path === '/login/owner') {
+        if (path === '/login' || path === '/login/owner') {
             return NextResponse.redirect(new URL(`https://owner.dineinone.com/login${request.nextUrl.search}`));
         }
 
