@@ -25,30 +25,6 @@ const heroWords = [
   { text: "restaurant", highlight: false },
 ];
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.07,
-      delayChildren: 0.05,
-    },
-  },
-};
-
-const wordVariants = {
-  hidden: { opacity: 0, y: 18, filter: "blur(6px)" },
-  visible: {
-    opacity: 1,
-    y: 0,
-    filter: "blur(0px)",
-    transition: {
-      duration: 0.45,
-      ease: [0.22, 1, 0.36, 1],
-    },
-  },
-};
-
 interface PipelineStep {
   step: number;
   id: "scan_qr" | "order" | "kitchen" | "ready" | "served";
@@ -62,7 +38,7 @@ interface PipelineStep {
   barColor: string;
 }
 
-// 5 Buttons with different activated colors for both mobile and desktop
+// 5 Buttons with distinct activated colors for both mobile and desktop
 const buttonThemes: PipelineStep[] = [
   {
     step: 1,
@@ -151,63 +127,209 @@ const orderStatusStates = ["Ordered", "Kitchen", "Ready", "Waiter", "Served"];
 const stepDurations = [3500, 4200, 4200, 3500, 4200];
 
 // =========================================================================
-// REUSABLE REALISTIC IPHONE MOCKUP COMPONENT (Used in both Desktop & Mobile)
+// CONTINUOUS ADVANCED LOTTIE-STYLE HEADLINE COMPONENT
+// =========================================================================
+interface ContinuousLottieHeadlineProps {
+  isDesktop?: boolean;
+  shouldReduceMotion: boolean | null;
+}
+
+const ContinuousLottieHeadline: React.FC<ContinuousLottieHeadlineProps> = ({
+  isDesktop = false,
+  shouldReduceMotion = false,
+}) => {
+  return (
+    <div className="relative mb-5 sm:mb-6 select-none">
+      {/* Ambient glowing aura that continuously breathes */}
+      <motion.div 
+        animate={shouldReduceMotion ? {} : {
+          opacity: [0.35, 0.65, 0.35],
+          scale: [0.96, 1.05, 0.96],
+        }}
+        transition={{
+          duration: 4,
+          repeat: Infinity,
+          ease: "easeInOut",
+        }}
+        className="absolute -top-6 -left-6 w-80 sm:w-96 h-36 bg-gradient-to-r from-[#FF6B6B]/25 via-[#A855F7]/20 to-[#4ECDC4]/25 blur-3xl rounded-full pointer-events-none"
+      />
+
+      <h1 className={`${
+        isDesktop 
+          ? "text-4xl sm:text-5xl md:text-6xl lg:text-[3.5rem] xl:text-[4.15rem]" 
+          : "text-3xl sm:text-4xl"
+      } font-black leading-[1.08] tracking-tight text-foreground relative z-10`}>
+        {heroWords.map((item, idx) => {
+          if (item.highlight) {
+            return (
+              <motion.span
+                key={idx}
+                animate={shouldReduceMotion ? {} : {
+                  y: [0, -5, 0],
+                }}
+                transition={{
+                  duration: 2.8,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                  delay: idx * 0.16,
+                }}
+                className="inline-block mr-[0.22em] relative group"
+              >
+                {/* Continuous liquid gradient shimmer */}
+                <span className="bg-gradient-to-r from-[#FF6B6B] via-[#FF8E53] via-[#FFAE73] to-[#FF6B6B] bg-[length:200%_auto] bg-clip-text text-transparent animate-[gradient-flow_3.5s_ease_infinite] drop-shadow-sm font-black">
+                  {item.text}
+                </span>
+
+                {/* Continuous Lottie Starburst Sparkle 1 */}
+                <motion.span
+                  animate={shouldReduceMotion ? {} : {
+                    rotate: [0, 180, 360],
+                    scale: [0.8, 1.25, 0.8],
+                    opacity: [0.65, 1, 0.65],
+                  }}
+                  transition={{
+                    duration: 2.5,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                    delay: idx * 0.3,
+                  }}
+                  className="absolute -top-3 -right-2.5 pointer-events-none text-[#FF8E53] drop-shadow-[0_0_8px_#FF6B6B]"
+                >
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0L14.6 9.4L24 12L14.6 14.6L12 24L9.4 14.6L0 12L9.4 9.4L12 0Z" />
+                  </svg>
+                </motion.span>
+
+                {/* Continuous Lottie Micro-Sparkle 2 */}
+                <motion.span
+                  animate={shouldReduceMotion ? {} : {
+                    rotate: [360, 180, 0],
+                    scale: [0.65, 1.15, 0.65],
+                    opacity: [0.45, 0.95, 0.45],
+                  }}
+                  transition={{
+                    duration: 3.2,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                    delay: (idx + 1) * 0.4,
+                  }}
+                  className="absolute -bottom-1 -left-2 pointer-events-none text-[#FFD93D] drop-shadow-[0_0_6px_#FFAE73]"
+                >
+                  <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0L14.6 9.4L24 12L14.6 14.6L12 24L9.4 14.6L0 12L9.4 9.4L12 0Z" />
+                  </svg>
+                </motion.span>
+              </motion.span>
+            );
+          }
+
+          return (
+            <motion.span
+              key={idx}
+              animate={shouldReduceMotion ? {} : {
+                y: [0, -3.5, 0],
+              }}
+              transition={{
+                duration: 3,
+                repeat: Infinity,
+                ease: "easeInOut",
+                delay: idx * 0.12,
+              }}
+              className="inline-block mr-[0.22em] text-foreground"
+            >
+              {item.text}
+            </motion.span>
+          );
+        })}
+      </h1>
+
+      {/* Continuous animated luminous energy beam underneath headline */}
+      <div className="relative mt-2.5 h-1 w-44 sm:w-56 overflow-hidden rounded-full bg-gradient-to-r from-transparent via-[#FF6B6B]/25 to-transparent">
+        <motion.div
+          animate={shouldReduceMotion ? {} : {
+            x: ["-100%", "200%"],
+          }}
+          transition={{
+            duration: 2.2,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+          className="h-full w-24 bg-gradient-to-r from-transparent via-[#FF6B6B] to-transparent shadow-[0_0_10px_#FF6B6B]"
+        />
+      </div>
+    </div>
+  );
+};
+
+// =========================================================================
+// REUSABLE IPHONE MOCKUP COMPONENT
+// Supports isDesktop=true for increased size on desktop only!
 // =========================================================================
 interface HeroPhoneMockupProps {
   activeStepIndex: number;
   shouldReduceMotion: boolean | null;
+  isDesktop?: boolean;
   className?: string;
 }
 
 const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
   activeStepIndex,
   shouldReduceMotion,
+  isDesktop = false,
   className = "",
 }) => {
   return (
     <div
-      className={`relative w-full max-w-[220px] sm:max-w-[235px] aspect-[9/18.5] rounded-[30px] sm:rounded-[32px] p-1 sm:p-1.5 bg-neutral-950 border-[1.5px] sm:border-[2px] border-neutral-800 shadow-[0_18px_45px_rgba(0,0,0,0.4)] dark:shadow-[0_22px_55px_rgba(0,0,0,0.7)] ring-1 ring-white/10 flex flex-col justify-between overflow-hidden ${className}`}
+      className={`relative w-full ${
+        isDesktop
+          ? "max-w-[315px] xl:max-w-[335px] rounded-[38px] p-2"
+          : "max-w-[215px] sm:max-w-[230px] rounded-[30px] sm:rounded-[32px] p-1 sm:p-1.5"
+      } aspect-[9/18.5] bg-neutral-950 border-[1.5px] sm:border-[2px] border-neutral-800 shadow-[0_22px_55px_rgba(0,0,0,0.45)] dark:shadow-[0_28px_65px_rgba(0,0,0,0.75)] ring-1 ring-white/10 flex flex-col justify-between overflow-hidden ${className}`}
     >
       {/* Dynamic Island Pill */}
-      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-3 bg-neutral-900 rounded-full z-30 flex items-center justify-end pr-1.5">
-        <div className="w-1.5 h-1.5 rounded-full bg-neutral-800 border border-neutral-700/80" />
+      <div className={`absolute ${isDesktop ? "top-3 w-20 h-3.5 pr-2" : "top-2 w-16 h-3 pr-1.5"} left-1/2 -translate-x-1/2 bg-neutral-900 rounded-full z-30 flex items-center justify-end`}>
+        <div className={`${isDesktop ? "w-2 h-2" : "w-1.5 h-1.5"} rounded-full bg-neutral-800 border border-neutral-700/80`} />
       </div>
 
       {/* iPhone Inner Screen */}
-      <div className="relative rounded-[25px] sm:rounded-[27px] bg-white dark:bg-neutral-900 overflow-hidden border border-neutral-200/80 dark:border-neutral-800/80 flex flex-col justify-between h-full pt-3.5 pb-2 px-2.5 text-foreground select-none">
+      <div className={`relative ${
+        isDesktop
+          ? "rounded-[32px] pt-4 pb-3 px-3.5"
+          : "rounded-[25px] sm:rounded-[27px] pt-3.5 pb-2 px-2.5"
+      } bg-white dark:bg-neutral-900 overflow-hidden border border-neutral-200/80 dark:border-neutral-800/80 flex flex-col justify-between h-full text-foreground select-none`}>
         
         {/* Status Bar */}
-        <div className="flex items-center justify-between text-[9px] font-semibold text-neutral-400 mb-1 px-0.5 shrink-0">
+        <div className={`flex items-center justify-between ${isDesktop ? "text-[11px] mb-2" : "text-[9px] mb-1"} font-semibold text-neutral-400 px-0.5 shrink-0`}>
           <span>9:41</span>
           <div className="flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            <span className="text-[8px] font-mono">5G</span>
-            <span className="text-[8px]">100%</span>
+            <span className={`${isDesktop ? "w-2 h-2" : "w-1.5 h-1.5"} rounded-full bg-emerald-500`} />
+            <span className={`${isDesktop ? "text-[10px]" : "text-[8px]"} font-mono`}>5G</span>
+            <span className={`${isDesktop ? "text-[10px]" : "text-[8px]"}`}>100%</span>
           </div>
         </div>
 
         {/* App Header with Dine in One Logo on Top Left Corner */}
-        <div className="flex items-center justify-between pb-1.5 border-b border-border/50 shrink-0">
+        <div className={`flex items-center justify-between ${isDesktop ? "pb-2" : "pb-1.5"} border-b border-border/50 shrink-0`}>
           <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 rounded-md bg-white p-0.5 border border-border/60 shadow-xs flex items-center justify-center shrink-0">
+            <div className={`${isDesktop ? "w-6 h-6" : "w-5 h-5"} rounded-md bg-white p-0.5 border border-border/60 shadow-xs flex items-center justify-center shrink-0`}>
               <img src="/favicon.png" alt="Dine in One" className="w-full h-full object-contain" />
             </div>
             <div>
-              <div className="text-[10px] font-bold leading-none text-foreground flex items-center gap-0.5">
+              <div className={`${isDesktop ? "text-xs" : "text-[10px]"} font-bold leading-none text-foreground flex items-center gap-0.5`}>
                 <span>Dine</span>
                 <span className="gradient-text-coral">in</span>
                 <span>One</span>
               </div>
-              <div className="text-[7.5px] text-muted-foreground font-medium">Table 08</div>
+              <div className={`${isDesktop ? "text-[9px]" : "text-[7.5px]"} text-muted-foreground font-medium`}>Table 08</div>
             </div>
           </div>
-          <div className="px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[8px] font-bold tracking-tight">
+          <div className={`px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 ${isDesktop ? "text-[10px]" : "text-[8px]"} font-bold tracking-tight`}>
             LIVE ORDER
           </div>
         </div>
 
         {/* Screen Content Body */}
-        <div className="flex-1 py-1 flex flex-col justify-center min-h-[220px]">
+        <div className={`flex-1 py-1 flex flex-col justify-center ${isDesktop ? "min-h-[300px]" : "min-h-[220px]"}`}>
           <AnimatePresence mode="wait">
             
             {/* STEP 0: SCAN QR */}
@@ -220,31 +342,31 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                 transition={{ duration: 0.25 }}
                 className="flex flex-col items-center justify-center text-center my-auto"
               >
-                <div className="relative w-28 h-28 rounded-xl bg-neutral-950 border-2 border-[#FF6B6B]/40 flex items-center justify-center overflow-hidden mb-2 shadow-inner">
+                <div className={`relative ${isDesktop ? "w-36 h-36 mb-3 rounded-2xl" : "w-28 h-28 mb-2 rounded-xl"} bg-neutral-950 border-2 border-[#FF6B6B]/40 flex items-center justify-center overflow-hidden shadow-inner`}>
                   {/* Viewfinder Target Brackets */}
-                  <div className="absolute top-1.5 left-1.5 w-3 h-3 border-t-2 border-l-2 border-[#FF6B6B]" />
-                  <div className="absolute top-1.5 right-1.5 w-3 h-3 border-t-2 border-r-2 border-[#FF6B6B]" />
-                  <div className="absolute bottom-1.5 left-1.5 w-3 h-3 border-b-2 border-l-2 border-[#FF6B6B]" />
-                  <div className="absolute bottom-1.5 right-1.5 w-3 h-3 border-b-2 border-r-2 border-[#FF6B6B]" />
+                  <div className={`absolute top-1.5 left-1.5 ${isDesktop ? "w-4 h-4 border-t-3 border-l-3" : "w-3 h-3 border-t-2 border-l-2"} border-[#FF6B6B]`} />
+                  <div className={`absolute top-1.5 right-1.5 ${isDesktop ? "w-4 h-4 border-t-3 border-r-3" : "w-3 h-3 border-t-2 border-r-2"} border-[#FF6B6B]`} />
+                  <div className={`absolute bottom-1.5 left-1.5 ${isDesktop ? "w-4 h-4 border-b-3 border-l-3" : "w-3 h-3 border-b-2 border-l-2"} border-[#FF6B6B]`} />
+                  <div className={`absolute bottom-1.5 right-1.5 ${isDesktop ? "w-4 h-4 border-b-3 border-r-3" : "w-3 h-3 border-b-2 border-r-2"} border-[#FF6B6B]`} />
 
                   {/* Animated Laser Scanning Line */}
                   <motion.div
-                    animate={shouldReduceMotion ? {} : { y: [-38, 38, -38] }}
+                    animate={shouldReduceMotion ? {} : { y: isDesktop ? [-50, 50, -50] : [-38, 38, -38] }}
                     transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-[#FF6B6B] to-transparent shadow-[0_0_6px_#FF6B6B]"
+                    className="absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-[#FF6B6B] to-transparent shadow-[0_0_8px_#FF6B6B]"
                   />
 
                   {/* QR Code Graphic */}
-                  <div className="p-2 bg-white rounded-lg shadow-sm">
-                    <QrCode className="w-14 h-14 text-neutral-950" />
+                  <div className={`${isDesktop ? "p-3 rounded-xl" : "p-2 rounded-lg"} bg-white shadow-sm`}>
+                    <QrCode className={`${isDesktop ? "w-20 h-20" : "w-14 h-14"} text-neutral-950`} />
                   </div>
                 </div>
 
-                <div className="text-[10px] font-bold text-foreground">
+                <div className={`${isDesktop ? "text-xs" : "text-[10px]"} font-bold text-foreground`}>
                   Scanning Table QR
                 </div>
-                <div className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[8px] font-bold">
-                  <Check className="w-2.5 h-2.5" />
+                <div className={`inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ${isDesktop ? "text-[10px]" : "text-[8px]"} font-bold`}>
+                  <Check className={`${isDesktop ? "w-3 h-3" : "w-2.5 h-2.5"}`} />
                   Table 08 Verified
                 </div>
               </motion.div>
@@ -260,8 +382,8 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                 transition={{ duration: 0.25 }}
                 className="flex flex-col justify-between h-full py-0.5"
               >
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground uppercase">
+                <div className={`${isDesktop ? "space-y-1.5" : "space-y-1"}`}>
+                  <div className={`flex items-center justify-between ${isDesktop ? "text-[10px]" : "text-[8px]"} font-bold text-muted-foreground uppercase`}>
                     <span>Menu Selection</span>
                     <span className="text-purple-600 dark:text-purple-400 font-semibold">Cart (3 items)</span>
                   </div>
@@ -269,13 +391,13 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                   {sampleFoodItems.map((item) => (
                     <div
                       key={item.name}
-                      className="p-1 rounded-md bg-neutral-50 dark:bg-neutral-800/60 border border-border/50 text-[9px] flex items-center justify-between gap-1.5"
+                      className={`${isDesktop ? "p-1.5 text-xs" : "p-1 text-[9px]"} rounded-lg bg-neutral-50 dark:bg-neutral-800/60 border border-border/50 flex items-center justify-between gap-2`}
                     >
-                      <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
                         <img
                           src={item.image}
                           alt={item.name}
-                          className="w-6 h-6 rounded object-cover border border-border/40 shrink-0"
+                          className={`${isDesktop ? "w-8 h-8 rounded-lg" : "w-6 h-6 rounded"} object-cover border border-border/40 shrink-0`}
                         />
                         <span className="font-semibold text-foreground truncate">
                           {item.name} <span className="text-[#8B5CF6] font-bold">×{item.qty}</span>
@@ -287,24 +409,24 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                     </div>
                   ))}
 
-                  <div className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[8px] text-amber-600 dark:text-amber-400 font-medium truncate">
+                  <div className={`${isDesktop ? "px-2 py-1 text-[10px]" : "px-1.5 py-0.5 text-[8px]"} rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 font-medium truncate`}>
                     Note: Less spicy
                   </div>
                 </div>
 
-                <div className="pt-1.5 border-t border-border/50 mt-1">
-                  <div className="flex items-center justify-between text-[9px] mb-1">
+                <div className={`pt-2 border-t border-border/50 ${isDesktop ? "mt-2" : "mt-1"}`}>
+                  <div className={`flex items-center justify-between ${isDesktop ? "text-xs mb-1.5" : "text-[9px] mb-1"}`}>
                     <span className="text-muted-foreground font-medium">Total Amount</span>
-                    <span className="font-mono font-black text-foreground">₹680</span>
+                    <span className={`font-mono font-black text-foreground ${isDesktop ? "text-sm" : ""}`}>₹680</span>
                   </div>
-                  <div className="w-full py-1 rounded-lg bg-[#8B5CF6] text-white text-[9px] font-bold text-center shadow-xs">
+                  <div className={`w-full ${isDesktop ? "py-1.5 text-xs" : "py-1 text-[9px]"} rounded-lg bg-[#8B5CF6] text-white font-bold text-center shadow-xs`}>
                     Order Confirmed ✓
                   </div>
                 </div>
               </motion.div>
             )}
 
-            {/* STEP 2: KITCHEN (With food images, removed DIO-108 text, increased Kitchen status text!) */}
+            {/* STEP 2: KITCHEN (With food images, removed DIO-108 text, enlarged Kitchen status!) */}
             {activeStepIndex === 2 && (
               <motion.div
                 key="step-kitchen"
@@ -315,39 +437,39 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                 className="flex flex-col justify-between h-full py-0.5 text-center"
               >
                 {/* Kitchen Status Box with increased text size */}
-                <div className="p-2 rounded-xl bg-orange-500/10 border border-orange-500/20 mb-1.5">
-                  <div className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 text-[10px] font-black uppercase tracking-wider">
-                    <ChefHat className="w-3.5 h-3.5 animate-bounce" />
+                <div className={`${isDesktop ? "p-3 mb-2 rounded-xl" : "p-2 mb-1.5 rounded-xl"} bg-orange-500/10 border border-orange-500/20`}>
+                  <div className={`inline-flex items-center gap-1.5 text-orange-600 dark:text-orange-400 ${isDesktop ? "text-xs" : "text-[10px]"} font-black uppercase tracking-wider`}>
+                    <ChefHat className={`${isDesktop ? "w-4 h-4" : "w-3.5 h-3.5"} animate-bounce`} />
                     <span>KITCHEN (KDS)</span>
                   </div>
-                  <div className="text-sm font-black text-foreground mt-0.5 tracking-tight">
+                  <div className={`${isDesktop ? "text-base mt-1" : "text-sm mt-0.5"} font-black text-foreground tracking-tight`}>
                     PREPARING ORDER
                   </div>
-                  <div className="text-[10px] font-mono font-bold text-orange-500 mt-0.5">
+                  <div className={`${isDesktop ? "text-xs mt-1" : "text-[10px] mt-0.5"} font-mono font-bold text-orange-500`}>
                     Ticket #108 • 04:12 Remaining
                   </div>
                 </div>
 
                 {/* Items being prepared with food images */}
-                <div className="space-y-1">
-                  <div className="text-[8px] font-bold text-muted-foreground uppercase text-left">
+                <div className={`${isDesktop ? "space-y-1.5" : "space-y-1"}`}>
+                  <div className={`${isDesktop ? "text-[10px]" : "text-[8px]"} font-bold text-muted-foreground uppercase text-left`}>
                     Live Cooking Station
                   </div>
-                  <div className="grid grid-cols-3 gap-1">
+                  <div className="grid grid-cols-3 gap-1.5">
                     {sampleFoodItems.map((item) => (
                       <div
                         key={item.name}
-                        className="p-1 rounded-md bg-neutral-50 dark:bg-neutral-800/60 border border-border/50 flex flex-col items-center text-center"
+                        className={`${isDesktop ? "p-1.5" : "p-1"} rounded-lg bg-neutral-50 dark:bg-neutral-800/60 border border-border/50 flex flex-col items-center text-center`}
                       >
                         <img
                           src={item.image}
                           alt={item.name}
-                          className="w-7 h-7 rounded object-cover mb-0.5 border border-border/40"
+                          className={`${isDesktop ? "w-9 h-9 mb-1" : "w-7 h-7 mb-0.5"} rounded object-cover border border-border/40`}
                         />
-                        <span className="text-[7.5px] font-bold text-foreground truncate w-full">
+                        <span className={`${isDesktop ? "text-[9px]" : "text-[7.5px]"} font-bold text-foreground truncate w-full`}>
                           {item.name}
                         </span>
-                        <span className="text-[7px] text-orange-500 font-semibold">
+                        <span className={`${isDesktop ? "text-[8px]" : "text-[7px]"} text-orange-500 font-semibold`}>
                           Cooking
                         </span>
                       </div>
@@ -356,8 +478,8 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                 </div>
 
                 {/* Animated Progress Bar */}
-                <div className="my-1">
-                  <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                <div className={`${isDesktop ? "my-2" : "my-1"}`}>
+                  <div className={`${isDesktop ? "h-2" : "h-1.5"} w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden`}>
                     <motion.div
                       initial={{ width: "20%" }}
                       animate={{ width: "85%" }}
@@ -365,7 +487,7 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                       className="h-full bg-orange-500 rounded-full"
                     />
                   </div>
-                  <div className="text-[8px] text-muted-foreground mt-0.5">
+                  <div className={`${isDesktop ? "text-[10px] mt-1" : "text-[8px] mt-0.5"} text-muted-foreground`}>
                     Station 1 • Cooking in progress
                   </div>
                 </div>
@@ -383,54 +505,54 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                 className="flex flex-col justify-between h-full py-0.5 text-center"
               >
                 {/* Tick Mark Animation with pulsing ring */}
-                <div className="relative flex items-center justify-center my-1.5">
+                <div className={`relative flex items-center justify-center ${isDesktop ? "my-2.5" : "my-1.5"}`}>
                   <motion.div
                     initial={{ scale: 0.8, opacity: 0.5 }}
                     animate={{ scale: [1, 1.3, 1], opacity: [0.6, 0, 0.6] }}
                     transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut" }}
-                    className="absolute w-12 h-12 rounded-full bg-emerald-500/30"
+                    className={`absolute ${isDesktop ? "w-16 h-16" : "w-12 h-12"} rounded-full bg-emerald-500/30`}
                   />
                   <motion.div
                     initial={{ scale: 0, rotate: -30 }}
                     animate={{ scale: 1, rotate: 0 }}
                     transition={{ type: "spring", damping: 12, stiffness: 220 }}
-                    className="relative w-10 h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center text-white shadow-md shadow-emerald-500/40"
+                    className={`relative ${isDesktop ? "w-12 h-12" : "w-10 h-10"} rounded-full bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center text-white shadow-md shadow-emerald-500/40`}
                   >
-                    <Check className="w-5 h-5 stroke-[3.5]" />
+                    <Check className={`${isDesktop ? "w-6 h-6 stroke-[3.5]" : "w-5 h-5 stroke-[3.5]"}`} />
                   </motion.div>
                 </div>
 
                 <div>
-                  <div className="text-xs font-black text-foreground">
+                  <div className={`${isDesktop ? "text-sm" : "text-xs"} font-black text-foreground`}>
                     Order Ready for Pickup!
                   </div>
-                  <div className="text-[8px] text-emerald-600 dark:text-emerald-400 font-bold mt-0.5">
+                  <div className={`${isDesktop ? "text-[10px]" : "text-[8px]"} text-emerald-600 dark:text-emerald-400 font-bold mt-0.5`}>
                     Dishes on hot plate
                   </div>
                 </div>
 
                 {/* Food items preview on hot plate */}
-                <div className="flex items-center justify-center gap-1.5 my-1">
+                <div className="flex items-center justify-center gap-2 my-1.5">
                   {sampleFoodItems.map((item) => (
                     <div
                       key={item.name}
-                      className="relative w-7 h-7 rounded-md overflow-hidden border border-emerald-500/30 shadow-xs"
+                      className={`relative ${isDesktop ? "w-9 h-9" : "w-7 h-7"} rounded-md overflow-hidden border border-emerald-500/30 shadow-xs`}
                     >
                       <img
                         src={item.image}
                         alt={item.name}
                         className="w-full h-full object-cover"
                       />
-                      <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[6px] font-black px-0.5 rounded-tl">
+                      <span className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[7px] font-black px-1 rounded-tl">
                         ✓
                       </span>
                     </div>
                   ))}
                 </div>
 
-                <div className="p-1.5 rounded-lg bg-card border border-border/50 flex items-center gap-1.5 text-left">
-                  <Bell className="w-3.5 h-3.5 text-[#0284C7] shrink-0 animate-pulse" />
-                  <div className="text-[8px] text-foreground leading-tight">
+                <div className={`${isDesktop ? "p-2 text-xs" : "p-1.5 text-[8px]"} rounded-lg bg-card border border-border/50 flex items-center gap-2 text-left`}>
+                  <Bell className={`${isDesktop ? "w-4 h-4" : "w-3.5 h-3.5"} text-[#0284C7] shrink-0 animate-pulse`} />
+                  <div className="text-foreground leading-tight">
                     <span className="font-bold">Waiter Captain Notified:</span> Pick up hot dishes for Table 08.
                   </div>
                 </div>
@@ -447,19 +569,19 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                 transition={{ duration: 0.25 }}
                 className="flex flex-col justify-center h-full text-center py-1 my-auto"
               >
-                <div className="w-10 h-10 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center mb-2 shadow-xs">
-                  <Utensils className="w-5 h-5" />
+                <div className={`${isDesktop ? "w-14 h-14 mb-3" : "w-10 h-10 mb-2"} rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center shadow-xs`}>
+                  <Utensils className={`${isDesktop ? "w-7 h-7" : "w-5 h-5"}`} />
                 </div>
 
-                <div className="text-xs font-black text-foreground mb-1">
+                <div className={`${isDesktop ? "text-base mb-1.5" : "text-xs mb-1"} font-black text-foreground`}>
                   Order Served!
                 </div>
 
-                <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 leading-tight mb-2 px-1">
+                <p className={`${isDesktop ? "text-xs mb-3 px-2" : "text-[10px] mb-2 px-1"} font-semibold text-emerald-600 dark:text-emerald-400 leading-tight`}>
                   &ldquo;Your food is served. Enjoy!&rdquo;
                 </p>
 
-                <div className="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-[8px] font-mono font-bold text-muted-foreground mx-auto">
+                <div className={`inline-flex items-center justify-center gap-1.5 ${isDesktop ? "px-3 py-1 text-[10px]" : "px-2 py-0.5 text-[8px]"} rounded-full bg-neutral-100 dark:bg-neutral-800 font-mono font-bold text-muted-foreground mx-auto`}>
                   Table 08 • ₹680 Paid
                 </div>
               </motion.div>
@@ -469,21 +591,21 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
         </div>
 
         {/* Bottom Micro Status Bar */}
-        <div className="pt-1 border-t border-border/50 shrink-0">
-          <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground uppercase">
+        <div className={`pt-1.5 border-t border-border/50 shrink-0`}>
+          <div className={`flex items-center justify-between ${isDesktop ? "text-[10px]" : "text-[8px]"} font-bold text-muted-foreground uppercase`}>
             <span>#DIO-108</span>
             <span className="font-mono font-bold text-primary">
               {orderStatusStates[activeStepIndex]}
             </span>
           </div>
-          <div className="grid grid-cols-5 gap-1 mt-1">
+          <div className="grid grid-cols-5 gap-1.5 mt-1.5">
             {orderStatusStates.map((sName, sIdx) => {
               const isCurrent = sIdx === activeStepIndex;
               const isPast = sIdx < activeStepIndex;
               return (
                 <div
                   key={sName}
-                  className={`h-1 rounded-full transition-colors duration-300 ${
+                  className={`${isDesktop ? "h-1.5" : "h-1"} rounded-full transition-colors duration-300 ${
                     isCurrent
                       ? buttonThemes[activeStepIndex].barColor
                       : isPast
@@ -557,30 +679,14 @@ const HeroSection: React.FC = () => {
         {/* ========================================================= */}
         <div className="hidden lg:grid lg:grid-cols-12 gap-10 lg:gap-8 items-center">
           
-          {/* LEFT COLUMN: Large Headline, Operational Pipeline, CTAs */}
+          {/* LEFT COLUMN: Continuous Animated Headline, Operational Pipeline, CTAs */}
           <div className="lg:col-span-7 flex flex-col justify-center text-left">
             
-            {/* Main Headline with Staggered Word Reveal (Size Increased) */}
-            <motion.h1
-              variants={containerVariants}
-              initial="hidden"
-              animate="visible"
-              className="text-4xl sm:text-5xl md:text-6xl lg:text-[3.5rem] xl:text-[4rem] font-black leading-[1.08] tracking-tight mb-6 text-foreground"
-            >
-              {heroWords.map((item, idx) => (
-                <motion.span
-                  key={idx}
-                  variants={wordVariants}
-                  className={`inline-block mr-[0.24em] ${
-                    item.highlight
-                      ? "gradient-text-coral drop-shadow-xs"
-                      : "text-foreground"
-                  }`}
-                >
-                  {item.text}
-                </motion.span>
-              ))}
-            </motion.h1>
+            {/* Main Headline with Advanced Continuous Lottie Motion */}
+            <ContinuousLottieHeadline
+              isDesktop={true}
+              shouldReduceMotion={shouldReduceMotion}
+            />
 
             {/* Continuous Operational Workflow Pipeline */}
             <div className="mb-6">
@@ -608,7 +714,7 @@ const HeroSection: React.FC = () => {
                 </button>
               </div>
 
-              {/* 5-Step Pipeline Steps Grid / Rail - Each button has unique active color */}
+              {/* 5-Step Pipeline Steps Grid with Smooth Traveling Highlight Animation */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-2.5">
                 {buttonThemes.map((item, idx) => {
                   const Icon = item.icon;
@@ -619,45 +725,55 @@ const HeroSection: React.FC = () => {
                     <button
                       key={item.id}
                       onClick={() => handleStepClick(idx)}
-                      className={`relative flex flex-col items-start p-3 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
+                      className={`relative flex flex-col items-start p-3 rounded-xl border text-left cursor-pointer overflow-hidden transition-colors ${
                         isActive
-                          ? `${item.activeColor} ring-1 ring-white/20`
+                          ? "border-transparent text-white"
                           : isCompleted
                           ? "bg-muted/40 border-border/80 hover:border-border text-foreground"
                           : "bg-card/40 border-border/40 hover:border-border text-muted-foreground"
                       }`}
                     >
-                      {/* Step Number + Icon */}
-                      <div className="flex items-center justify-between w-full mb-1.5">
-                        <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded ${
-                          isActive 
-                            ? "bg-white/20 text-white" 
-                            : isCompleted 
-                            ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400" 
-                            : "bg-muted text-muted-foreground"
-                        }`}>
-                          0{item.step}
-                        </span>
-                        <Icon className={`w-4 h-4 ${
-                          isActive 
-                            ? "text-white" 
-                            : isCompleted 
-                            ? "text-emerald-500" 
-                            : "text-muted-foreground"
-                        }`} />
-                      </div>
-
-                      <div className={`text-xs font-bold leading-tight ${isActive ? "text-white font-extrabold" : "text-foreground/90"}`}>
-                        {item.name}
-                      </div>
-
-                      {/* Active Indicator Bar Underneath */}
+                      {/* Smooth Spring Travel Animation From Button to Button */}
                       {isActive && (
-                        <motion.div 
-                          className={`absolute bottom-0 left-0 right-0 h-1 ${item.barColor} rounded-b-xl`}
-                          layoutId="activePipelineBarDesktop"
+                        <motion.div
+                          layoutId="desktopButtonTravelIndicator"
+                          className={`absolute inset-0 ${item.activeColor} rounded-xl z-0`}
+                          transition={{
+                            type: "spring",
+                            stiffness: 350,
+                            damping: 32,
+                            mass: 0.8,
+                          }}
                         />
                       )}
+
+                      {/* Button Foreground Content */}
+                      <div className="relative z-10 w-full">
+                        <div className="flex items-center justify-between w-full mb-1.5">
+                          <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded transition-colors ${
+                            isActive 
+                              ? "bg-white/20 text-white" 
+                              : isCompleted 
+                              ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400" 
+                              : "bg-muted text-muted-foreground"
+                          }`}>
+                            0{item.step}
+                          </span>
+                          <Icon className={`w-4 h-4 transition-colors ${
+                            isActive 
+                              ? "text-white" 
+                              : isCompleted 
+                              ? "text-emerald-500" 
+                              : "text-muted-foreground"
+                          }`} />
+                        </div>
+
+                        <div className={`text-xs font-bold leading-tight transition-colors ${
+                          isActive ? "text-white font-extrabold" : "text-foreground/90"
+                        }`}>
+                          {item.name}
+                        </div>
+                      </div>
                     </button>
                   );
                 })}
@@ -695,11 +811,12 @@ const HeroSection: React.FC = () => {
 
           </div>
 
-          {/* RIGHT COLUMN: Realistic Restaurant Mobile Phone (Same sizes and border as mobile view) */}
+          {/* RIGHT COLUMN: Realistic Restaurant Mobile Phone (Increased size only in desktop view!) */}
           <div className="lg:col-span-5 flex justify-center items-center">
             <HeroPhoneMockup
               activeStepIndex={activeStepIndex}
               shouldReduceMotion={shouldReduceMotion}
+              isDesktop={true}
             />
           </div>
 
@@ -710,29 +827,11 @@ const HeroSection: React.FC = () => {
         {/* 70% Animation area (iPhone) + 30% Workflow controls       */}
         {/* ========================================================= */}
         <div className="block lg:hidden w-full">
-          {/* Mobile Header: Staggered Word Headline (Size Increased) */}
-          <div className="flex flex-col items-start text-left mb-3">
-            <motion.h1
-              variants={containerVariants}
-              initial="hidden"
-              animate="visible"
-              className="text-3xl sm:text-4xl font-black leading-[1.12] tracking-tight mb-3 text-foreground"
-            >
-              {heroWords.map((item, idx) => (
-                <motion.span
-                  key={idx}
-                  variants={wordVariants}
-                  className={`inline-block mr-[0.2em] ${
-                    item.highlight
-                      ? "gradient-text-coral drop-shadow-xs"
-                      : "text-foreground"
-                  }`}
-                >
-                  {item.text}
-                </motion.span>
-              ))}
-            </motion.h1>
-          </div>
+          {/* Mobile Continuous Lottie-Style Animated Headline */}
+          <ContinuousLottieHeadline
+            isDesktop={false}
+            shouldReduceMotion={shouldReduceMotion}
+          />
 
           {/* ========================================================= */}
           {/* MOBILE 70/30 SPLIT WORKFLOW DEMO                          */}
@@ -746,11 +845,11 @@ const HeroSection: React.FC = () => {
               <HeroPhoneMockup
                 activeStepIndex={activeStepIndex}
                 shouldReduceMotion={shouldReduceMotion}
+                isDesktop={false}
               />
             </div>
 
-            {/* RIGHT SECTION (30%): 5 Vertically Stacked Visual Buttons */}
-            {/* Each button has its own unique activated color */}
+            {/* RIGHT SECTION (30%): 5 Vertically Stacked Visual Buttons with smooth travel animation */}
             <div 
               className="w-[32%] sm:w-[30%] flex flex-col justify-center gap-2 sm:gap-2.5 pointer-events-none select-none"
               aria-label="Workflow progress indicators"
@@ -762,19 +861,33 @@ const HeroSection: React.FC = () => {
                 return (
                   <div
                     key={btn.id}
-                    className={`relative px-2 py-2 sm:px-2.5 sm:py-2.5 rounded-xl border text-left transition-all duration-300 flex flex-col justify-center ${
+                    className={`relative px-2 py-2 sm:px-2.5 sm:py-2.5 rounded-xl border text-left transition-colors flex flex-col justify-center overflow-hidden ${
                       isActive
-                        ? `${btn.activeColor} scale-[1.03]`
+                        ? "border-transparent text-white"
                         : isCompleted
                         ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-medium"
                         : "bg-neutral-100/80 dark:bg-neutral-800/50 text-neutral-400 dark:text-neutral-500 border-neutral-200/50 dark:border-neutral-800/60"
                     }`}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <btn.icon className={`w-3 h-3 shrink-0 ${
+                    {/* Smooth Spring Travel Animation in Mobile Stack */}
+                    {isActive && (
+                      <motion.div
+                        layoutId="mobileButtonTravelIndicator"
+                        className={`absolute inset-0 ${btn.activeColor} rounded-xl z-0`}
+                        transition={{
+                          type: "spring",
+                          stiffness: 350,
+                          damping: 32,
+                          mass: 0.8,
+                        }}
+                      />
+                    )}
+
+                    <div className="relative z-10 flex items-center gap-1.5">
+                      <btn.icon className={`w-3 h-3 shrink-0 transition-colors ${
                         isActive ? "text-white" : isCompleted ? "text-emerald-500" : "text-neutral-400"
                       }`} />
-                      <span className={`text-[10px] sm:text-[11px] font-bold leading-tight truncate ${
+                      <span className={`text-[10px] sm:text-[11px] font-bold leading-tight truncate transition-colors ${
                         isActive ? "text-white font-extrabold" : ""
                       }`}>
                         {btn.mobileLabel}
@@ -783,7 +896,7 @@ const HeroSection: React.FC = () => {
 
                     {/* Glowing active indicator dot */}
                     {isActive && (
-                      <span className="absolute top-1.5 right-1.5 flex h-1.5 w-1.5">
+                      <span className="absolute top-1.5 right-1.5 flex h-1.5 w-1.5 z-10">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
                         <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
                       </span>
