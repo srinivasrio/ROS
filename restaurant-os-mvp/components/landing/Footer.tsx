@@ -2,16 +2,26 @@ const Footer = () => (
   <footer className="py-16 border-t border-border bg-background">
     <div className="max-w-6xl mx-auto px-4 md:px-6">
       <div className="mb-8 md:hidden">
-        <h3 className="text-xl font-bold mb-2 text-foreground">
-          Dine <span className="gradient-text-coral">in</span> One
-        </h3>
+        <div className="flex flex-col items-start leading-none mb-2">
+          <h3 className="text-xl font-bold text-foreground">
+            Dine <span className="gradient-text-coral">in</span> One
+          </h3>
+          <span className="text-[8px] font-black tracking-[0.28em] text-neutral-400 uppercase mt-0.5">
+            SMART POS
+          </span>
+        </div>
         <p className="text-xs text-muted-foreground font-medium">Unified restaurant management ecosystem built for Indian food businesses.</p>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-10 mb-12">
         <div className="hidden md:block">
-          <h3 className="text-xl font-bold mb-3 text-foreground">
-            Dine <span className="gradient-text-coral">in</span> One
-          </h3>
+          <div className="flex flex-col items-start leading-none mb-3">
+            <h3 className="text-xl font-bold text-foreground">
+              Dine <span className="gradient-text-coral">in</span> One
+            </h3>
+            <span className="text-[8px] font-black tracking-[0.28em] text-neutral-400 uppercase mt-0.5">
+              SMART POS
+            </span>
+          </div>
           <p className="text-xs text-muted-foreground font-medium leading-relaxed">
             Full-stack restaurant operating system powering QR self-ordering, kitchen KDS, delivery fleets, inventory, and automated GST billing.
           </p>
