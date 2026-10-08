@@ -3,14 +3,15 @@
 import { useState, useCallback, Suspense, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-    Eye, EyeOff, Loader2, ArrowRight, Lock, Mail, Building2, KeyRound
+    Eye, EyeOff, Loader2, ArrowRight, Lock, Mail, Building2, KeyRound, ShieldCheck
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { setDineToken } from '@/lib/supabase';
 import { resetSessionExpiryState } from '@/lib/session-manager';
-import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
 import { showWarningPopup } from '@/components/shared/WarningPopupCard';
+import { AuthBackground } from '@/components/auth/AuthBackground';
+import { DineInOneWaveLogo } from '@/components/auth/DineInOneWaveLogo';
 
 function AdminLoginInner() {
     const searchParams = useSearchParams();
@@ -123,46 +124,43 @@ function AdminLoginInner() {
     }, [identifier, password, pin, searchParams]);
 
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
-            {/* Ambient subtle pastel gradients */}
-            <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-teal-500/10 rounded-full blur-[140px] pointer-events-none" />
-            <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none" />
-
+        <AuthBackground className="min-h-screen py-10 px-4 flex flex-col justify-center items-center">
             <div className="max-w-md w-full relative z-10">
-                {/* Brand Header */}
+                {/* Dine In One Wave Animated Logo above card */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-center mb-8"
+                    className="text-center mb-6 flex flex-col items-center"
                 >
-                    <DineInOneLogo size={64} className="mx-auto mb-4" />
-                    <div>
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-700 text-xs font-bold uppercase tracking-wider mb-2">
-                            <Building2 size={12} />
-                            admin.dineinone.com
-                        </div>
+                    <DineInOneWaveLogo size="lg" />
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/80 border border-slate-200/80 text-teal-800 text-xs font-black uppercase tracking-wider shadow-xs backdrop-blur-md">
+                        <Building2 size={12} className="text-teal-600" />
+                        <span>Branch Admin Console</span>
                     </div>
-                    <h1 className="text-3xl font-black tracking-tight text-slate-900">
-                        Restaurant Admin Portal
-                    </h1>
-                    <p className="text-sm text-slate-500 mt-2">
-                        Enter your Mobile Number or Email, Password, and Security PIN to sign in.
-                    </p>
                 </motion.div>
 
-                {/* Login Card */}
+                {/* Pure Crisp White Login Card */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 }}
-                    className="bg-white border border-slate-200/80 rounded-3xl p-8 shadow-xl shadow-slate-200/50"
+                    className="bg-white border border-slate-100 rounded-3xl p-7 sm:p-8 shadow-2xl relative overflow-hidden"
                 >
+                    <div className="mb-6">
+                        <h2 className="text-2xl font-black tracking-tight text-slate-900">
+                            Admin Sign In
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-1">
+                            Sign in with your admin mobile/email, password, and security PIN.
+                        </p>
+                    </div>
+
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Mobile Number or Email */}
                         <div>
                             <label
                                 htmlFor="admin-email-input"
-                                className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5"
+                                className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5"
                             >
                                 Mobile Number or Email *
                             </label>
@@ -178,7 +176,7 @@ function AdminLoginInner() {
                                     placeholder="e.g. 9876543210 or admin@restaurant.com"
                                     value={identifier}
                                     onChange={(e) => setIdentifier(e.target.value)}
-                                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium"
+                                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 placeholder:text-slate-400 text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium"
                                 />
                             </div>
                         </div>
@@ -187,7 +185,7 @@ function AdminLoginInner() {
                         <div>
                             <label
                                 htmlFor="admin-password-input"
-                                className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5"
+                                className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5"
                             >
                                 Password *
                             </label>
@@ -203,7 +201,7 @@ function AdminLoginInner() {
                                     placeholder="Enter your password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full pl-11 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium"
+                                    className="w-full pl-11 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 placeholder:text-slate-400 text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-medium"
                                 />
                                 <button
                                     type="button"
@@ -219,7 +217,7 @@ function AdminLoginInner() {
                         <div>
                             <label
                                 htmlFor="admin-pin-input"
-                                className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5"
+                                className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5"
                             >
                                 Security PIN (4-6 digits) *
                             </label>
@@ -235,7 +233,7 @@ function AdminLoginInner() {
                                     placeholder="•••• (4-6 digit PIN)"
                                     value={pin}
                                     onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
-                                    className="w-full pl-11 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-mono tracking-widest"
+                                    className="w-full pl-11 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 placeholder:text-slate-400 text-sm focus:outline-none focus:bg-white focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all font-mono tracking-widest"
                                 />
                                 <button
                                     type="button"
@@ -245,9 +243,6 @@ function AdminLoginInner() {
                                     {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
                                 </button>
                             </div>
-                            <p className="text-[11px] text-slate-400 mt-1">
-                                Set by the owner when provisioning or editing your administrator profile.
-                            </p>
                         </div>
 
                         {/* Submit Button */}
@@ -255,7 +250,7 @@ function AdminLoginInner() {
                             id="admin-login-submit-btn"
                             type="submit"
                             disabled={loading}
-                            className="w-full py-3.5 px-4 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-teal-600/20 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+                            className="w-full py-3.5 px-4 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-black rounded-2xl shadow-lg shadow-teal-600/25 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                         >
                             {loading ? (
                                 <>
@@ -272,14 +267,15 @@ function AdminLoginInner() {
                     </form>
 
                     {/* Security notice footer */}
-                    <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-                        <p className="text-xs text-slate-400 font-medium">
-                            Strict tenant isolation active. Unauthorized administrative access attempts are audited and logged.
+                    <div className="mt-6 pt-5 border-t border-slate-100 text-center">
+                        <p className="text-[11px] text-slate-400 font-medium flex items-center justify-center gap-1.5">
+                            <ShieldCheck size={13} className="text-emerald-500" />
+                            Tenant isolated administrative session
                         </p>
                     </div>
                 </motion.div>
             </div>
-        </div>
+        </AuthBackground>
     );
 }
 

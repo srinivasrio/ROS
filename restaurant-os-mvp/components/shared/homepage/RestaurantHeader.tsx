@@ -86,15 +86,20 @@ export default function RestaurantHeader({
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {tableNumber && (
             <div 
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black text-emerald-800"
-              style={isCustomer ? {
-                backgroundColor: '#EEF2F6',
-                boxShadow: 'inset 2px 2px 4px rgba(166, 180, 200, 0.35), inset -2px -2px 4px rgba(255, 255, 255, 0.9)',
-                border: '1px solid rgba(255, 255, 255, 0.8)'
-              } : undefined}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-black transition-all"
+              style={{
+                background: 'linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%)',
+                boxShadow: '0 0 18px rgba(249, 115, 22, 0.45), 0 2px 8px rgba(249, 115, 22, 0.25)',
+                border: '1.5px solid #FB923C',
+              }}
             >
-              <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>{tableNumber.toLowerCase().startsWith('table') ? tableNumber : `Table ${tableNumber}`}</span>
+              <span className="relative flex size-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+                <span className="relative inline-flex rounded-full size-2.5 bg-orange-600" />
+              </span>
+              <span className="font-extrabold text-orange-950 tracking-tight">
+                {tableNumber.toLowerCase().startsWith('table') ? tableNumber : `Table ${tableNumber}`}
+              </span>
             </div>
           )}
 
