@@ -11,6 +11,14 @@ export function getPhoneEmailClientId(): string {
     ).trim();
 }
 
+export function getPhoneEmailApiKey(): string {
+    return (
+        process.env.PHONE_EMAIL_API_KEY ||
+        process.env.NEXT_PUBLIC_PHONE_EMAIL_API_KEY ||
+        ''
+    ).trim();
+}
+
 export function isPhoneEmailConfigured(): boolean {
     return !!getPhoneEmailClientId();
 }
@@ -41,12 +49,19 @@ export async function verifyPhoneEmailPayload(userJsonUrl: string): Promise<{
             };
         }
 
+        const apiKey = getPhoneEmailApiKey();
+        const headers: Record<string, string> = {
+            Accept: 'application/json',
+            'User-Agent': 'Restaurant-OS-Verification/1.0',
+        };
+        if (apiKey) {
+            headers['x-api-key'] = apiKey;
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
         const res = await fetch(trimmedUrl, {
             method: 'GET',
-            headers: {
-                Accept: 'application/json',
-                'User-Agent': 'Restaurant-OS-Verification/1.0',
-            },
+            headers,
             cache: 'no-store',
         });
 
