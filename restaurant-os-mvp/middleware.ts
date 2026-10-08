@@ -264,7 +264,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // 0c. Root path on subdomains: route unauthenticated to login, or authenticated to panel dashboard
-    if (subdomain && path === '/') {
+    if (subdomain && (path === '/' || (subdomain === 'kds' && (path === '/kds' || path === '/kds/')))) {
         if (!token || !user) {
             return NextResponse.redirect(new URL('/login', request.url));
         }
@@ -280,6 +280,9 @@ export async function middleware(request: NextRequest) {
         } else if (subdomain === 'waiter') {
             return NextResponse.redirect(new URL(`/${user.restaurantId}/waiter/${cleanMobile}/dashboard`, request.url));
         } else if (subdomain === 'kds') {
+            if (!user.restaurantId) {
+                return NextResponse.redirect(new URL('/access-denied?reason=missing_restaurant', request.url));
+            }
             return NextResponse.redirect(new URL(`/${user.restaurantId}/kds`, request.url));
         } else if (subdomain === 'delivery') {
             return NextResponse.redirect(new URL(`/${user.restaurantId}/delivery/${dbId}/dashboard`, request.url));
