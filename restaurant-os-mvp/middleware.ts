@@ -96,6 +96,7 @@ export async function middleware(request: NextRequest) {
         const targetUrl = new URL(request.url);
         if (hostWithoutPort.endsWith('dineinone.com')) {
             targetUrl.host = 'dineinone.com';
+            targetUrl.port = '';
         } else {
             targetUrl.host = hostWithoutPort.replace(new RegExp(`^${subdomain}\\.`), '');
             if (request.nextUrl.port) targetUrl.port = request.nextUrl.port;
