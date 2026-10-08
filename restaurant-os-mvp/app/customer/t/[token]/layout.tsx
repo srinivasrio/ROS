@@ -35,6 +35,7 @@ export default function CustomerTokenLayout({
 
     const [status, setStatus] = useState<'validating' | 'valid' | 'invalid'>('validating');
     const [sessionInfo, setSessionInfo] = useState<TableSessionInfo | null>(null);
+    const [isCustomerVerified, setIsCustomerVerified] = useState<boolean | null>(null);
 
     useEffect(() => {
         if (!token) {
@@ -59,14 +60,24 @@ export default function CustomerTokenLayout({
 
                 const data = await res.json();
                 if (data.valid && data.table && isMounted) {
+                    const targetRes = data.restaurant.slug || data.restaurant.id;
                     setSessionInfo({
                         table_token: data.table.table_token,
                         table_number: data.table.table_number,
                         table_id: data.table.table_id,
                         restaurant_id: data.restaurant.id,
-                        restaurant_slug: data.restaurant.slug || data.restaurant.id,
+                        restaurant_slug: targetRes,
                         restaurant_name: data.restaurant.name,
                     });
+                    
+                    try {
+                        const hasMobile = localStorage.getItem(`ros_customer_mobile_${targetRes}`);
+                        const verified = localStorage.getItem(`ros_customer_verified_${targetRes}`);
+                        setIsCustomerVerified(Boolean(hasMobile && verified));
+                    } catch {
+                        setIsCustomerVerified(true);
+                    }
+
                     setStatus('valid');
                 } else if (isMounted) {
                     setStatus('invalid');
@@ -133,20 +144,6 @@ export default function CustomerTokenLayout({
                           pathname.includes('/service') || 
                           pathname.includes('/myorders') || 
                           pathname.includes('/profile');
-
-    const [isCustomerVerified, setIsCustomerVerified] = useState<boolean | null>(null);
-
-    useEffect(() => {
-        if (!sessionInfo) return;
-        const targetRes = restaurant_slug || restaurant_id;
-        try {
-            const hasMobile = localStorage.getItem(`ros_customer_mobile_${targetRes}`);
-            const verified = localStorage.getItem(`ros_customer_verified_${targetRes}`);
-            setIsCustomerVerified(Boolean(hasMobile && verified));
-        } catch {
-            setIsCustomerVerified(true);
-        }
-    }, [sessionInfo, restaurant_slug, restaurant_id]);
 
     if (isCustomerVerified === false) {
         return (
