@@ -1768,11 +1768,15 @@ export default function TableManagement() {
                                     <QRCode
                                         id="table-qr-code-svg"
                                         value={(() => {
-                                            const tableId = selectedQrTable.is_group ? selectedQrTable.display_name : (selectedQrTable.table_number || selectedQrTable.id);
-                                            if (typeof window === 'undefined') return `/${restaurantId}/customer/table/${encodeURIComponent(tableId)}`;
-                                            const host = window.location.host;
-                                            const protocol = window.location.protocol;
+                                            const host = typeof window !== 'undefined' ? window.location.host : '';
+                                            const protocol = typeof window !== 'undefined' ? window.location.protocol : 'https:';
                                             const cleanHost = host.replace(/^(admin|waiter|kds|delivery|employee|owner|superadmin)\./i, '');
+                                            
+                                            if (selectedQrTable.table_token) {
+                                                return `${protocol}//${cleanHost}/customer/t/${selectedQrTable.table_token}/home`;
+                                            }
+
+                                            const tableId = selectedQrTable.is_group ? selectedQrTable.display_name : (selectedQrTable.table_number || selectedQrTable.id);
                                             return `${protocol}//${cleanHost}/${restaurantId}/customer/table/${encodeURIComponent(tableId)}`;
                                         })()}
                                         size={200}

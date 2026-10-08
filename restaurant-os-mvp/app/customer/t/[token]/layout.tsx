@@ -12,6 +12,7 @@ import { PersistentMenu } from '@/components/customer/PersistentMenu';
 import { PersistentService } from '@/components/customer/PersistentService';
 import { PersistentOrders } from '@/components/customer/PersistentOrders';
 import { PersistentProfile } from '@/components/customer/PersistentProfile';
+import CustomerMobileEntry from '@/components/customer/CustomerMobileEntry';
 
 interface TableSessionInfo {
     table_token: string;
@@ -132,6 +133,29 @@ export default function CustomerTokenLayout({
                           pathname.includes('/service') || 
                           pathname.includes('/myorders') || 
                           pathname.includes('/profile');
+
+    const [isCustomerVerified, setIsCustomerVerified] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        if (!sessionInfo) return;
+        const targetRes = restaurant_slug || restaurant_id;
+        try {
+            const hasMobile = localStorage.getItem(`ros_customer_mobile_${targetRes}`);
+            const verified = localStorage.getItem(`ros_customer_verified_${targetRes}`);
+            setIsCustomerVerified(Boolean(hasMobile && verified));
+        } catch {
+            setIsCustomerVerified(true);
+        }
+    }, [sessionInfo, restaurant_slug, restaurant_id]);
+
+    if (isCustomerVerified === false) {
+        return (
+            <CustomerMobileEntry
+                restaurantCode={restaurant_slug || restaurant_id}
+                initialTable={token}
+            />
+        );
+    }
 
     return (
         <CartProvider>

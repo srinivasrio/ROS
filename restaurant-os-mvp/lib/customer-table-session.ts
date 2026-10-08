@@ -152,3 +152,40 @@ export function setCustomerTableSessionCookie(
         maxAge: 86400, // 24 hours
     });
 }
+
+/**
+ * Resolves a table's cryptographic token from restaurantCode and tableNumber
+ */
+export async function getTableTokenByNumber(
+    restaurantCode: string,
+    tableNumber: string
+): Promise<string | null> {
+    if (!restaurantCode || !tableNumber) return null;
+    const cleanNum = String(tableNumber).trim();
+
+    try {
+        // Resolve restaurant_id
+        let resId = restaurantCode;
+        const { data: profile } = await supabaseAdmin
+            .from('restaurant_profile')
+            .select('restaurant_id')
+            .or(`restaurant_id.eq.${restaurantCode},slug.eq.${restaurantCode}`)
+            .maybeSingle();
+
+        if (profile?.restaurant_id) {
+            resId = profile.restaurant_id;
+        }
+
+        const { data: tableData } = await supabaseAdmin
+            .from('tables')
+            .select('table_token')
+            .eq('restaurant_id', resId)
+            .eq('table_number', cleanNum)
+            .maybeSingle();
+
+        return tableData?.table_token || null;
+    } catch (err) {
+        console.error('[getTableTokenByNumber] Error:', err);
+        return null;
+    }
+}
