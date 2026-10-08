@@ -12,6 +12,9 @@ import { toast } from 'sonner';
 import { HomepageBuilderService } from '@/services/homepage-builder.service';
 import { CustomerCache } from '@/services/homepage-cache.service';
 import { formatAddress } from '@/lib/utils';
+import { isFirebaseConfigured } from '@/lib/firebase';
+import { initRecaptchaVerifier, sendFirebaseOtp, verifyFirebaseOtp } from '@/lib/firebase-otp';
+import type { ConfirmationResult } from 'firebase/auth';
 
 interface CustomerMobileEntryProps {
     restaurantCode: string;
@@ -58,6 +61,8 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
     const [devOtp, setDevOtp] = useState<string | null>(null);
     const [resendCooldown, setResendCooldown] = useState(0);
     const [maskedPhone, setMaskedPhone] = useState('');
+    const confirmationResultRef = useRef<ConfirmationResult | null>(null);
+    const recaptchaContainerId = 'customer-firebase-recaptcha';
 
     // Restaurant Profile
     const [profile, setProfile] = useState<RestaurantProfile | null>(null);
@@ -172,6 +177,32 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
         try {
             setSubmitting(true);
 
+            // Primary: Firebase Authentication Phone OTP
+            if (isFirebaseConfigured()) {
+                const verifier = initRecaptchaVerifier(recaptchaContainerId);
+                if (!verifier) {
+                    throw new Error('Security check could not be initialized. Please refresh the page.');
+                }
+
+                const fbRes = await sendFirebaseOtp(cleanMobile, verifier);
+                if (!fbRes.success || !fbRes.confirmationResult) {
+                    setServerError(fbRes.error || 'Failed to dispatch SMS code via Firebase.');
+                    setSubmitting(false);
+                    return;
+                }
+
+                confirmationResultRef.current = fbRes.confirmationResult;
+                setMaskedPhone(`+91 ******${cleanMobile.slice(-4)}`);
+                setResendCooldown(60);
+                setDevOtp(null);
+                setStep('otp');
+                setOtp('');
+                setSubmitting(false);
+                toast.success('Firebase SMS verification code sent!');
+                return;
+            }
+
+            // Fallback (when Firebase keys are pending in environment)
             const res = await fetch('/api/customer/auth/send-otp', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -205,7 +236,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             }
         } catch (err: any) {
             console.error('[handleSendOtp Error]', err);
-            setServerError('Network error. Please check your connection and try again.');
+            setServerError(err.message || 'Network error. Please check your connection and try again.');
             setSubmitting(false);
         }
     };
@@ -233,6 +264,19 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
         try {
             setSubmitting(true);
 
+            let idToken: string | undefined = undefined;
+
+            // If Firebase confirmation result is active, verify through Firebase Auth
+            if (confirmationResultRef.current) {
+                const fbVerify = await verifyFirebaseOtp(confirmationResultRef.current, cleanOtp);
+                if (!fbVerify.success) {
+                    setServerError(fbVerify.error || 'Incorrect verification code. Please check and try again.');
+                    setSubmitting(false);
+                    return;
+                }
+                idToken = fbVerify.idToken;
+            }
+
             const verifyRes = await fetch('/api/customer/auth/verify-otp', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -240,6 +284,8 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                     restaurantCode,
                     mobile: cleanMobile,
                     otp: cleanOtp,
+                    idToken,
+                    firebaseVerified: !!idToken,
                     name: name.trim(),
                     dob: dob.trim(),
                 }),
@@ -610,6 +656,9 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         </div>
                                     )}
 
+                                    {/* Invisible Firebase reCAPTCHA Container */}
+                                    <div id={recaptchaContainerId} />
+
                                     {/* Submit Button */}
                                     <button
                                         type="submit"
@@ -687,7 +736,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                     </button>
                                 </div>
 
-                                {/* Dev Mode OTP helper badge if MSG91 keys pending */}
+                                {/* Dev Mode OTP helper badge if SMS keys pending */}
                                 {devOtp && (
                                     <div
                                         onClick={() => setOtp(devOtp)}
@@ -804,7 +853,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                     {/* Trust footer info */}
                     <div className="mt-5 pt-4 border-t border-slate-200/60 text-center">
                         <p className="text-[11px] text-slate-400 font-medium">
-                            🔒 Verified via MSG91 SMS gateway. Your details are safe & confidential.
+                            🔒 Verified via secure Firebase SMS. Your details are safe & confidential.
                         </p>
                     </div>
                 </motion.div>

@@ -430,7 +430,7 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                                     </span>
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black text-orange-600 bg-orange-100/70 border border-orange-200/60">
                                         <Sparkles size={10} />
-                                        MSG91 Verified
+                                        Phone Verified
                                     </span>
                                 </div>
                             </div>

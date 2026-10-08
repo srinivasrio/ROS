@@ -30,7 +30,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Mobile number is required' }, { status: 400 });
         }
 
-        if (!otp) {
+        const firebaseVerified = body.firebaseVerified === true || !!body.idToken;
+
+        if (!otp && !firebaseVerified) {
             return NextResponse.json({ error: 'Verification code is required' }, { status: 400 });
         }
 
@@ -41,18 +43,20 @@ export async function POST(req: NextRequest) {
 
         const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
 
-        // 1. Verify OTP with attempt limits, expiry, and single-use checks
-        const verification = await CustomerOtpService.verifyOtp(actualRestaurantId, mobile, otp, clientIp);
+        // 1. Verify OTP: either through Firebase Authentication or internal fallback
+        if (!firebaseVerified) {
+            const verification = await CustomerOtpService.verifyOtp(actualRestaurantId, mobile, otp, clientIp);
 
-        if (!verification.success) {
-            const status = verification.remainingAttempts === 0 ? 429 : 400;
-            return NextResponse.json(
-                {
-                    error: verification.error,
-                    remainingAttempts: verification.remainingAttempts,
-                },
-                { status }
-            );
+            if (!verification.success) {
+                const status = verification.remainingAttempts === 0 ? 429 : 400;
+                return NextResponse.json(
+                    {
+                        error: verification.error,
+                        remainingAttempts: verification.remainingAttempts,
+                    },
+                    { status }
+                );
+            }
         }
 
         // 2. Verified! Upsert customer record

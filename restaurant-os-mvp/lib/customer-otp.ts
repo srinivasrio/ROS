@@ -61,63 +61,7 @@ export function verifyCustomerOtpHash(
     }
 }
 
-/**
- * Dispatch OTP via MSG91 SMS Service
- * Uses MSG91_AUTH_KEY and MSG91_TEMPLATE_ID environment variables.
- * Gracefully handles unconfigured keys by returning devMode: true for development/testing.
- */
-export async function sendMsg91Otp(
-    phone: string,
-    otp: string
-): Promise<{ success: boolean; error?: string; devMode?: boolean }> {
-    const cleanPhone = sanitizePhone(phone);
-    const authKey = process.env.MSG91_AUTH_KEY?.trim();
-    const templateId = (process.env.MSG91_TEMPLATE_ID || process.env.MSG91_OTP_TEMPLATE_ID)?.trim();
 
-    if (!authKey || !templateId) {
-        console.warn(
-            `[MSG91 OTP Service] Keys not configured yet. (Set MSG91_AUTH_KEY and MSG91_TEMPLATE_ID in environment). Generated verification code for +91 ${cleanPhone}: ${otp}`
-        );
-        return { success: true, devMode: true };
-    }
-
-    try {
-        const fullPhone = `91${cleanPhone}`;
-        const url = `https://control.msg91.com/api/v5/otp?template_id=${encodeURIComponent(templateId)}&mobile=${encodeURIComponent(fullPhone)}&authkey=${encodeURIComponent(authKey)}&otp=${encodeURIComponent(otp)}`;
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                authkey: authKey,
-            },
-            body: JSON.stringify({
-                template_id: templateId,
-                mobile: fullPhone,
-                otp: otp,
-            }),
-        });
-
-        const data = await response.json().catch(() => null);
-
-        if (!response.ok || (data && data.type === 'error')) {
-            console.error('[MSG91 Error]', data || response.statusText);
-            return {
-                success: false,
-                error: data?.message || 'Failed to dispatch SMS verification code via MSG91',
-            };
-        }
-
-        console.log(`[MSG91 Success] OTP dispatched successfully to +91 ${cleanPhone}`);
-        return { success: true };
-    } catch (err: any) {
-        console.error('[MSG91 Uncaught Exception]', err);
-        return {
-            success: false,
-            error: err.message || 'Error communicating with MSG91 gateway',
-        };
-    }
-}
 
 export interface SendCustomerOtpResult {
     success: boolean;
@@ -226,17 +170,10 @@ export const CustomerOtpService = {
             return { success: false, error: 'Failed to initiate OTP verification' };
         }
 
-        // 6. Dispatch SMS via MSG91
-        const smsResult = await sendMsg91Otp(cleanPhone, rawOtp);
-        if (!smsResult.success && !smsResult.devMode) {
-            return {
-                success: false,
-                error: smsResult.error || 'Failed to dispatch SMS verification code via MSG91',
-            };
-        }
+        // Log verification code generation for development and diagnostics
+        console.log(`[CustomerOtpService] Generated verification code for +91 ${cleanPhone}: ${rawOtp}`);
 
-        // In test/dev environment or when MSG91 keys are pending, safely expose devOtp for immediate testing
-        const devOtp = (isExplicitDev || smsResult.devMode) ? rawOtp : undefined;
+        const devOtp = isExplicitDev ? rawOtp : undefined;
 
         return {
             success: true,
