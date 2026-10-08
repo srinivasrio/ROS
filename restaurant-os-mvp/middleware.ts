@@ -87,6 +87,29 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL(superAdminUrl));
     }
 
+    const isCustomerRoute = path.includes('/customer') || path.startsWith('/api/customer/');
+
+    // Operational Subdomain Isolation for Customer Dining:
+    // If a customer scans a table QR code printed with a staff subdomain (e.g. admin.dineinone.com/202609089153/customer/table/1),
+    // immediately redirect them to the apex customer domain (dineinone.com) so staff auth checks are never triggered.
+    if (subdomain && subdomain !== 'customer' && isCustomerRoute) {
+        const targetUrl = new URL(request.url);
+        if (hostWithoutPort.endsWith('dineinone.com')) {
+            targetUrl.host = 'dineinone.com';
+        } else {
+            targetUrl.host = hostWithoutPort.replace(new RegExp(`^${subdomain}\\.`), '');
+            if (request.nextUrl.port) targetUrl.port = request.nextUrl.port;
+        }
+        return NextResponse.redirect(targetUrl);
+    }
+
+    // Customer Subdomain Root: Route directly to customer dining portal
+    if (subdomain === 'customer' && path === '/') {
+        const url = request.nextUrl.clone();
+        url.pathname = '/customer';
+        return NextResponse.rewrite(url);
+    }
+
     // 0a. Rewrite subdomain /login to dedicated panel login page
     // e.g. admin.dineinone.com/login -> /login/admin
     // waiter.dineinone.com/login -> /login/waiter
@@ -264,7 +287,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // 0c. Root path on subdomains: route unauthenticated to login, or authenticated to panel dashboard
-    if (subdomain && (path === '/' || (subdomain === 'kds' && (path === '/kds' || path === '/kds/')))) {
+    if (subdomain && subdomain !== 'customer' && (path === '/' || (subdomain === 'kds' && (path === '/kds' || path === '/kds/')))) {
         if (!token || !user) {
             return NextResponse.redirect(new URL('/login', request.url));
         }
@@ -398,6 +421,14 @@ export async function middleware(request: NextRequest) {
             // a fresh session.
             if (path.startsWith('/api/auth/')) {
                 return NextResponse.next();
+            }
+
+            // Public Customer Dining Exception:
+            // Stale or expired staff/test tokens must NEVER block customer orders or redirect diners to staff login.
+            if (isCustomerRoute) {
+                const response = NextResponse.next();
+                clearAllAuthCookies(response, request.cookies, targetRestaurantCode || segments[0]);
+                return response;
             }
 
             const restCode = targetRestaurantCode || segments[0];
