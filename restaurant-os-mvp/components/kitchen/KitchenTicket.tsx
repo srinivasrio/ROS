@@ -51,20 +51,29 @@ export default function KitchenTicket({
 
     // Timer Logic
     useEffect(() => {
-        let timeStr = order.created_at;
+        let timeStr = order?.created_at || '';
         if (timeStr && !timeStr.endsWith('Z') && !timeStr.includes('+')) {
             timeStr += 'Z';
         }
 
-        const dateObj = new Date(timeStr);
-        setCreatedTimeStr(dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        const dateObj = timeStr ? new Date(timeStr) : new Date();
+        const validDate = isNaN(dateObj.getTime()) ? new Date() : dateObj;
+        try {
+            setCreatedTimeStr(validDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        } catch {
+            setCreatedTimeStr('--:--');
+        }
 
         const updateTimer = () => {
-            setElapsedStr(formatTimeElapsed(order.created_at));
+            try {
+                setElapsedStr(formatTimeElapsed(order?.created_at || ''));
+            } catch {
+                setElapsedStr('--:--');
+            }
 
             // Mark as 'late' if placed > 15 mins ago and not yet served
-            const diff = Date.now() - dateObj.getTime();
-            const orderStatusNorm = normalizeStatus(order.status);
+            const diff = Date.now() - validDate.getTime();
+            const orderStatusNorm = normalizeStatus(order?.status);
             if (diff >= 900000 && orderStatusNorm !== 'served' && orderStatusNorm !== 'cancelled') {
                 setIsLate(true);
             } else {
@@ -75,9 +84,9 @@ export default function KitchenTicket({
         updateTimer();
         const interval = setInterval(updateTimer, 1000);
         return () => clearInterval(interval);
-    }, [order.created_at, order.status]);
+    }, [order?.created_at, order?.status]);
 
-    const orderNormStatus = normalizeStatus(order.status);
+    const orderNormStatus = normalizeStatus(order?.status);
 
     // Status visual top stripes & card accents (100% Light Theme)
     const statusTopBar: Record<string, string> = {
@@ -123,17 +132,20 @@ export default function KitchenTicket({
         }));
     };
 
-    const activeItems = (order.items?.filter(item => item.status !== 'cancelled') || []);
+    const activeItems = (order?.items || []).filter(item => item && item.status !== 'cancelled');
 
-    const hasAnyPlacedItem = activeItems.some(i => normalizeStatus(i.status || order.status) === 'placed');
-    const hasAnyPreparingItem = activeItems.some(i => normalizeStatus(i.status || order.status) === 'preparing');
-    const areAllItemsReady = activeItems.length > 0 && activeItems.every(i => normalizeStatus(i.status || order.status) === 'ready');
-    const areAllItemsServed = activeItems.length > 0 && activeItems.every(i => normalizeStatus(i.status || order.status) === 'served');
+    const hasAnyPlacedItem = activeItems.some(i => normalizeStatus(i?.status || order?.status) === 'placed');
+    const hasAnyPreparingItem = activeItems.some(i => normalizeStatus(i?.status || order?.status) === 'preparing');
+    const areAllItemsReady = activeItems.length > 0 && activeItems.every(i => normalizeStatus(i?.status || order?.status) === 'ready');
+    const areAllItemsServed = activeItems.length > 0 && activeItems.every(i => normalizeStatus(i?.status || order?.status) === 'served');
 
     const showCookAll = orderNormStatus === 'placed' || hasAnyPlacedItem;
     const showMarkAllReady = !showCookAll && (orderNormStatus === 'preparing' || hasAnyPreparingItem);
     const showReadyBanner = !showCookAll && !showMarkAllReady && (orderNormStatus === 'ready' || areAllItemsReady);
     const showServedBanner = !showCookAll && !showMarkAllReady && !showReadyBanner && (orderNormStatus === 'served' || areAllItemsServed);
+
+    const orderIdStr = String(order?.id || '');
+    const displayOrderNum = order?.order_number ? String(order.order_number) : (orderIdStr.slice(0, 5) || '—');
 
     return (
         <div 
@@ -148,24 +160,24 @@ export default function KitchenTicket({
             <div className="px-2.5 py-1.5 flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70">
                 <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
                     <span className="px-1.5 py-0.5 rounded-md bg-slate-900 text-white text-[10px] font-mono font-black tracking-tight shadow-2xs shrink-0">
-                        #{order.order_number || order.id.slice(0, 5)}
+                        #{displayOrderNum}
                     </span>
 
-                    {order.order_type === 'TAKEAWAY' ? (
+                    {order?.order_type === 'TAKEAWAY' ? (
                         <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-200 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0">
                             🛍️ Takeaway
                         </span>
-                    ) : order.order_type === 'DELIVERY' ? (
+                    ) : order?.order_type === 'DELIVERY' ? (
                         <span className="px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-900 border border-blue-200 text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0">
                             🛵 Delivery
                         </span>
                     ) : (
                         <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-950 border border-indigo-200/80 text-[10px] font-black tracking-tight uppercase shadow-2xs shrink-0">
-                            Table {order.table_number || order.table_id || '—'}
+                            Table {order?.table_number || order?.table_id || '—'}
                         </span>
                     )}
 
-                    {order.waiter_name && (
+                    {order?.waiter_name && (
                         <span className="text-[9px] font-bold text-violet-800 bg-violet-50 border border-violet-200/80 px-1.5 py-0.5 rounded-md flex items-center gap-1.5 shrink-0">
                             {order.waiter_avatar ? (
                                 <img
@@ -209,25 +221,26 @@ export default function KitchenTicket({
             <div className="flex flex-col divide-y divide-slate-100 bg-white">
                 {activeItems.map((item, idx) => {
                     const itemAny = item as any;
-                    const menuItemObj = Array.isArray(itemAny.menu_items) ? itemAny.menu_items[0] : itemAny.menu_items;
-                    const isGenericName = !item.name || item.name.startsWith('Item #') || item.name === 'Unknown Item';
+                    const menuItemObj = Array.isArray(itemAny?.menu_items) ? itemAny.menu_items[0] : itemAny?.menu_items;
+                    const rawName = typeof item?.name === 'string' ? item.name : '';
+                    const isGenericName = !rawName || rawName.startsWith('Item #') || rawName === 'Unknown Item';
                     const itemName = !isGenericName 
-                        ? item.name 
-                        : (item.combo_name || menuItemObj?.name || itemAny.item_name || item.name || `Item #${itemAny.menu_item_id || item.id}`);
+                        ? rawName 
+                        : String(item?.combo_name || menuItemObj?.name || itemAny?.item_name || rawName || `Item #${itemAny?.menu_item_id || item?.id || idx + 1}`);
 
                     const isCombo = isComboItem(item);
-                    const subItems = isCombo ? parseComboSubItems(item) : [];
-                    const isItemLoading = itemLoadingId === item.id;
+                    const subItems = isCombo ? (Array.isArray(parseComboSubItems(item)) ? parseComboSubItems(item) : []) : [];
+                    const isItemLoading = itemLoadingId === item?.id;
 
                     // Robust item status determination
-                    const itemStatusNorm = normalizeStatus(item.status || order.status);
+                    const itemStatusNorm = normalizeStatus(item?.status || order?.status);
                     const isPlaced = itemStatusNorm === 'placed';
                     const isPreparing = itemStatusNorm === 'preparing';
                     const isReady = itemStatusNorm === 'ready';
                     const isServed = itemStatusNorm === 'served';
 
                     // 100% Reliable Image URL resolution with local category fallback
-                    const itemImgSrc = item.image_url || item.combo_image || menuItemObj?.image_url || getCategoryMenuItemImage(itemName);
+                    const itemImgSrc = item?.image_url || item?.combo_image || menuItemObj?.image_url || getCategoryMenuItemImage(itemName);
 
                     if (isCombo && subItems.length > 0) {
                         return (

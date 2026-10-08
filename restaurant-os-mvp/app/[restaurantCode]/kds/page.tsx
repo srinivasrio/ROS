@@ -125,9 +125,13 @@ export default function KitchenDashboard() {
         window.addEventListener('offline', handleOffline);
 
         const handleFullscreenChange = () => {
-            setIsFullscreen(!!document.fullscreenElement);
+            if (typeof document !== 'undefined') {
+                const fsEl = document.fullscreenElement || (document as any).webkitFullscreenElement;
+                setIsFullscreen(!!fsEl);
+            }
         };
         document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 
         // Load cached density preference
         try {
@@ -139,18 +143,29 @@ export default function KitchenDashboard() {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
             document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
         };
     }, []);
 
     const toggleFullscreen = async () => {
         try {
-            if (!document.fullscreenElement) {
-                await document.documentElement.requestFullscreen();
+            if (typeof document === 'undefined') return;
+            const fsEl = document.fullscreenElement || (document as any).webkitFullscreenElement;
+            if (!fsEl) {
+                if (document.documentElement.requestFullscreen) {
+                    await document.documentElement.requestFullscreen();
+                } else if ((document.documentElement as any).webkitRequestFullscreen) {
+                    await (document.documentElement as any).webkitRequestFullscreen();
+                }
             } else {
-                await document.exitFullscreen();
+                if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                } else if ((document as any).webkitExitFullscreen) {
+                    await (document as any).webkitExitFullscreen();
+                }
             }
         } catch (err) {
-            console.error('Fullscreen toggle failed:', err);
+            console.warn('Fullscreen toggle not permitted:', err);
         }
     };
 
@@ -186,9 +201,9 @@ export default function KitchenDashboard() {
         }
     };
 
-    const chefDisplayName = user?.name || 'Head Chef';
-    const chefRole = user?.role ? user.role.toUpperCase() : 'KITCHEN DISPLAY';
-    const displayName = fetchedName || restaurantName || '';
+    const chefDisplayName = typeof user?.name === 'string' && user.name.trim() ? user.name.trim() : 'Head Chef';
+    const chefRole = typeof user?.role === 'string' && user.role.trim() ? user.role.toUpperCase() : 'KITCHEN DISPLAY';
+    const displayName = String(fetchedName || restaurantName || '').trim();
 
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-slate-100/80 text-neutral-900 font-sans select-none">
@@ -208,7 +223,7 @@ export default function KitchenDashboard() {
                             <div className="size-full bg-gradient-to-br from-orange-500 via-amber-500 to-rose-600 flex items-center justify-center text-white shadow-inner">
                                 {displayName ? (
                                     <span suppressHydrationWarning className="text-base font-black uppercase tracking-tight">
-                                        {displayName.charAt(0)}
+                                        {displayName.slice(0, 1)}
                                     </span>
                                 ) : (
                                     <ChefHat className="text-white size-5" />

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Component, type ErrorInfo, type ReactNode } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { OrderService, type Order, type OrderStatus, type TableMergeGroup } from '@/services/orders.service';
 import KitchenTicket from '@/components/kitchen/KitchenTicket';
@@ -39,17 +39,27 @@ export default function OrderKanbanBoard({
     const { restaurantId, loading: profileLoading, branchId } = useRestaurantId();
     const activeResId = restaurantId || urlRestaurantCode;
     const cacheKey = `kds-${activeResId}${branchId ? `-${branchId}` : ''}`;
-    const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`kds-${urlRestaurantCode}`) : null);
     
-    const [orders, setOrders] = useState<Order[]>(cached?.orders || []);
-    const [mergeGroups, setMergeGroups] = useState<TableMergeGroup[]>(cached?.mergeGroups || []);
-    const [loading, setLoading] = useState(!cached && orders.length === 0);
+    const [orders, setOrders] = useState<Order[]>([]);
+    const [mergeGroups, setMergeGroups] = useState<TableMergeGroup[]>([]);
+    const [loading, setLoading] = useState(true);
     const [audioBlocked, setAudioBlocked] = useState(false);
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
         setMounted(true);
-    }, []);
+        // Hydrate from client cache safely after mount to prevent hydration mismatch crashes
+        try {
+            const cached = getCached<any>(cacheKey) || (urlRestaurantCode ? getCached<any>(`kds-${urlRestaurantCode}`) : null);
+            if (cached) {
+                if (Array.isArray(cached.orders)) setOrders(cached.orders);
+                if (Array.isArray(cached.mergeGroups)) setMergeGroups(cached.mergeGroups);
+                setLoading(false);
+            }
+        } catch (err) {
+            console.warn('[KDS Cache Rehydration Warning]:', err);
+        }
+    }, [cacheKey, urlRestaurantCode]);
     
     const currentProfileRef = useRef<any>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -102,19 +112,24 @@ export default function OrderKanbanBoard({
 
     // Track incoming orders and trigger audio alerts
     useEffect(() => {
-        if (loading) return;
+        if (loading || !mounted) return;
+
+        const safeOrders = Array.isArray(orders) ? orders.filter(Boolean) : [];
 
         if (isInitialLoad.current) {
-            orders.forEach(o => alertedOrderIds.current.add(o.id));
+            safeOrders.forEach(o => {
+                if (o?.id) alertedOrderIds.current.add(String(o.id));
+            });
             isInitialLoad.current = false;
             return;
         }
 
-        const incomingOrders = orders.filter(o => o.status === 'placed' || o.status === 'queued');
+        const incomingOrders = safeOrders.filter(o => o && (o.status === 'placed' || o.status === 'queued'));
         let hasNew = false;
         incomingOrders.forEach(o => {
-            if (!alertedOrderIds.current.has(o.id)) {
-                alertedOrderIds.current.add(o.id);
+            const idStr = String(o?.id || '');
+            if (idStr && !alertedOrderIds.current.has(idStr)) {
+                alertedOrderIds.current.add(idStr);
                 hasNew = true;
             }
         });
@@ -126,7 +141,7 @@ export default function OrderKanbanBoard({
                 duration: 4000
             });
         }
-    }, [orders, loading]);
+    }, [orders, loading, mounted]);
 
     // Initial Fetch & Real-time Subscription
     useEffect(() => {
@@ -288,12 +303,13 @@ export default function OrderKanbanBoard({
     }, [restaurantId, urlRestaurantCode, branchId]);
 
     const getEffectiveOrderStatus = (order: Order): OrderStatus => {
-        const activeItems = (order.items || []).filter(item => item.status !== 'cancelled');
+        if (!order) return 'placed';
+        const activeItems = (order.items || []).filter(item => item && item.status !== 'cancelled');
         if (activeItems.length === 0) {
             return (order.status === 'queued' ? 'placed' : (order.status as OrderStatus)) || 'placed';
         }
 
-        const itemStatuses = activeItems.map(i => i.status?.toLowerCase());
+        const itemStatuses = activeItems.map(i => (i?.status ? String(i.status).toLowerCase() : ''));
 
         // 1. First priority: Even ONE item in incoming -> order belongs in Incoming
         if (itemStatuses.some(s => s === 'placed' || s === 'queued' || s === 'incoming')) {
@@ -404,7 +420,7 @@ export default function OrderKanbanBoard({
         }
     };
 
-    const getOrdersByStatus = (status: OrderStatus) => orders.filter(o => getEffectiveOrderStatus(o) === status);
+    const getOrdersByStatus = (status: OrderStatus) => (Array.isArray(orders) ? orders.filter(Boolean) : []).filter(o => getEffectiveOrderStatus(o) === status);
 
     const isBoardLoading = !mounted || loading;
 
@@ -576,8 +592,12 @@ function KDSColumn({
         },
     }[color];
 
+    const safeOrders = Array.isArray(orders) ? orders.filter(Boolean) : [];
+    const safeMergeGroups = Array.isArray(mergeGroups) ? mergeGroups.filter(Boolean) : [];
+
     // Group orders by Table ID or Merge Group
-    const groupedOrders = orders.reduce((groups, order) => {
+    const groupedOrders = safeOrders.reduce((groups, order) => {
+        if (!order) return groups;
         const tableId = order.table_id || order.merge_group_id || (order.order_type === 'TAKEAWAY' ? 'takeaway' : order.order_type === 'DELIVERY' ? 'delivery' : 'other');
         if (!groups[tableId as any]) {
             groups[tableId as any] = [];
@@ -587,12 +607,12 @@ function KDSColumn({
     }, {} as Record<string | number, Order[]>);
 
     const sortedTableIds = Object.keys(groupedOrders).sort((a, b) => {
-        const nameA = (typeof a === 'string' && isNaN(Number(a))
-            ? mergeGroups.find(g => g.id === a)?.display_name || a
-            : a).toString();
-        const nameB = (typeof b === 'string' && isNaN(Number(b))
-            ? mergeGroups.find(g => g.id === b)?.display_name || b
-            : b).toString();
+        const nameA = String((typeof a === 'string' && isNaN(Number(a))
+            ? safeMergeGroups.find(g => g && g.id === a)?.display_name || a
+            : a) || '');
+        const nameB = String((typeof b === 'string' && isNaN(Number(b))
+            ? safeMergeGroups.find(g => g && g.id === b)?.display_name || b
+            : b) || '');
 
         return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
     });
@@ -672,6 +692,39 @@ function KDSColumn({
     );
 }
 
+class TicketErrorBoundary extends Component<{ children: ReactNode; fallbackId?: string }, { hasError: boolean }> {
+    constructor(props: { children: ReactNode; fallbackId?: string }) {
+        super(props);
+        this.state = { hasError: false };
+    }
+
+    static getDerivedStateFromError() {
+        return { hasError: true };
+    }
+
+    componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+        console.warn(`[KDS Ticket Error on Order #${this.props.fallbackId}]:`, error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="p-2.5 rounded-xl border border-rose-200 bg-rose-50/80 text-rose-800 text-[10px] flex items-center justify-between gap-2 shadow-2xs">
+                    <span className="font-bold truncate">Ticket #{this.props.fallbackId || 'Unknown'} encountered display issue</span>
+                    <button
+                        type="button"
+                        onClick={() => this.setState({ hasError: false })}
+                        className="px-2 py-0.5 rounded bg-white border border-rose-300 text-rose-700 font-black text-[9px] uppercase tracking-wider shrink-0 hover:bg-rose-100"
+                    >
+                        Retry
+                    </button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
 function KDSTableGroup({ 
     tableId, 
     orders, 
@@ -694,7 +747,13 @@ function KDSTableGroup({
     density: 'compact' | 'comfortable'; 
 }) {
     const [isOpen, setIsOpen] = useState(true);
-    const sortedOrders = [...orders].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const safeOrders = Array.isArray(orders) ? orders.filter(Boolean) : [];
+    const safeMergeGroups = Array.isArray(mergeGroups) ? mergeGroups.filter(Boolean) : [];
+    const sortedOrders = [...safeOrders].sort((a, b) => {
+        const timeA = a?.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b?.created_at ? new Date(b.created_at).getTime() : 0;
+        return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+    });
     const isCompact = density === 'compact';
 
     let tableName = `Table ${tableId}`;
@@ -709,23 +768,26 @@ function KDSTableGroup({
         tableName = 'Delivery';
         isDelivery = true;
     } else if (typeof tableId === 'string' && isNaN(Number(tableId))) {
-        tableName = mergeGroups.find(g => g.id === tableId)?.display_name || 'Merged Group';
+        tableName = safeMergeGroups.find(g => g && g.id === tableId)?.display_name || 'Merged Group';
         isMerged = true;
-    } else if (orders[0]?.table_number) {
-        tableName = `Table ${orders[0].table_number}`;
+    } else if (safeOrders[0]?.table_number) {
+        tableName = `Table ${safeOrders[0].table_number}`;
     }
 
-    const totalItemsCount = orders.reduce((sum, o) => {
-        const active = o.items?.filter(item => item.status !== 'cancelled') || [];
-        return sum + active.reduce((acc, it) => acc + (it.quantity || 1), 0);
+    const totalItemsCount = safeOrders.reduce((sum, o) => {
+        if (!o) return sum;
+        const active = (o.items || []).filter(item => item && item.status !== 'cancelled');
+        return sum + active.reduce((acc, it) => acc + (Number(it?.quantity) || 1), 0);
     }, 0);
 
-    const hasLateOrder = orders.some(o => {
-        if (o.status === 'served' || o.status === 'paid' || o.status === 'cancelled') return false;
+    const hasLateOrder = safeOrders.some(o => {
+        if (!o || o.status === 'served' || o.status === 'paid' || o.status === 'cancelled') return false;
         let timeStr = o.created_at;
-        if (timeStr && !timeStr.endsWith('Z') && !timeStr.includes('+')) timeStr += 'Z';
-        const diff = Date.now() - new Date(timeStr).getTime();
-        return diff >= 900000;
+        if (!timeStr) return false;
+        if (!timeStr.endsWith('Z') && !timeStr.includes('+')) timeStr += 'Z';
+        const parsedTime = new Date(timeStr).getTime();
+        if (isNaN(parsedTime)) return false;
+        return (Date.now() - parsedTime) >= 900000;
     });
 
     const headerTheme = {
@@ -831,15 +893,19 @@ function KDSTableGroup({
                     >
                         <div className="p-2 space-y-2 bg-slate-50/60 border-t border-slate-100">
                             {sortedOrders.map(order => (
-                                <KitchenTicket
-                                    key={order.id}
-                                    order={order}
-                                    onStatusChange={onStatusChange}
-                                    onItemStatusChange={onItemStatusChange}
-                                    onExtendTimer={onExtendTimer}
-                                    isReadOnly={isReadOnly}
-                                    density={density}
-                                />
+                                <TicketErrorBoundary 
+                                    key={order?.id || `fallback-${Math.random()}`}
+                                    fallbackId={String(order?.order_number || order?.id || '')}
+                                >
+                                    <KitchenTicket
+                                        order={order}
+                                        onStatusChange={onStatusChange}
+                                        onItemStatusChange={onItemStatusChange}
+                                        onExtendTimer={onExtendTimer}
+                                        isReadOnly={isReadOnly}
+                                        density={density}
+                                    />
+                                </TicketErrorBoundary>
                             ))}
                         </div>
                     </motion.div>
