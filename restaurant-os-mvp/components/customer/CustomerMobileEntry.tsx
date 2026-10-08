@@ -15,6 +15,7 @@ import { formatAddress } from '@/lib/utils';
 import { getPhoneEmailClientId, isPhoneEmailConfigured } from '@/lib/phone-email';
 import { AuthBackground } from '@/components/auth/AuthBackground';
 import { DineInOneWaveLogo } from '@/components/auth/DineInOneWaveLogo';
+import { CustomerJoinTableScreen } from '@/components/customer/CustomerJoinTableScreen';
 
 interface CustomerMobileEntryProps {
     restaurantCode: string;
@@ -84,6 +85,12 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
     const [multipleActiveOrders, setMultipleActiveOrders] = useState<ActiveOrderInfo[]>([]);
     const [showMultipleOrdersModal, setShowMultipleOrdersModal] = useState(false);
     const [redirectingMessage, setRedirectingMessage] = useState('');
+    const [joinSessionData, setJoinSessionData] = useState<{
+        sessionId: string;
+        hostName: string;
+        initialStatus: 'pending' | 'rejected' | 'none';
+        initialRequestId: string | null;
+    } | null>(null);
 
     // Load saved details and restaurant profile on mount
     useEffect(() => {
@@ -352,7 +359,51 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                 }
             } catch {}
 
-            // Direct redirect to customer homepage (NO 3 options, customer already scanned QR)
+            // If dining table was specified, claim host session or check active session
+            if (tableFromUrl) {
+                try {
+                    const sessionRes = await fetch('/api/customer/table-session/active', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            restaurantId: restaurantCode,
+                            tableId: tableFromUrl,
+                            tableNumber: tableFromUrl,
+                            tableToken: tableFromUrl.length >= 16 ? tableFromUrl : null,
+                            customerId: verifyData.customer?.id,
+                            customerName,
+                            customerMobile: verifiedMobile,
+                        }),
+                    });
+
+                    if (sessionRes.ok) {
+                        const sessData = await sessionRes.json();
+                        // If not the host and active session exists
+                        if (sessData.hasActiveSession && !sessData.isHost) {
+                            const checkRes = await fetch(
+                                `/api/customer/table-session/active?restaurantId=${encodeURIComponent(restaurantCode)}&tableNumber=${encodeURIComponent(tableFromUrl)}&customerMobile=${encodeURIComponent(verifiedMobile)}`
+                            );
+                            if (checkRes.ok) {
+                                const checkData = await checkRes.json();
+                                if (checkData.approvalStatus !== 'approved' && checkData.approvalStatus !== 'host') {
+                                    setJoinSessionData({
+                                        sessionId: sessData.sessionId,
+                                        hostName: sessData.hostName || 'Table Host',
+                                        initialStatus: checkData.approvalStatus || 'none',
+                                        initialRequestId: checkData.requestId || null,
+                                    });
+                                    setSubmitting(false);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                } catch (sessErr) {
+                    console.warn('[Table Session Init Notice]:', sessErr);
+                }
+            }
+
+            // Direct redirect to customer homepage
             const restaurantDisplayName = profile?.name || 'Restaurant';
             setRedirectingMessage(`Welcome, ${customerName}! Starting dining at ${restaurantDisplayName}...`);
             toast.success('Mobile verified! Starting your dining experience.');
@@ -360,14 +411,14 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             setTimeout(() => {
                 if (tableFromUrl) {
                     if (tableFromUrl.length >= 16) {
-                        router.push(`/customer/t/${tableFromUrl}/home`);
+                        window.location.href = `/customer/t/${tableFromUrl}/home`;
                     } else {
-                        router.push(`/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`);
+                        window.location.href = `/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`;
                     }
                 } else {
-                    router.push(`/${restaurantCode}/customer/home`);
+                    window.location.href = `/${restaurantCode}/customer/home`;
                 }
-            }, 600);
+            }, 500);
         } catch (err: any) {
             console.error('[executeVerification Error]', err);
             setServerError(err.message || 'Network error during verification. Please try again.');
@@ -431,14 +482,10 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             );
 
             if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-                setPopupBlocked(true);
-                toast.warning('Pop-up was blocked. Click "Open Verification Window" below.');
-            } else {
-                setPopupBlocked(false);
-                toast.info('Phone.Email verification window opened. Enter the SMS OTP there.');
+                window.location.href = authUrl;
             }
         } catch {
-            setPopupBlocked(true);
+            window.location.href = authUrl;
         }
     };
 
@@ -503,6 +550,33 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             otpCode: otp,
         });
     };
+
+    if (joinSessionData) {
+        return (
+            <CustomerJoinTableScreen
+                restaurantId={restaurantCode}
+                tableNumber={tableFromUrl}
+                customerName={name}
+                customerMobile={mobile}
+                sessionId={joinSessionData.sessionId}
+                hostName={joinSessionData.hostName}
+                initialRequestId={joinSessionData.initialRequestId}
+                initialStatus={joinSessionData.initialStatus}
+                onApproved={() => {
+                    setJoinSessionData(null);
+                    if (tableFromUrl) {
+                        if (tableFromUrl.length >= 16) {
+                            window.location.href = `/customer/t/${tableFromUrl}/home`;
+                        } else {
+                            window.location.href = `/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`;
+                        }
+                    } else {
+                        window.location.href = `/${restaurantCode}/customer/home`;
+                    }
+                }}
+            />
+        );
+    }
 
     return (
         <AuthBackground className="min-h-screen py-8 px-4 flex flex-col justify-center items-center">
@@ -727,59 +801,11 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         ) : (
                                             <>
                                                 <ShieldCheck size={18} />
-                                                <span>Send SMS OTP via Phone.Email</span>
+                                                <span>Get OTP</span>
                                                 <ArrowRight size={18} />
                                             </>
                                         )}
                                     </button>
-
-                                    {/* Awaiting Verification Card */}
-                                    {isAwaitingPhoneEmail && (
-                                        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200/80 text-emerald-950 text-xs space-y-2 mt-2">
-                                            <div className="flex items-center gap-2 font-black text-emerald-800">
-                                                <Loader2 size={15} className="animate-spin text-emerald-600 shrink-0" />
-                                                <span>SMS Verification Window Opened</span>
-                                            </div>
-                                            <p className="text-emerald-700 leading-relaxed">
-                                                Check your SMS for the 6-digit code and submit it in the Phone.Email window.
-                                            </p>
-                                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleLaunchPhoneEmail()}
-                                                    className="px-3 py-1.5 rounded-xl bg-[#02BD7E] text-white font-bold hover:bg-[#02a76f] transition-all cursor-pointer shadow-xs"
-                                                >
-                                                    Re-open Window
-                                                </button>
-                                                {phoneEmailPopupUrl && (
-                                                    <a
-                                                        href={phoneEmailPopupUrl}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white text-emerald-800 font-bold border border-emerald-300 hover:bg-emerald-100/50 transition-all shadow-xs"
-                                                    >
-                                                        <span>Open in New Tab</span>
-                                                        <ExternalLink size={12} />
-                                                    </a>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Phone.Email Official Widget Button as One-Tap Alternate */}
-                                    {phoneEmailEnabled && (
-                                        <div className="pt-2 flex flex-col items-center">
-                                            <div className="flex items-center gap-2 w-full my-2">
-                                                <div className="h-px bg-slate-200 flex-1" />
-                                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">or 1-Tap Widget</span>
-                                                <div className="h-px bg-slate-200 flex-1" />
-                                            </div>
-                                            <div
-                                                className="pe_signin_button"
-                                                data-client-id={phoneEmailClientId}
-                                            />
-                                        </div>
-                                    )}
 
                                     {/* Dev Test Fallback (Non-production only) */}
                                     {process.env.NODE_ENV !== 'production' && (

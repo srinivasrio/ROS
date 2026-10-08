@@ -11,6 +11,7 @@ import { PersistentMenu } from '@/components/customer/PersistentMenu';
 import { PersistentService } from '@/components/customer/PersistentService';
 import { PersistentOrders } from '@/components/customer/PersistentOrders';
 import { PersistentProfile } from '@/components/customer/PersistentProfile';
+import { HostJoinApprovalModal } from '@/components/customer/HostJoinApprovalModal';
 
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -117,19 +118,7 @@ export default function CustomerLayout({
         };
         trackPresence();
 
-        const handleUnload = () => {
-            if (restaurantId && isCleanTable && !isVirtualMode) {
-                OrderService.releaseTableHold(tableNumber, restaurantId);
-            }
-        };
-        window.addEventListener('beforeunload', handleUnload);
-
-        return () => {
-            window.removeEventListener('beforeunload', handleUnload);
-            if (restaurantId && isCleanTable && !isVirtualMode) {
-                OrderService.releaseTableHold(tableNumber, restaurantId);
-            }
-        };
+        // Tab closing should NEVER release table holds or terminate dining sessions
     }, [restaurantId, tableNumber, isCleanTable, tableStatus, isVirtualMode]);
 
     // Route classifications
@@ -206,11 +195,12 @@ export default function CustomerLayout({
     }
 
     if (isCleanTable && !isVirtualMode && tableStatus === 'checking') {
+        const isLoggingOut = typeof window !== 'undefined' && (sessionStorage.getItem('ros_logging_out') === 'true' || searchParams?.get('logout') === 'true');
         return (
             <div className="fixed inset-0 h-[100dvh] bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
                 <div className="flex flex-col items-center">
                     <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500 mb-4" />
-                    <p className="text-sm font-semibold text-slate-600">Connecting to your table...</p>
+                    <p className="text-sm font-semibold text-slate-600">{isLoggingOut ? 'Logging out...' : 'Connecting to your table...'}</p>
                 </div>
             </div>
         );
@@ -299,6 +289,7 @@ export default function CustomerLayout({
                     {!isWelcomePage && Boolean(tableNumber) && <CustomerBottomNav restaurantCode={restaurantCode} tableNumber={tableNumber} />}
                 </div>
             </div>
+            {tableNumber && <HostJoinApprovalModal restaurantId={restaurantCode} tableNumber={tableNumber} />}
             <Toaster position="top-center" />
         </CartProvider>
     );

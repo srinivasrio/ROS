@@ -203,7 +203,7 @@ export function PersistentService({ restaurantId, tableNumber }: { restaurantId:
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const idParam = searchParams?.get('id') || searchParams?.get('service');
-    const isVisible = pathname.includes('/customer/service/');
+    const isVisible = pathname.includes('/service');
     
     const cachedData = CustomerCache.get(restaurantId, 'service', tableNumber);
     const [loading, setLoading] = useState(false);
