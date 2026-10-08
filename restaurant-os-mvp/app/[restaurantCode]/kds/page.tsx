@@ -21,11 +21,11 @@ import {
     X, 
     Sliders,
     Sparkles,
-    Layers,
     Shield
 } from 'lucide-react';
 import { RestaurantService } from '@/services/restaurant.service';
 import { getCached, setCache } from '@/lib/data-cache';
+import ConfirmationModal from '@/components/ui/ConfirmationModal';
 import { toast } from 'sonner';
 
 export default function KitchenDashboard() {
@@ -42,6 +42,7 @@ export default function KitchenDashboard() {
     const [isOnline, setIsOnline] = useState<boolean>(true);
     const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+    const [showExitConfirm, setShowExitConfirm] = useState<boolean>(false);
     const [density, setDensity] = useState<'compact' | 'comfortable'>('comfortable');
     const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
     const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
@@ -126,55 +127,98 @@ export default function KitchenDashboard() {
 
         const handleFullscreenChange = () => {
             if (typeof document !== 'undefined') {
-                const fsEl = document.fullscreenElement || (document as any).webkitFullscreenElement;
-                setIsFullscreen(!!fsEl);
+                const doc = document as any;
+                const isFs = Boolean(
+                    doc.fullscreenElement ||
+                    doc.webkitFullscreenElement ||
+                    doc.webkitCurrentFullScreenElement ||
+                    doc.mozFullScreenElement ||
+                    doc.msFullscreenElement ||
+                    doc.webkitIsFullScreen
+                );
+                setIsFullscreen(isFs);
             }
         };
+
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-
-        // Load cached density preference
-        try {
-            const savedDensity = localStorage.getItem('kds_density') as 'compact' | 'comfortable';
-            if (savedDensity) setDensity(savedDensity);
-        } catch {}
+        document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+        document.addEventListener('MSFullscreenChange', handleFullscreenChange);
 
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
             document.removeEventListener('fullscreenchange', handleFullscreenChange);
             document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
         };
     }, []);
 
-    const toggleFullscreen = async () => {
+    const toggleFullscreen = () => {
+        if (typeof document === 'undefined') return;
+
         try {
-            if (typeof document === 'undefined') return;
-            const fsEl = document.fullscreenElement || (document as any).webkitFullscreenElement;
-            if (!fsEl) {
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen();
-                } else if ((document.documentElement as any).webkitRequestFullscreen) {
-                    await (document.documentElement as any).webkitRequestFullscreen();
+            const doc = document as any;
+            const docEl = document.documentElement as any;
+
+            const isFs = Boolean(
+                doc.fullscreenElement ||
+                doc.webkitFullscreenElement ||
+                doc.webkitCurrentFullScreenElement ||
+                doc.mozFullScreenElement ||
+                doc.msFullscreenElement ||
+                doc.webkitIsFullScreen
+            );
+
+            if (!isFs) {
+                const requestFn =
+                    docEl.requestFullscreen?.bind(docEl) ||
+                    docEl.webkitRequestFullscreen?.bind(docEl) ||
+                    docEl.webkitRequestFullScreen?.bind(docEl) ||
+                    docEl.mozRequestFullScreen?.bind(docEl) ||
+                    docEl.msRequestFullscreen?.bind(docEl);
+
+                if (requestFn) {
+                    const result = requestFn();
+                    if (result && typeof result.then === 'function') {
+                        result
+                            .then(() => setIsFullscreen(true))
+                            .catch((err: any) => {
+                                console.warn('Fullscreen request rejected:', err);
+                                toast.error('Full screen could not be activated by browser.');
+                            });
+                    } else {
+                        setIsFullscreen(true);
+                    }
+                } else {
+                    toast.info('Full screen is not supported on this browser. In Safari, use "Add to Home Screen".');
                 }
             } else {
-                if (document.exitFullscreen) {
-                    await document.exitFullscreen();
-                } else if ((document as any).webkitExitFullscreen) {
-                    await (document as any).webkitExitFullscreen();
+                const exitFn =
+                    doc.exitFullscreen?.bind(doc) ||
+                    doc.webkitExitFullscreen?.bind(doc) ||
+                    doc.webkitCancelFullScreen?.bind(doc) ||
+                    doc.mozCancelFullScreen?.bind(doc) ||
+                    doc.msExitFullscreen?.bind(doc);
+
+                if (exitFn) {
+                    const result = exitFn();
+                    if (result && typeof result.then === 'function') {
+                        result
+                            .then(() => setIsFullscreen(false))
+                            .catch((err: any) => {
+                                console.warn('Exit fullscreen rejected:', err);
+                            });
+                    } else {
+                        setIsFullscreen(false);
+                    }
                 }
             }
-        } catch (err) {
-            console.warn('Fullscreen toggle not permitted:', err);
+        } catch (err: any) {
+            console.warn('Fullscreen toggle failed:', err);
+            toast.error('Fullscreen request blocked by browser.');
         }
-    };
-
-    const toggleDensity = () => {
-        const next = density === 'comfortable' ? 'compact' : 'comfortable';
-        setDensity(next);
-        try {
-            localStorage.setItem('kds_density', next);
-        } catch {}
     };
 
     const handleTestSound = () => {
@@ -194,10 +238,10 @@ export default function KitchenDashboard() {
         setIsLoggingOut(true);
         try {
             await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-            toast.success('Logged out successfully');
-            router.push('/login/kds');
+            toast.success('Kitchen session closed');
+            window.location.href = '/login/kds';
         } catch {
-            router.push('/login/kds');
+            window.location.href = '/login/kds';
         }
     };
 
@@ -281,25 +325,26 @@ export default function KitchenDashboard() {
 
                 {/* Right Side: Tools & Chef Profile */}
                 <div className="flex items-center gap-2 md:gap-3 shrink-0">
-                    {/* Density Toggle */}
-                    <button
-                        type="button"
-                        onClick={toggleDensity}
-                        className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white hover:bg-neutral-50 border border-neutral-200 text-neutral-700 hover:text-neutral-900 text-xs font-bold transition-all active:scale-95 shadow-2xs"
-                        title="Toggle layout density"
-                    >
-                        <Layers size={14} />
-                        <span suppressHydrationWarning className="capitalize">{density}</span>
-                    </button>
-
                     {/* Fullscreen Toggle */}
                     <button
                         type="button"
                         onClick={toggleFullscreen}
                         className="p-2 rounded-xl bg-white hover:bg-neutral-50 border border-neutral-200 text-neutral-700 hover:text-neutral-900 transition-all active:scale-95 shadow-2xs"
                         title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+                        aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
                     >
                         {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    </button>
+
+                    {/* Exit Kitchen Station Button */}
+                    <button
+                        type="button"
+                        onClick={() => setShowExitConfirm(true)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200/80 text-rose-700 hover:text-rose-800 text-xs font-bold transition-all active:scale-95 shadow-2xs"
+                        title="Exit Kitchen Mode"
+                    >
+                        <LogOut size={14} />
+                        <span className="hidden sm:inline">Exit</span>
                     </button>
 
                     {/* Chef Profile Badge & Settings Trigger */}
@@ -430,48 +475,27 @@ export default function KitchenDashboard() {
                                     </div>
                                 </div>
 
-                                {/* Display & Layout */}
+                                {/* Display & Screen Controls */}
                                 <div className="space-y-3">
                                     <h4 className="text-[11px] font-black uppercase tracking-wider text-neutral-400">
-                                        Display & Layout
+                                        Screen & Display
                                     </h4>
 
                                     <div className="p-3.5 rounded-xl bg-neutral-50 border border-neutral-200/80 space-y-3">
                                         <div className="flex items-center justify-between">
                                             <div>
-                                                <p className="text-xs font-bold text-neutral-900">Density Mode</p>
-                                                <p className="text-[10px] text-neutral-500">Adjust card sizes for your screen</p>
+                                                <p className="text-xs font-bold text-neutral-900">Full Screen Mode</p>
+                                                <p className="text-[10px] text-neutral-500">Expand KDS across your display</p>
                                             </div>
-                                            <div className="flex rounded-lg bg-neutral-200/70 p-0.5 border border-neutral-300/70">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => { setDensity('comfortable'); localStorage.setItem('kds_density', 'comfortable'); }}
-                                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
-                                                        density === 'comfortable' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
-                                                    }`}
-                                                >
-                                                    Comfortable
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => { setDensity('compact'); localStorage.setItem('kds_density', 'compact'); }}
-                                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
-                                                        density === 'compact' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
-                                                    }`}
-                                                >
-                                                    Compact
-                                                </button>
-                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={toggleFullscreen}
+                                                className="py-1.5 px-3 rounded-lg bg-white hover:bg-neutral-100 border border-neutral-200 text-xs font-bold text-neutral-800 transition-colors flex items-center gap-1.5 shadow-2xs"
+                                            >
+                                                {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                                                <span>{isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}</span>
+                                            </button>
                                         </div>
-
-                                        <button
-                                            type="button"
-                                            onClick={toggleFullscreen}
-                                            className="w-full py-2 px-3 rounded-lg bg-white hover:bg-neutral-100 border border-neutral-200 text-xs font-bold text-neutral-800 transition-colors flex items-center justify-center gap-2 shadow-2xs"
-                                        >
-                                            {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                                            <span>{isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}</span>
-                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -481,8 +505,11 @@ export default function KitchenDashboard() {
                                 <button
                                     type="button"
                                     disabled={isLoggingOut}
-                                    onClick={handleLogout}
-                                    className="w-full py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-2xs"
+                                    onClick={() => {
+                                        setIsSettingsOpen(false);
+                                        setShowExitConfirm(true);
+                                    }}
+                                    className="w-full py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-2xs active:scale-98"
                                 >
                                     <LogOut size={15} />
                                     <span>{isLoggingOut ? 'Logging Out...' : 'Exit Kitchen Mode'}</span>
@@ -492,8 +519,19 @@ export default function KitchenDashboard() {
                     </>
                 )}
             </AnimatePresence>
+
+            {/* Exit Kitchen Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={showExitConfirm}
+                onClose={() => setShowExitConfirm(false)}
+                onConfirm={handleLogout}
+                title="Exit Kitchen Mode?"
+                message="Are you sure you want to exit? Active live order monitoring and real-time alerts for this kitchen display will be closed."
+                confirmText={isLoggingOut ? 'Exiting...' : 'Exit Kitchen'}
+                cancelText="Stay in Kitchen"
+                isSuperDestructive={true}
+            />
         </div>
     );
-
 }
 
