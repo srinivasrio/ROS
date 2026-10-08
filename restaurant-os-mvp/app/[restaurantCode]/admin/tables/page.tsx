@@ -1767,7 +1767,14 @@ export default function TableManagement() {
                                 <div className="bg-white p-4 rounded-xl shadow-lg border border-neutral-100 transform hover:scale-105 transition-transform duration-300">
                                     <QRCode
                                         id="table-qr-code-svg"
-                                        value={`${typeof window !== 'undefined' ? window.location.origin : ''}/${restaurantId}/customer/table/${encodeURIComponent(selectedQrTable.is_group ? selectedQrTable.display_name : (selectedQrTable.table_number || selectedQrTable.id))}`}
+                                        value={(() => {
+                                            const tableId = selectedQrTable.is_group ? selectedQrTable.display_name : (selectedQrTable.table_number || selectedQrTable.id);
+                                            if (typeof window === 'undefined') return `/${restaurantId}/customer/table/${encodeURIComponent(tableId)}`;
+                                            const host = window.location.host;
+                                            const protocol = window.location.protocol;
+                                            const cleanHost = host.replace(/^(admin|waiter|kds|delivery|employee|owner|superadmin)\./i, '');
+                                            return `${protocol}//${cleanHost}/${restaurantId}/customer/table/${encodeURIComponent(tableId)}`;
+                                        })()}
                                         size={200}
                                         className="h-auto w-full max-w-[200px]"
                                     />

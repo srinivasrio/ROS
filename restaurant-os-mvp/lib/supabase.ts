@@ -103,8 +103,8 @@ export async function syncClientSession(panel?: string | null, restaurantId?: st
 const customFetch: typeof fetch = (url, options = {}) => {
     let targetUrl = url;
     if (typeof url === 'string' && typeof window !== 'undefined' && window.location.protocol === 'https:') {
-        if (targetUrl.startsWith('http://72.61.250.231:8010')) {
-            targetUrl = targetUrl.replace('http://72.61.250.231:8010', 'https://db.dineinone.com');
+        if (url.startsWith('http://72.61.250.231:8010')) {
+            targetUrl = url.replace('http://72.61.250.231:8010', 'https://db.dineinone.com');
         }
     }
     const token = getDineToken();

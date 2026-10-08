@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import crypto from 'crypto';
 
-export type PanelType = 'admin' | 'waiter' | 'kds' | 'delivery' | 'employee' | 'superadmin' | 'owner';
+export type PanelType = 'admin' | 'waiter' | 'kds' | 'delivery' | 'employee' | 'superadmin' | 'owner' | 'customer';
 
 export const PANEL_SUBDOMAINS: Record<string, PanelType> = {
     admin: 'admin',
@@ -14,6 +14,7 @@ export const PANEL_SUBDOMAINS: Record<string, PanelType> = {
     superadmin: 'superadmin',
     'super-admin': 'superadmin',
     owner: 'owner',
+    customer: 'customer',
 };
 
 /**
@@ -100,6 +101,9 @@ export function isRoleAuthorizedForPanel(rawRole: string | null | undefined, pan
 
         case 'owner':
             return isOwner;
+
+        case 'customer':
+            return true;
 
         default:
             return false;
@@ -330,6 +334,11 @@ export function resolvePanelLoginUrl(
         if (!errParam) return url;
         return url.includes('?') ? `${url}&${errParam}` : `${url}?${errParam}`;
     };
+
+    // 0. Customer Panel - public guest dining interface, never redirect to staff login
+    if (subdomain === 'customer' || cleanPath.includes('/customer') || cleanPath.startsWith('/api/customer')) {
+        return cleanPath || '/';
+    }
 
     // 1. Owner Panel
     if (subdomain === 'owner' || cleanPath.startsWith('/owner') || cleanPath.startsWith('/api/owner')) {
