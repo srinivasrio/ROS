@@ -1166,7 +1166,6 @@ export default function CustomerModeSelector({ restaurantCode }: CustomerModeSel
                 isDifferentRestaurant={warningDetails.isDifferentRestaurant}
                 customMessage={warningDetails.message}
                 onScanAgain={() => setActiveModal('qr_scanner')}
-                onManualEntry={() => setActiveModal('manual_table')}
                 onClose={() => setActiveModal('none')}
             />
 
@@ -1214,17 +1213,10 @@ export default function CustomerModeSelector({ restaurantCode }: CustomerModeSel
                             <div className="space-y-2">
                                 <button
                                     type="button"
-                                    onClick={() => setActiveModal('manual_table')}
-                                    className="w-full py-3 rounded-2xl bg-orange-50 hover:bg-orange-100 text-orange-600 font-bold text-xs border border-orange-200 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                                >
-                                    <Edit3 size={14} /> Enter Table Number Manually
-                                </button>
-                                <button
-                                    type="button"
                                     onClick={() => setActiveModal('none')}
                                     className="w-full py-2.5 rounded-2xl bg-slate-100 text-slate-600 font-bold text-xs hover:bg-slate-200 transition-colors cursor-pointer"
                                 >
-                                    Back
+                                    Cancel
                                 </button>
                             </div>
                         </motion.div>
