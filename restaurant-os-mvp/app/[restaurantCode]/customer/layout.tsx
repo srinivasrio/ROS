@@ -195,7 +195,7 @@ export default function CustomerLayout({
     }
 
     if (isCleanTable && !isVirtualMode && tableStatus === 'checking') {
-        const isLoggingOut = typeof window !== 'undefined' && (sessionStorage.getItem('ros_logging_out') === 'true' || searchParams?.get('logout') === 'true');
+        const isLoggingOut = typeof window !== 'undefined' && (sessionStorage.getItem('ros_logging_out') === 'true' || window.location.search.includes('logout=true'));
         return (
             <div className="fixed inset-0 h-[100dvh] bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
                 <div className="flex flex-col items-center">

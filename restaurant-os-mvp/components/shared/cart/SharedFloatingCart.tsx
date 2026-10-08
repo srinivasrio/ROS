@@ -61,7 +61,15 @@ export function SharedFloatingCart({ restaurantCode: propRestaurantCode, tableNu
             >
                 <button 
                     type="button"
-                    onClick={() => router.push(`/${restaurantCode}/customer/cart/${tableNumber}`)}
+                    onClick={() => {
+                        const tokenMatch = pathname ? pathname.match(/\/customer\/t\/([^/?#]+)/i) : null;
+                        const currentToken = tokenMatch ? tokenMatch[1] : null;
+                        if (currentToken) {
+                            router.push(`/customer/t/${currentToken}/cart`);
+                        } else {
+                            router.push(`/${restaurantCode}/customer/cart/${tableNumber}`);
+                        }
+                    }}
                     className="group pointer-events-auto relative flex items-center gap-3 pl-2.5 pr-3.5 py-2 rounded-2xl bg-gradient-to-r from-orange-500 via-orange-600 to-rose-600 text-white shadow-[0_10px_25px_-3px_rgba(249,115,22,0.45),0_4px_12px_rgba(0,0,0,0.12)] border border-white/35 backdrop-blur-xl active:scale-[0.96] hover:brightness-105 transition-all duration-200 cursor-pointer select-none"
                     aria-label={`View cart with ${cartContext.totalItems} items for ₹${formattedPrice}`}
                 >

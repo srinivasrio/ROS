@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, usePathname } from 'next/navigation';
 import { useCart, getActivePrice, isSpecialActive } from '@/context/CartContext';
 import { OrderService } from '@/services/orders.service';
 import { SpecialsService, TodaySpecial } from '@/services/specials.service';
@@ -25,11 +25,20 @@ import ConfirmRemoveItemModal from '@/components/customer/ConfirmRemoveItemModal
 import { CartItem } from '@/context/CartContext';
 import CartSuggestions from '@/components/customer/CartSuggestions';
 
-export default function CustomerCart() {
+export default function CustomerCart({
+    restaurantCode: propRestaurantCode,
+    tableNumber: propTableNumber,
+}: {
+    restaurantCode?: string;
+    tableNumber?: string;
+} = {}) {
     const params = useParams();
     const router = useRouter();
-    const urlRestaurantId = (params.restaurantCode || params.restaurantId) as string;
-    const tableNumber = params.tableNumber as string;
+    const pathname = usePathname();
+    const tokenMatch = pathname ? pathname.match(/\/customer\/t\/([^/?#]+)/i) : null;
+    const currentToken = tokenMatch ? tokenMatch[1] : null;
+    const urlRestaurantId = (propRestaurantCode || params.restaurantCode || params.restaurantId) as string;
+    const tableNumber = (propTableNumber || params.tableNumber) as string;
     const { 
         cart, 
         addToCart,
@@ -544,7 +553,11 @@ export default function CustomerCart() {
                 } catch {}
                 toast.success('Order placed successfully!');
                 clearCart();
-                router.push(`/${urlRestaurantId}/customer/status/${tableNumber}/${order.id}`);
+                if (currentToken) {
+                    router.push(`/customer/t/${currentToken}/myorders`);
+                } else {
+                    router.push(`/${urlRestaurantId}/customer/status/${tableNumber}/${order.id}`);
+                }
             }
         } catch (error: any) {
             console.error(error);
