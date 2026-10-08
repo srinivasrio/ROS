@@ -13,6 +13,8 @@ import { PersistentService } from '@/components/customer/PersistentService';
 import { PersistentOrders } from '@/components/customer/PersistentOrders';
 import { PersistentProfile } from '@/components/customer/PersistentProfile';
 import CustomerMobileEntry from '@/components/customer/CustomerMobileEntry';
+import { CustomerJoinTableScreen } from '@/components/customer/CustomerJoinTableScreen';
+import { HostJoinApprovalModal } from '@/components/customer/HostJoinApprovalModal';
 
 interface TableSessionInfo {
     table_token: string;
@@ -36,6 +38,20 @@ export default function CustomerTokenLayout({
     const [status, setStatus] = useState<'validating' | 'valid' | 'invalid'>('validating');
     const [sessionInfo, setSessionInfo] = useState<TableSessionInfo | null>(null);
     const [isCustomerVerified, setIsCustomerVerified] = useState<boolean | null>(null);
+    const [customerMobile, setCustomerMobile] = useState('');
+    const [approvalStatus, setApprovalStatus] = useState<'host' | 'approved' | 'pending' | 'rejected' | 'none' | null>(null);
+    const [hostInfo, setHostInfo] = useState<{
+        sessionId: string;
+        hostName: string;
+        requestId?: string | null;
+    } | null>(null);
+
+    // Auto-redirect root token URL to /home
+    useEffect(() => {
+        if (token && (pathname === `/customer/t/${token}` || pathname === `/customer/t/${token}/`)) {
+            router.replace(`/customer/t/${token}/home`);
+        }
+    }, [pathname, token, router]);
 
     useEffect(() => {
         if (!token) {
@@ -70,12 +86,82 @@ export default function CustomerTokenLayout({
                         restaurant_name: data.restaurant.name,
                     });
                     
+                    let mobile = '';
                     try {
-                        const hasMobile = localStorage.getItem(`ros_customer_mobile_${targetRes}`);
-                        const verified = localStorage.getItem(`ros_customer_verified_${targetRes}`);
-                        setIsCustomerVerified(Boolean(hasMobile && verified));
+                        mobile = localStorage.getItem(`ros_customer_mobile_${targetRes}`) ||
+                                 localStorage.getItem(`ros_customer_mobile_${data.restaurant.id}`) ||
+                                 localStorage.getItem(`ros_customer_mobile_${data.restaurant.slug}`) || '';
+                        const verified = localStorage.getItem(`ros_customer_verified_${targetRes}`) ||
+                                         localStorage.getItem(`ros_customer_verified_${data.restaurant.id}`) ||
+                                         localStorage.getItem(`ros_customer_verified_${data.restaurant.slug}`);
+
+                        if (mobile && verified) {
+                            setCustomerMobile(mobile);
+                            setIsCustomerVerified(true);
+                        } else {
+                            // Check backend session cookie
+                            const sessionRes = await fetch(`/api/customer/auth/session?restaurantId=${encodeURIComponent(data.restaurant.id)}`);
+                            if (sessionRes.ok) {
+                                const sessionData = await sessionRes.json();
+                                if (sessionData.authenticated && sessionData.customer) {
+                                    mobile = sessionData.customer.mobile;
+                                    setCustomerMobile(mobile);
+                                    localStorage.setItem(`ros_customer_${targetRes}`, sessionData.customer.id);
+                                    localStorage.setItem(`ros_customer_mobile_${targetRes}`, sessionData.customer.mobile);
+                                    if (sessionData.customer.name) localStorage.setItem(`ros_customer_name_${targetRes}`, sessionData.customer.name);
+                                    localStorage.setItem(`ros_customer_verified_${targetRes}`, 'true');
+                                    setIsCustomerVerified(true);
+                                } else {
+                                    setIsCustomerVerified(false);
+                                }
+                            } else {
+                                setIsCustomerVerified(false);
+                            }
+                        }
                     } catch {
                         setIsCustomerVerified(true);
+                    }
+
+                    // Check or claim active table session
+                    if (mobile) {
+                        try {
+                            const sessRes = await fetch(
+                                `/api/customer/table-session/active?restaurantId=${encodeURIComponent(data.restaurant.id)}&tableNumber=${encodeURIComponent(data.table.table_number)}&customerMobile=${encodeURIComponent(mobile)}`
+                            );
+                            if (sessRes.ok && isMounted) {
+                                const sessData = await sessRes.json();
+                                if (!sessData.hasActiveSession) {
+                                    // Claim session as host
+                                    const custName = localStorage.getItem(`ros_customer_name_${targetRes}`) || 'Table Host';
+                                    const custId = localStorage.getItem(`ros_customer_${targetRes}`);
+                                    await fetch('/api/customer/table-session/active', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            restaurantId: data.restaurant.id,
+                                            tableId: data.table.table_id,
+                                            tableNumber: data.table.table_number,
+                                            tableToken: token,
+                                            customerId: custId,
+                                            customerName: custName,
+                                            customerMobile: mobile,
+                                        }),
+                                    });
+                                    setApprovalStatus('host');
+                                } else if (sessData.isHost || sessData.approvalStatus === 'approved') {
+                                    setApprovalStatus(sessData.isHost ? 'host' : 'approved');
+                                } else {
+                                    setApprovalStatus(sessData.approvalStatus || 'none');
+                                    setHostInfo({
+                                        sessionId: sessData.sessionId,
+                                        hostName: sessData.hostName,
+                                        requestId: sessData.requestId,
+                                    });
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('[Table Session Check Warning]', e);
+                        }
                     }
 
                     setStatus('valid');
@@ -154,6 +240,24 @@ export default function CustomerTokenLayout({
         );
     }
 
+    // Secondary guest waiting for host approval
+    if (approvalStatus && approvalStatus !== 'host' && approvalStatus !== 'approved' && hostInfo) {
+        const guestName = (typeof window !== 'undefined' ? (localStorage.getItem(`ros_customer_name_${restaurant_slug}`) || localStorage.getItem(`ros_customer_name_${restaurant_id}`)) : '') || 'Guest';
+        return (
+            <CustomerJoinTableScreen
+                restaurantId={restaurant_id}
+                tableNumber={table_number}
+                customerName={guestName}
+                customerMobile={customerMobile}
+                sessionId={hostInfo.sessionId}
+                hostName={hostInfo.hostName}
+                initialRequestId={hostInfo.requestId}
+                initialStatus={approvalStatus}
+                onApproved={() => setApprovalStatus('approved')}
+            />
+        );
+    }
+
     return (
         <CartProvider>
             <div className="fixed inset-0 h-[100dvh] md:h-screen flex items-start justify-center p-0 md:py-6 overflow-hidden font-sans text-slate-800 overscroll-none" style={{ backgroundColor: '#EEF2F6' }}>
@@ -180,6 +284,10 @@ export default function CustomerTokenLayout({
                     <CustomerBottomNav restaurantCode={restaurant_slug || restaurant_id} tableNumber={table_number} />
                 </div>
             </div>
+
+            {/* Realtime join request approval for table host */}
+            <HostJoinApprovalModal restaurantId={restaurant_id} tableNumber={table_number} />
+
             <Toaster position="top-center" />
         </CartProvider>
     );

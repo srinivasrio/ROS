@@ -24,6 +24,7 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
     const [customerEmail, setCustomerEmail] = useState('');
     const [customerDob, setCustomerDob] = useState('');
     const [isRegistered, setIsRegistered] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [showHelpDialog, setShowHelpDialog] = useState(false);
     const [showTermsModal, setShowTermsModal] = useState(false);
@@ -629,7 +630,11 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                             <button
                                 onClick={async () => {
                                     setShowLogoutConfirm(false);
+                                    setIsLoggingOut(true);
                                     try {
+                                        if (typeof window !== 'undefined') {
+                                            sessionStorage.setItem('ros_logging_out', 'true');
+                                        }
                                         await fetch('/api/customer/auth/logout', { method: 'POST' });
                                     } catch (err) {
                                         console.warn('Backend logout failed:', err);
@@ -641,6 +646,7 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                                         localStorage.removeItem(`ros_customer_email_${restaurantId}`);
                                         localStorage.removeItem(`ros_customer_dob_${restaurantId}`);
                                         localStorage.removeItem(`ros_customer_skipped_${restaurantId}`);
+                                        localStorage.removeItem(`ros_customer_verified_${restaurantId}`);
                                     } catch {}
                                     setCustomerName('');
                                     setCustomerMobile('');
@@ -653,7 +659,19 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                                     setIsRegistered(false);
                                     setIsEditing(false);
                                     toast.success('Logged out successfully');
-                                    router.push(`/${restaurantId}/customer/welcome/${tableNumber}`);
+
+                                    // Token route detection
+                                    const isTokenRoute = pathname.includes('/customer/t/');
+                                    if (isTokenRoute) {
+                                        const segments = pathname.split('/');
+                                        const tIdx = segments.indexOf('t');
+                                        const tokenVal = tIdx !== -1 && segments[tIdx + 1] ? segments[tIdx + 1] : '';
+                                        if (tokenVal) {
+                                            window.location.href = `/customer/t/${tokenVal}/home`;
+                                            return;
+                                        }
+                                    }
+                                    window.location.href = `/${restaurantId}/customer${tableNumber ? `?table=${encodeURIComponent(tableNumber)}` : ''}`;
                                 }}
                                 className="py-3.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-lg shadow-rose-600/25 transition-all active:scale-[0.98] cursor-pointer"
                             >
@@ -661,6 +679,14 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Logging out full-screen indicator */}
+            {isLoggingOut && (
+                <div className="fixed inset-0 z-[100] bg-slate-50 flex flex-col items-center justify-center p-4 font-sans text-slate-800">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-rose-500 mb-4" />
+                    <p className="text-sm font-bold text-slate-700">Logging out...</p>
                 </div>
             )}
         </div>

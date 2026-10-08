@@ -84,12 +84,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
     const setTableNumber = useCallback((newTable: string | null) => {
         setTableNumberState(prev => {
-            if (prev && newTable && prev !== newTable) {
-                // Table switched! Wipe previous table's cart to prevent cross-table order leakage.
-                setCart({});
-                try {
-                    localStorage.removeItem('customer_cart');
-                } catch {}
+            if (prev && newTable) {
+                const normPrev = String(prev).replace(/^table\s*/i, '').trim().toLowerCase();
+                const normNext = String(newTable).replace(/^table\s*/i, '').trim().toLowerCase();
+                if (normPrev && normNext && normPrev !== normNext) {
+                    // Table switched to an entirely different table! Wipe previous table's cart.
+                    setCart({});
+                    try {
+                        localStorage.removeItem('customer_cart');
+                    } catch {}
+                }
             }
             return newTable;
         });

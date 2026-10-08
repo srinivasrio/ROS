@@ -13,7 +13,7 @@ import { Utensils as LucideUtensils, AlertCircle as LucideAlertCircle } from 'lu
 
 export function PersistentHome({ restaurantId, tableNumber }: { restaurantId: string, tableNumber: string }) {
     const pathname = usePathname();
-    const isVisible = pathname.includes('/home/');
+    const isVisible = pathname.includes('/home');
     
     // Cache the data
     const cachedData = HomepageCache.get(restaurantId, tableNumber);
@@ -44,6 +44,9 @@ export function PersistentHome({ restaurantId, tableNumber }: { restaurantId: st
                 const tableData = await OrderService.findTableAnywhere(tableNumber, restaurantId);
                 if (tableData) {
                     setDisplayTableNumber(tableData.display_name?.replace('Table ', '') || tableData.table_number?.toString() || tableNumber);
+                    setTableNotFound(false);
+                } else if (tableNumber && tableNumber !== 'undefined' && tableNumber !== 'null') {
+                    setDisplayTableNumber(tableNumber);
                     setTableNotFound(false);
                 } else {
                     setTableNotFound(true);

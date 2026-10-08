@@ -29,7 +29,7 @@ import { SharedItemDetailModal, SharedSpecialDetailModal, SharedComboDetailModal
 export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: string, tableNumber: string }) {
     const pathname = usePathname();
     const router = useRouter();
-    const isVisible = pathname.includes('/customer/menu/');
+    const isVisible = pathname.includes('/menu');
     const searchParams = useSearchParams();
     const categoryParam = searchParams.get('category');
     const itemParam = searchParams.get('item');

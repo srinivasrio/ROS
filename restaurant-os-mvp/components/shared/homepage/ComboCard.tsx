@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getCategoryMenuItemImage } from '@/lib/utils';
 import {
   Layers,
   Plus,
@@ -135,6 +136,33 @@ export default function ComboCard({
     combo.description?.trim() ||
     'Chef-curated value combo meal pairing with premium portions.';
 
+  // Slideshow images: Combo image first, then individual item images, cycling every 1 second
+  const slideshowImages = useMemo(() => {
+    const list: { src: string; name: string }[] = [];
+    if (combo.image_url) {
+      list.push({ src: combo.image_url, name: title });
+    }
+    parsedItems.forEach((it, idx) => {
+      const src = it.image_url || (it.name ? getCategoryMenuItemImage(it.name) : null);
+      if (src && !list.some((existing) => existing.src === src)) {
+        list.push({ src, name: it.name || `Item ${idx + 1}` });
+      }
+    });
+    return list;
+  }, [combo.image_url, title, parsedItems]);
+
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+
+  useEffect(() => {
+    if (slideshowImages.length <= 1) return;
+    const interval = setInterval(() => {
+      setCurrentSlideIndex((prev) => (prev + 1) % slideshowImages.length);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [slideshowImages.length]);
+
+  const activeSlide = slideshowImages[currentSlideIndex] || (combo.image_url ? { src: combo.image_url, name: title } : null);
+
   return (
     <div
       onTouchStart={handleTouchStart}
@@ -156,17 +184,27 @@ export default function ComboCard({
         }}
       >
         <div className="relative w-full h-full rounded-xl overflow-hidden bg-white/40">
-          {combo.image_url ? (
+          {activeSlide?.src ? (
             <Image
-              src={combo.image_url}
-              alt={title}
+              key={activeSlide.src}
+              src={activeSlide.src}
+              alt={activeSlide.name || title}
               fill
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 340px"
-              className="object-cover group-hover:scale-105 transition-transform duration-500 rounded-xl"
+              className="object-cover group-hover:scale-105 transition-opacity duration-300 rounded-xl"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-slate-400">
               <Layers className="size-10 text-orange-500" />
+            </div>
+          )}
+
+          {/* Active slide item indicator badge when cycling item images */}
+          {slideshowImages.length > 1 && currentSlideIndex > 0 && activeSlide?.name && (
+            <div className="absolute bottom-2 left-2 z-10 animate-in fade-in duration-200">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black bg-slate-900/80 text-white backdrop-blur-md border border-white/20">
+                <span className="truncate max-w-[120px]">{activeSlide.name}</span>
+              </span>
             </div>
           )}
 

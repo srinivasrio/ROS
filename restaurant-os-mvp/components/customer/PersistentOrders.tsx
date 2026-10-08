@@ -211,7 +211,7 @@ const BillConfirmationModal = ({ isOpen, onClose, onConfirm }: { isOpen: boolean
 export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: string, tableNumber: string }) {
     const pathname = usePathname();
     const router = useRouter();
-    const isVisible = pathname.includes('/customer/myorders') || pathname.includes('/customer/orders');
+    const isVisible = pathname.includes('/myorders') || pathname.includes('/orders');
     
     // Active vs Previous Orders Tabs
     const [activeTab, setActiveTab] = useState<'active' | 'previous'>('active');
