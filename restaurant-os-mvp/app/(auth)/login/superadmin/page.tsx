@@ -1,18 +1,13 @@
 'use client';
 
-import { useState, useCallback, Suspense, useEffect } from 'react';
+import { useState, useCallback, Suspense } from 'react';
 import { motion } from 'framer-motion';
-import {
-    Lock, Mail, Loader2, ArrowRight, ExternalLink
-} from 'lucide-react';
-import { toast } from 'sonner';
-import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
+import { ExternalLink, ShieldAlert, Sparkles } from 'lucide-react';
 import { showWarningPopup } from '@/components/shared/WarningPopupCard';
+import { AuthBackground } from '@/components/auth/AuthBackground';
+import { DineInOneWaveLogo } from '@/components/auth/DineInOneWaveLogo';
 
 function SuperAdminLoginInner() {
-    const [identifier, setIdentifier] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
     const superAdminUrl = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://control.localhost:3005';
 
     const handleRedirect = () => {
@@ -27,60 +22,44 @@ function SuperAdminLoginInner() {
         }
     };
 
-    const handleSubmit = useCallback(async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-        try {
-            // Forward to superadmin app or authenticate directly
-            window.location.href = `${superAdminUrl}/login`;
-        } catch (err: any) {
-            showWarningPopup({
-                title: 'Portal Redirection Failed',
-                message: err?.message || 'Super admin redirection failed',
-                type: 'error',
-                dismissText: 'Retry'
-            });
-            setLoading(false);
-        }
-    }, [superAdminUrl]);
-
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
-            {/* Ambient subtle red/rose glow */}
-            <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-red-500/10 rounded-full blur-[140px] pointer-events-none" />
-            <div className="absolute bottom-0 left-1/4 w-[400px] h-[400px] bg-rose-500/10 rounded-full blur-[120px] pointer-events-none" />
-
+        <AuthBackground className="min-h-screen py-10 px-4 flex flex-col justify-center items-center">
             <div className="max-w-md w-full relative z-10">
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-center mb-8"
+                    className="text-center mb-6 flex flex-col items-center"
                 >
-                    <DineInOneLogo size={64} className="mx-auto mb-4" />
-                    <div>
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 border border-red-200 text-red-700 text-xs font-bold uppercase tracking-wider mb-2">
-                            control.localhost:3005
-                        </div>
+                    <DineInOneWaveLogo size="lg" />
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/80 border border-slate-200/80 text-rose-700 text-xs font-black uppercase tracking-wider shadow-xs backdrop-blur-md">
+                        <ShieldAlert size={12} className="text-rose-600" />
+                        <span>Platform Super Admin</span>
                     </div>
-                    <h1 className="text-3xl font-black tracking-tight text-slate-900">
-                        Super Admin Console
-                    </h1>
-                    <p className="text-sm text-slate-500 mt-2">
-                        Platform-level management and multi-tenant observability portal.
-                    </p>
                 </motion.div>
 
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 }}
-                    className="bg-white border border-slate-200/80 rounded-3xl p-8 shadow-xl shadow-slate-200/50"
+                    className="bg-white border border-slate-100 rounded-3xl p-7 sm:p-8 shadow-2xl relative overflow-hidden"
                 >
-                    <div className="space-y-6">
+                    <div className="mb-6">
+                        <h2 className="text-2xl font-black tracking-tight text-slate-900">
+                            Super Admin Console
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-1">
+                            Platform-level multi-tenant management and infrastructure observability.
+                        </p>
+                    </div>
+
+                    <div className="space-y-5">
                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-sm text-slate-600">
-                            <p className="font-bold text-slate-900 mb-1">Dedicated Platform Portal</p>
+                            <p className="font-bold text-slate-900 mb-1 flex items-center gap-1.5">
+                                <Sparkles size={14} className="text-rose-500" />
+                                Dedicated Platform Surface
+                            </p>
                             <p className="text-xs text-slate-500 leading-relaxed">
-                                Super Administrator operates on an isolated standalone infrastructure surface for complete platform security.
+                                Super Administrator operates on an isolated standalone infrastructure surface for absolute multi-tenant platform security.
                             </p>
                         </div>
 
@@ -88,7 +67,7 @@ function SuperAdminLoginInner() {
                             id="superadmin-launch-btn"
                             type="button"
                             onClick={handleRedirect}
-                            className="w-full py-4 px-4 bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-bold rounded-xl shadow-lg shadow-red-600/25 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer"
+                            className="w-full py-4 px-4 bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-black rounded-2xl shadow-lg shadow-red-600/25 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer"
                         >
                             Open Super Admin Console
                             <ExternalLink size={18} />
@@ -96,7 +75,7 @@ function SuperAdminLoginInner() {
                     </div>
                 </motion.div>
             </div>
-        </div>
+        </AuthBackground>
     );
 }
 

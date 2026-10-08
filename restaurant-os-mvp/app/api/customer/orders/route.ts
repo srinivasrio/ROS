@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifyJwt, extractCustomerTokenForRestaurant } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
 import { getCategoryMenuItemImage } from '@/lib/utils';
+import { getCustomerTableSession } from '@/lib/customer-table-session';
 
 type CustomerJwtPayload = {
     customerId?: string;
@@ -35,6 +36,19 @@ export async function GET(req: NextRequest) {
         const clientCustomerId = searchParams.get('customerId') || '';
         const clientLastOrderId = searchParams.get('lastOrderId') || '';
         const isValidUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+        // Security Enforcement: Cryptographically check table session cookie if present
+        const tableSession = await getCustomerTableSession(req);
+        if (tableSession) {
+            if (String(tableSession.restaurant_id) !== String(actualRestaurantId)) {
+                return NextResponse.json({ error: 'Forbidden: Restaurant session mismatch' }, { status: 403 });
+            }
+            if (tableNumber && String(tableNumber).toLowerCase() !== 'takeaway' && String(tableNumber).toLowerCase() !== 'delivery') {
+                if (String(tableSession.table_number) !== String(tableNumber) && String(tableSession.table_id) !== String(tableNumber)) {
+                    return NextResponse.json({ error: 'Forbidden: Table session mismatch' }, { status: 403 });
+                }
+            }
+        }
 
         let physicalTableId: number | null = null;
         if (tableNumber) {

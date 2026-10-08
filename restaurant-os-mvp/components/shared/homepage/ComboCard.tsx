@@ -141,48 +141,64 @@ export default function ComboCard({
       onTouchMove={handleTouchMove}
       onClick={handleCardClick}
       style={{
-        backgroundColor: '#FFEA6C',
-        boxShadow: '0 4px 14px rgba(217, 119, 6, 0.12)',
-        border: '1px solid #f6d843',
+        backgroundColor: '#AACDDC',
+        boxShadow: '0 4px 14px rgba(170, 205, 220, 0.45), 0 2px 6px rgba(0, 0, 0, 0.04)',
+        border: '1px solid rgba(255, 255, 255, 0.65)',
       }}
-      className="w-full bg-[#FFEA6C] rounded-2xl sm:rounded-3xl transition-transform duration-200 active:scale-[0.98] overflow-hidden flex flex-col group cursor-pointer h-[295px] sm:h-[315px]"
+      className="w-full flex flex-col rounded-2xl transition-all duration-300 overflow-hidden group cursor-pointer"
     >
-      {/* 16:9 Culinary Image: Exact same aspect ratio across all cards */}
+      {/* Aspect-Ratio 4/3 Culinary Image with Recessed Well matching Popular Items */}
       <div 
-        className="relative aspect-[16/9] w-full bg-[#FFEA6C] overflow-hidden shrink-0 border-b border-amber-300/50"
+        className="relative aspect-[4/3] w-full overflow-hidden p-1.5"
+        style={{
+          backgroundColor: 'rgba(255, 255, 255, 0.25)',
+          boxShadow: 'inset 1.5px 1.5px 3px rgba(0, 0, 0, 0.06), inset -1.5px -1.5px 3px rgba(255, 255, 255, 0.6)'
+        }}
       >
-        {combo.image_url ? (
-          <Image
-            src={combo.image_url}
-            alt={title}
-            fill
-            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 340px"
-            className="object-cover group-hover:scale-105 transition-transform duration-500"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-400">
-            <Layers className="size-10 text-orange-500" />
-          </div>
-        )}
+        <div className="relative w-full h-full rounded-xl overflow-hidden bg-white/40">
+          {combo.image_url ? (
+            <Image
+              src={combo.image_url}
+              alt={title}
+              fill
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 340px"
+              className="object-cover group-hover:scale-105 transition-transform duration-500 rounded-xl"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-400">
+              <Layers className="size-10 text-orange-500" />
+            </div>
+          )}
 
-        {/* Savings Badge */}
-        {savings > 0 && (
-          <div className="absolute top-2.5 right-2.5 z-10">
+          {/* Savings Badge */}
+          {savings > 0 && (
+            <div className="absolute top-2.5 right-2.5 z-10">
+              <span 
+                className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-sm"
+              >
+                <span>Save {currencySymbol}{savings}</span>
+              </span>
+            </div>
+          )}
+
+          {/* Combo Badge */}
+          <div className="absolute top-2.5 left-2.5 z-10">
             <span 
-              className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-sm"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-orange-500 text-white shadow-sm"
             >
-              <span>Save {currencySymbol}{savings}</span>
+              <Sparkles className="size-3" />
+              <span>COMBO</span>
             </span>
           </div>
-        )}
 
-        {/* Tap to view info overlay pill at bottom of image */}
-        <div className="absolute bottom-2 right-2 z-10">
-          <span 
-            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-950/80 text-white backdrop-blur-md group-hover:bg-orange-600 transition-colors"
-          >
-            <span>Details</span>
-          </span>
+          {/* Tap to view info overlay pill at bottom of image */}
+          <div className="absolute bottom-2 right-2 z-10">
+            <span 
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-950/80 text-white backdrop-blur-md group-hover:bg-orange-600 transition-colors"
+            >
+              <span>{isExpanded ? 'Hide' : 'Details'}</span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -341,13 +357,16 @@ export default function ComboCard({
           </AnimatePresence>
         </div>
 
-        {/* Price and Cart Interaction: Pinned to bottom with uniform height */}
-        <div className="h-12 mt-auto pt-2 border-t border-amber-300/60 flex items-center justify-between shrink-0">
+        {/* Price & Action Button matching Popular Items Card */}
+        <div 
+          className="flex items-center justify-between mt-3 pt-3"
+          style={{ borderTop: '1px solid rgba(255, 255, 255, 0.6)' }}
+        >
           <div className="flex flex-col justify-center">
             <div className="flex items-baseline gap-1">
               <div className="flex items-baseline gap-0.5">
-                <span className="text-[11px] font-bold text-slate-700">{currencySymbol}</span>
-                <span className="text-base sm:text-lg font-black text-slate-900 font-display">
+                <span className="text-xs font-bold text-slate-700">{currencySymbol}</span>
+                <span className="text-base sm:text-lg font-black text-slate-950 font-display">
                   {offerPrice}
                 </span>
               </div>
@@ -367,7 +386,7 @@ export default function ComboCard({
           {quantity > 0 ? (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center gap-1.5 bg-[#F5DE52] rounded-xl p-0.5 border border-amber-400/60"
+              className="inline-flex items-center gap-2 rounded-xl p-1 bg-white shadow-xs border border-white"
             >
               <button
                 onClick={(e) => {
@@ -375,11 +394,11 @@ export default function ComboCard({
                   onDecrement(itemId);
                 }}
                 aria-label="Decrease quantity"
-                className="size-6 rounded-lg bg-[#F97316] text-white hover:bg-orange-600 flex items-center justify-center transition-all active:scale-90 cursor-pointer"
+                className="size-6 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer bg-orange-500 shadow-xs hover:bg-orange-600"
               >
-                <Minus className="size-3 stroke-[3]" />
+                <Minus className="size-3.5 stroke-[3]" />
               </button>
-              <span className="font-black text-xs text-slate-900 min-w-[18px] text-center">
+              <span className="font-black text-sm text-slate-900 min-w-[18px] text-center tabular-nums">
                 {quantity}
               </span>
               <button
@@ -388,9 +407,9 @@ export default function ComboCard({
                   onIncrement(itemId);
                 }}
                 aria-label="Increase quantity"
-                className="size-6 rounded-lg bg-[#F97316] text-white hover:bg-orange-600 flex items-center justify-center transition-all active:scale-90 cursor-pointer"
+                className="size-6 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer bg-orange-500 shadow-xs hover:bg-orange-600"
               >
-                <Plus className="size-3 stroke-[3]" />
+                <Plus className="size-3.5 stroke-[3]" />
               </button>
             </div>
           ) : (
@@ -400,10 +419,10 @@ export default function ComboCard({
                 onAdd({ ...combo, price: offerPrice, original_price: totalOriginalPrice > 0 ? totalOriginalPrice : undefined });
               }}
               aria-label={`Add ${title} to order`}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-black text-xs bg-orange-600 text-white hover:bg-orange-700 active:scale-95 transition-all shadow-sm cursor-pointer"
+              className="px-3.5 py-1.5 rounded-xl font-black text-xs bg-orange-500 text-white shadow-xs active:scale-95 hover:bg-orange-600 flex items-center gap-1 cursor-pointer transition-all"
             >
-              <Plus className="size-3.5 stroke-[2.5]" />
-              <span>Add</span>
+              <Plus className="size-3.5 stroke-[3]" />
+              <span>ADD</span>
             </button>
           )}
         </div>

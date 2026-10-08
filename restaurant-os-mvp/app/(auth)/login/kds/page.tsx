@@ -3,13 +3,14 @@
 import { useState, useCallback, Suspense, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-    Flame, KeyRound, Phone, Loader2, ArrowRight, Monitor
+    Flame, KeyRound, Loader2, ArrowRight, Monitor
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { setDineToken } from '@/lib/supabase';
-import { DineInOneLogo } from '@/components/shared/DineInOneLogo';
 import { showWarningPopup } from '@/components/shared/WarningPopupCard';
+import { AuthBackground } from '@/components/auth/AuthBackground';
+import { DineInOneWaveLogo } from '@/components/auth/DineInOneWaveLogo';
 
 function KdsLoginInner() {
     const searchParams = useSearchParams();
@@ -107,46 +108,43 @@ function KdsLoginInner() {
     }, [mobile, pin, searchParams]);
 
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
-            {/* Ambient amber glow */}
-            <div className="absolute top-0 left-1/3 w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[140px] pointer-events-none" />
-            <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] bg-orange-500/10 rounded-full blur-[120px] pointer-events-none" />
-
+        <AuthBackground className="min-h-screen py-10 px-4 flex flex-col justify-center items-center">
             <div className="max-w-md w-full relative z-10">
-                {/* Brand Header */}
+                {/* Dine In One Wave Animated Logo above card */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-center mb-8"
+                    className="text-center mb-6 flex flex-col items-center"
                 >
-                    <DineInOneLogo size={64} className="mx-auto mb-4" />
-                    <div>
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold uppercase tracking-wider mb-2">
-                            <Monitor size={12} />
-                            kds.dineinone.com
-                        </div>
+                    <DineInOneWaveLogo size="lg" />
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/80 border border-slate-200/80 text-amber-800 text-xs font-black uppercase tracking-wider shadow-xs backdrop-blur-md">
+                        <Flame size={12} className="text-amber-500" />
+                        <span>Kitchen Display System (KDS)</span>
                     </div>
-                    <h1 className="text-3xl font-black tracking-tight text-slate-900">
-                        Kitchen Display System
-                    </h1>
-                    <p className="text-sm text-slate-500 mt-2">
-                        Staff sign in for live kitchen order stations and chefs.
-                    </p>
                 </motion.div>
 
-                {/* Login Card */}
+                {/* Pure Crisp White Login Card */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 }}
-                    className="bg-white border border-slate-200/80 rounded-3xl p-8 shadow-xl shadow-slate-200/50"
+                    className="bg-white border border-slate-100 rounded-3xl p-7 sm:p-8 shadow-2xl relative overflow-hidden"
                 >
-                    <form onSubmit={handleSubmit} className="space-y-5">
+                    <div className="mb-6">
+                        <h2 className="text-2xl font-black tracking-tight text-slate-900">
+                            Kitchen Sign In
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-1">
+                            Chef station and kitchen display authentication via employee PIN.
+                        </p>
+                    </div>
+
+                    <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Mobile Number */}
                         <div>
                             <label
                                 htmlFor="kds-mobile-input"
-                                className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2"
+                                className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5"
                             >
                                 Registered Mobile Number
                             </label>
@@ -164,7 +162,7 @@ function KdsLoginInner() {
                                     placeholder="9876543210"
                                     value={mobile}
                                     onChange={(e) => setMobile(e.target.value.replace(/[^0-9]/g, ''))}
-                                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 text-base font-mono font-semibold focus:outline-none focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all"
+                                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 placeholder:text-slate-400 text-sm font-semibold focus:outline-none focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all font-mono"
                                 />
                             </div>
                         </div>
@@ -173,7 +171,7 @@ function KdsLoginInner() {
                         <div>
                             <label
                                 htmlFor="kds-pin-input"
-                                className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2"
+                                className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5"
                             >
                                 Kitchen Employee PIN (4-6 digits)
                             </label>
@@ -191,11 +189,11 @@ function KdsLoginInner() {
                                     placeholder="••••"
                                     value={pin}
                                     onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
-                                    className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 text-lg font-mono font-bold tracking-widest focus:outline-none focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all"
+                                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 placeholder:text-slate-400 text-base font-mono font-bold tracking-widest focus:outline-none focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all"
                                 />
                             </div>
-                            <p className="text-[11px] text-slate-400 font-medium mt-1.5">
-                                Validated for chef, kitchen, and supervisor staff accounts.
+                            <p className="text-[11px] text-slate-400 font-medium mt-1">
+                                Validated for chef and kitchen supervisor stations.
                             </p>
                         </div>
 
@@ -204,17 +202,17 @@ function KdsLoginInner() {
                             id="kds-login-submit-btn"
                             type="submit"
                             disabled={loading}
-                            className="w-full min-h-[52px] py-3.5 px-4 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-extrabold rounded-xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 text-base transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+                            className="w-full py-3.5 px-4 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black rounded-2xl shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                         >
                             {loading ? (
                                 <>
-                                    <Loader2 size={20} className="animate-spin" />
+                                    <Loader2 size={18} className="animate-spin" />
                                     Verifying kitchen access...
                                 </>
                             ) : (
                                 <>
                                     Access Kitchen Display
-                                    <ArrowRight size={20} />
+                                    <ArrowRight size={18} />
                                 </>
                             )}
                         </button>
@@ -223,12 +221,12 @@ function KdsLoginInner() {
                     {/* Footer */}
                     <div className="mt-6 pt-5 border-t border-slate-100 text-center">
                         <p className="text-xs text-slate-400 font-medium">
-                            Dedicated kitchen device access. Contact store manager for PIN assistance.
+                            Dedicated kitchen device access. Contact restaurant manager for PIN reset.
                         </p>
                     </div>
                 </motion.div>
             </div>
-        </div>
+        </AuthBackground>
     );
 }
 

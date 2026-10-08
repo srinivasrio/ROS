@@ -148,43 +148,88 @@ export function CustomerBottomNav({ restaurantCode: propRestaurantCode, tableNum
         };
     }, []);
 
-    const navItems = useMemo(() => [
-        { 
-            id: 'home', 
-            label: 'Home', 
-            icon: Home, 
-            path: `/${restaurantCode}/customer/home/${tableNumber}`, 
-            active: pathname.includes('/customer/home/') 
-        },
-        { 
-            id: 'menu', 
-            label: 'Menu', 
-            icon: UtensilsCrossed, 
-            path: `/${restaurantCode}/customer/menu/${tableNumber}`, 
-            active: pathname.includes('/customer/menu/') 
-        },
-        { 
-            id: 'service', 
-            label: 'Service', 
-            icon: Bell, 
-            path: `/${restaurantCode}/customer/service/${tableNumber}`, 
-            active: pathname.includes('/customer/service/') || pathname.includes('/customer/services/')
-        },
-        { 
-            id: 'orders', 
-            label: 'Orders', 
-            icon: Clock, 
-            path: `/${restaurantCode}/customer/myorders/${tableNumber}`, 
-            active: pathname.includes('/customer/myorders/') || pathname.includes('/customer/orders/') 
-        },
-        { 
-            id: 'profile', 
-            label: 'Profile', 
-            icon: User, 
-            path: `/${restaurantCode}/customer/profile/${tableNumber}`, 
-            active: pathname.includes('/customer/profile/') 
-        },
-    ], [restaurantCode, tableNumber, pathname]);
+    const tokenMatch = pathname.match(/\/customer\/t\/([^/?#]+)/i);
+    const tableToken = tokenMatch ? tokenMatch[1] : null;
+
+    const navItems = useMemo(() => {
+        if (tableToken) {
+            return [
+                { 
+                    id: 'home', 
+                    label: 'Home', 
+                    icon: Home, 
+                    path: `/customer/t/${tableToken}/home`, 
+                    active: pathname.includes('/home') 
+                },
+                { 
+                    id: 'menu', 
+                    label: 'Menu', 
+                    icon: UtensilsCrossed, 
+                    path: `/customer/t/${tableToken}/menu`, 
+                    active: pathname.includes('/menu') 
+                },
+                { 
+                    id: 'service', 
+                    label: 'Service', 
+                    icon: Bell, 
+                    path: `/customer/t/${tableToken}/service`, 
+                    active: pathname.includes('/service') 
+                },
+                { 
+                    id: 'orders', 
+                    label: 'Orders', 
+                    icon: Clock, 
+                    path: `/customer/t/${tableToken}/myorders`, 
+                    active: pathname.includes('/myorders') || pathname.includes('/orders') 
+                },
+                { 
+                    id: 'profile', 
+                    label: 'Profile', 
+                    icon: User, 
+                    path: `/customer/t/${tableToken}/profile`, 
+                    active: pathname.includes('/profile') 
+                },
+            ];
+        }
+
+        return [
+            { 
+                id: 'home', 
+                label: 'Home', 
+                icon: Home, 
+                path: `/${restaurantCode}/customer/home/${tableNumber}`, 
+                active: pathname.includes('/customer/home/') 
+            },
+            { 
+                id: 'menu', 
+                label: 'Menu', 
+                icon: UtensilsCrossed, 
+                path: `/${restaurantCode}/customer/menu/${tableNumber}`, 
+                active: pathname.includes('/customer/menu/') 
+            },
+            { 
+                id: 'service', 
+                label: 'Service', 
+                icon: Bell, 
+                path: `/${restaurantCode}/customer/service/${tableNumber}`, 
+                active: pathname.includes('/customer/service/') || pathname.includes('/customer/services/')
+            },
+            { 
+                id: 'orders', 
+                label: 'Orders', 
+                icon: Clock, 
+                path: `/${restaurantCode}/customer/myorders/${tableNumber}`, 
+                active: pathname.includes('/customer/myorders/') || pathname.includes('/customer/orders/') 
+            },
+            { 
+                id: 'profile', 
+                label: 'Profile', 
+                icon: User, 
+                path: `/${restaurantCode}/customer/profile/${tableNumber}`, 
+                active: pathname.includes('/customer/profile/') 
+            },
+        ];
+    }, [restaurantCode, tableNumber, pathname, tableToken]);
 
     useEffect(() => {
         if (restaurantCode && tableNumber) {

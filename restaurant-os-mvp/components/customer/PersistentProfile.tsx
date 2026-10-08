@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId: string, tableNumber: string }) {
     const pathname = usePathname();
     const router = useRouter();
-    const isVisible = pathname.includes('/customer/profile/');
+    const isVisible = pathname.includes('/customer/profile/') || pathname.includes('/profile');
     const normTable = String(tableNumber || '').trim().toLowerCase();
     const isVirtual = normTable === 'takeaway' || normTable === 'delivery';
     const formattedTable = isVirtual ? (normTable === 'takeaway' ? 'Takeaway' : 'Delivery') : (tableNumber?.toLowerCase().startsWith('table') ? tableNumber : `Table ${tableNumber}`);
@@ -25,6 +25,9 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
     const [customerDob, setCustomerDob] = useState('');
     const [isRegistered, setIsRegistered] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+    const [showHelpDialog, setShowHelpDialog] = useState(false);
+    const [showTermsModal, setShowTermsModal] = useState(false);
+    const [supportPhone, setSupportPhone] = useState('7075218464');
     const [isEditing, setIsEditing] = useState(false);
 
     // Form inputs for completing or updating profile
@@ -84,6 +87,14 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                             if (c.dateOfBirth) localStorage.setItem(`ros_customer_dob_${restaurantId}`, c.dateOfBirth);
                         } catch {}
                     }
+                })
+                .catch(() => {});
+
+            // Fetch restaurant profile for live admin contact phone
+            fetch(`/api/homepage-builder/profile?restaurantId=${encodeURIComponent(restaurantId)}`)
+                .then(res => res.json())
+                .then(prof => {
+                    if (prof?.phone) setSupportPhone(prof.phone);
                 })
                 .catch(() => {});
         }
@@ -401,26 +412,37 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                                     </span>
                                 </div>
 
-                                {/* Customer Details: Mobile, DOB, Email */}
-                                <div className="mt-2 space-y-1.5 text-xs font-semibold text-slate-600">
+                                {/* Customer Details: Name, Mobile, DOB neatly arranged with Verified Tag */}
+                                <div className="mt-2.5 space-y-2 text-xs font-semibold text-slate-700 bg-white/70 p-3 rounded-2xl border border-white/80 shadow-xs">
+                                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                                        <span className="text-slate-500 font-medium text-[11px]">Full Name</span>
+                                        <span className="font-bold text-slate-900 text-sm">{customerName || 'Verified Diner'}</span>
+                                    </div>
                                     {customerMobile && (
-                                        <div className="flex items-center gap-2 text-slate-700">
-                                            <Phone size={13} className="text-orange-500 shrink-0" />
-                                            <span className="font-bold">+91 {customerMobile.replace(/\D/g, '').slice(-10)}</span>
+                                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                                            <span className="text-slate-500 font-medium text-[11px] flex items-center gap-1.5">
+                                                <Phone size={12} className="text-orange-500 shrink-0" />
+                                                Mobile
+                                            </span>
+                                            <span className="font-bold text-slate-900 font-mono">+91 {customerMobile.replace(/\D/g, '').slice(-10)}</span>
                                         </div>
                                     )}
                                     {customerDob && (
-                                        <div className="flex items-center gap-2 text-slate-700">
-                                            <Calendar size={13} className="text-orange-500 shrink-0" />
-                                            <span>Date of Birth: <strong className="text-slate-900 font-bold">{customerDob}</strong></span>
+                                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                                            <span className="text-slate-500 font-medium text-[11px] flex items-center gap-1.5">
+                                                <Calendar size={12} className="text-orange-500 shrink-0" />
+                                                Date of Birth
+                                            </span>
+                                            <span className="font-bold text-slate-900">{customerDob}</span>
                                         </div>
                                     )}
-                                    {customerEmail && (
-                                        <div className="flex items-center gap-2 text-slate-500">
-                                            <Mail size={13} className="text-slate-400 shrink-0" />
-                                            <span className="truncate">{customerEmail}</span>
-                                        </div>
-                                    )}
+                                    <div className="flex items-center justify-between pt-0.5">
+                                        <span className="text-slate-500 font-medium text-[11px]">Status</span>
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black text-emerald-700 bg-emerald-100 border border-emerald-300">
+                                            <Check size={10} strokeWidth={3} />
+                                            Verified Account
+                                        </span>
+                                    </div>
                                 </div>
 
                                 <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -428,51 +450,20 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                                         <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                         {formattedTable}
                                     </span>
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black text-orange-600 bg-orange-100/70 border border-orange-200/60">
-                                        <Sparkles size={10} />
-                                        Phone Verified
-                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsEditing(true)}
+                                        className="text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline cursor-pointer ml-auto"
+                                    >
+                                        Edit Details
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* Account & Activity Section */}
-                <section>
-                    <div className="flex items-center gap-2 px-1 mb-2.5">
-                        <span className="size-1.5 rounded-full bg-orange-500" />
-                        <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-500">Account & Activity</h3>
-                    </div>
-                    <div
-                        className="rounded-[24px] p-2 overflow-hidden"
-                        style={{
-                            backgroundColor: '#EEF2F6',
-                            boxShadow: '4px 4px 10px rgba(166, 180, 200, 0.38), -4px -4px 10px rgba(255, 255, 255, 0.95)',
-                            border: '1px solid rgba(255, 255, 255, 0.85)',
-                        }}
-                    >
-                        <div className="divide-y divide-slate-200/60">
-                            <ProfileItem
-                                icon={User}
-                                label={isRegistered ? 'Update Dining Details' : 'Complete Profile'}
-                                onClick={() => {
-                                    setIsEditing(true);
-                                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                                }}
-                            />
-                            <ProfileItem icon={Heart} label="Favorite Dishes" />
-                            <ProfileItem
-                                icon={MapPin}
-                                label="Dining History"
-                                onClick={() => router.push(`/${restaurantId}/customer/myorders/${tableNumber}`)}
-                            />
-                            <ProfileItem icon={Bell} label="Service Alerts" />
-                        </div>
-                    </div>
-                </section>
-
-                {/* Preferences & Support Section (Dietary Preferences REMOVED) */}
+                {/* Preferences & Support Section (Account & Activity REMOVED per user request) */}
                 <section>
                     <div className="flex items-center gap-2 px-1 mb-2.5">
                         <span className="size-1.5 rounded-full bg-orange-500" />
@@ -487,8 +478,16 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                         }}
                     >
                         <div className="divide-y divide-slate-200/60">
-                            <ProfileItem icon={HelpCircle} label="Help & Feedback" />
-                            <ProfileItem icon={ShieldCheck} label="Privacy & Terms" />
+                            <ProfileItem 
+                                icon={HelpCircle} 
+                                label="Help & Feedback" 
+                                onClick={() => setShowHelpDialog(true)}
+                            />
+                            <ProfileItem 
+                                icon={ShieldCheck} 
+                                label="Privacy & Terms" 
+                                onClick={() => setShowTermsModal(true)}
+                            />
                             <ProfileItem
                                 icon={LogOut}
                                 label="Log Out"
@@ -499,6 +498,110 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                     </div>
                 </section>
             </main>
+
+            {/* Help & Feedback Confirmation Modal */}
+            {showHelpDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center animate-in zoom-in-95 duration-200">
+                        <div className="size-16 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-600 mb-4 shadow-lg shadow-orange-500/10">
+                            <Phone size={28} />
+                        </div>
+                        
+                        <h3 className="text-xl font-black text-slate-900 mb-2 tracking-tight">
+                            Help & Feedback
+                        </h3>
+                        
+                        <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                            Need immediate assistance with your table, order, or service? Call restaurant admin directly:
+                        </p>
+
+                        <div className="w-full py-3 px-4 rounded-2xl bg-orange-50/70 border border-orange-200/80 mb-6 flex items-center justify-center gap-2 text-slate-900 font-black text-base font-mono">
+                            <Phone size={16} className="text-orange-500" />
+                            <span>+91 {supportPhone || '7075218464'}</span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3 w-full">
+                            <button
+                                onClick={() => setShowHelpDialog(false)}
+                                className="py-3.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm transition-all active:scale-[0.98] cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <a
+                                href={`tel:${supportPhone || '7075218464'}`}
+                                onClick={() => setShowHelpDialog(false)}
+                                className="py-3.5 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm shadow-lg shadow-orange-600/25 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer text-center"
+                            >
+                                Call Admin
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Privacy & Terms Modal Card */}
+            {showTermsModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+                            <div className="flex items-center gap-2">
+                                <div className="size-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600">
+                                    <ShieldCheck size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-slate-900">Privacy & Terms</h3>
+                                    <p className="text-[11px] text-slate-400">Dine In One Policy & Data Protection</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setShowTermsModal(false)}
+                                className="size-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors cursor-pointer"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto py-4 space-y-4 text-xs text-slate-600 leading-relaxed pr-1">
+                            <div>
+                                <h4 className="font-bold text-slate-900 text-sm mb-1">1. Contactless Dining & Ordering</h4>
+                                <p>
+                                    Orders placed through Dine In One table sessions are transmitted directly to the restaurant kitchen and live billing portal. By scanning this table QR code, your session is cryptographically bound to prevent unauthorized table modifications.
+                                </p>
+                            </div>
+
+                            <div>
+                                <h4 className="font-bold text-slate-900 text-sm mb-1">2. Customer Privacy & Data Protection</h4>
+                                <p>
+                                    Your personal information (Name, Mobile Number, and Date of Birth) is encrypted and strictly confidential. We never sell or share your phone number with external third-party advertisers. Information is solely utilized for active order tracking, dining rewards, and occasional special occasion offers.
+                                </p>
+                            </div>
+
+                            <div>
+                                <h4 className="font-bold text-slate-900 text-sm mb-1">3. Table Security & Billing</h4>
+                                <p>
+                                    Each table QR contains a cryptographically signed token. Please do not share sensitive billing links. Any discounts, taxes (GST), and service requests are governed by restaurant management policies.
+                                </p>
+                            </div>
+
+                            <div>
+                                <h4 className="font-bold text-slate-900 text-sm mb-1">4. Feedback & Support</h4>
+                                <p>
+                                    For any concerns regarding prepared food quality, order timeliness, or refunds, please reach out to the staff or use the Help & Feedback button to directly contact the floor manager.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="pt-3 border-t border-slate-100 shrink-0">
+                            <button
+                                onClick={() => setShowTermsModal(false)}
+                                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl transition-all active:scale-[0.98] cursor-pointer"
+                            >
+                                I Understand & Agree
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Log Out Confirmation Modal */}
             {showLogoutConfirm && (
