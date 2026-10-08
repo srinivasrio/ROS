@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Search, X, ArrowRight, ChefHat, Eye, EyeOff, Sparkles, 
@@ -94,6 +94,9 @@ export default function SharedHomepageLayout({
   onSelectSection,
 }: SharedHomepageProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const tokenMatch = pathname ? pathname.match(/\/customer\/t\/([^/?#]+)/i) : null;
+  const currentToken = tokenMatch ? tokenMatch[1] : null;
   const cartContext = useCartSafe();
 
   // Unified cart actions
@@ -234,6 +237,10 @@ export default function SharedHomepageLayout({
       propOnCategoryClick(category);
       return;
     }
+    if (currentToken) {
+      router.push(`/customer/t/${currentToken}/menu?category=${encodeURIComponent(category.name || category.id)}`);
+      return;
+    }
     if (mode === 'customer') {
       router.push(`/${restaurantId}/customer/menu/${tableNumber}?category=${encodeURIComponent(category.name || category.id)}`);
       return;
@@ -307,7 +314,11 @@ export default function SharedHomepageLayout({
     // 2. Combo: Show Combo Detail Modal directly on Homepage (NO redirect to combos/menu)
     if (banner.redirect_type === 'combo') {
       if (target === 'all') {
-        router.push(`/${restaurantId}/customer/combos/${tableNumber}`);
+        if (currentToken) {
+          router.push(`/customer/t/${currentToken}/menu`);
+        } else {
+          router.push(`/${restaurantId}/customer/combos/${tableNumber}`);
+        }
         return;
       }
       let found = (combos || []).find((c: any) => 
@@ -339,7 +350,11 @@ export default function SharedHomepageLayout({
     // 3. Special: Show Special Detail Modal directly on Homepage (NO redirect to specials/menu)
     if (banner.redirect_type === 'special') {
       if (target === 'all') {
-        router.push(`/${restaurantId}/customer/specials/${tableNumber}`);
+        if (currentToken) {
+          router.push(`/customer/t/${currentToken}/menu`);
+        } else {
+          router.push(`/${restaurantId}/customer/specials/${tableNumber}`);
+        }
         return;
       }
       let found = (specials || []).find((s: any) => 
@@ -371,7 +386,11 @@ export default function SharedHomepageLayout({
     // 4. Offer: Show Offer Detail Modal directly on Homepage
     if (banner.redirect_type === 'offer') {
       if (target === 'all') {
-        router.push(`/${restaurantId}/customer/offers/${tableNumber}`);
+        if (currentToken) {
+          router.push(`/customer/t/${currentToken}/menu`);
+        } else {
+          router.push(`/${restaurantId}/customer/offers/${tableNumber}`);
+        }
         return;
       }
       let found = (offers || []).find((o: any) => 
@@ -438,7 +457,12 @@ export default function SharedHomepageLayout({
       data
     );
     if (destinationUrl) {
-      router.push(destinationUrl);
+      if (currentToken) {
+        const cleanDest = destinationUrl.replace(/^\/[^/]+\/customer\//, `/customer/t/${currentToken}/`);
+        router.push(cleanDest);
+      } else {
+        router.push(destinationUrl);
+      }
     }
   }, [
     menuItems,
@@ -523,7 +547,13 @@ export default function SharedHomepageLayout({
                 onSearchClick={mode === 'customer' ? undefined : () => setIsSearchModalOpen(true)}
                 onServicesClick={() => setIsServiceModalOpen(true)}
                 cartItemCount={cartContext?.totalItems || 0}
-                onCartClick={() => router.push(`/${restaurantId}/customer/cart/${tableNumber}`)}
+                onCartClick={() => {
+                  if (currentToken) {
+                    router.push(`/customer/t/${currentToken}/cart`);
+                  } else {
+                    router.push(`/${restaurantId}/customer/cart/${tableNumber}`);
+                  }
+                }}
                 mode={mode}
               />
             )}
@@ -552,7 +582,13 @@ export default function SharedHomepageLayout({
                     </p>}
                   </div>
                   <button
-                    onClick={() => router.push(`/${restaurantId}/customer/menu/${tableNumber}`)}
+                    onClick={() => {
+                      if (currentToken) {
+                        router.push(`/customer/t/${currentToken}/menu`);
+                      } else {
+                        router.push(`/${restaurantId}/customer/menu/${tableNumber}`);
+                      }
+                    }}
                     className={STYLES.sectionViewAll}
                   >
                     <span>View All</span>
@@ -627,7 +663,13 @@ export default function SharedHomepageLayout({
                     </p>}
                   </div>
                   <button
-                    onClick={() => router.push(`/${restaurantId}/customer/specials/${tableNumber}`)}
+                    onClick={() => {
+                      if (currentToken) {
+                        router.push(`/customer/t/${currentToken}/menu`);
+                      } else {
+                        router.push(`/${restaurantId}/customer/specials/${tableNumber}`);
+                      }
+                    }}
                     className={STYLES.sectionViewAll}
                   >
                     <span>View All</span>
@@ -660,7 +702,13 @@ export default function SharedHomepageLayout({
                     </p>}
                   </div>
                   <button
-                    onClick={() => router.push(`/${restaurantId}/customer/combos/${tableNumber}`)}
+                    onClick={() => {
+                      if (currentToken) {
+                        router.push(`/customer/t/${currentToken}/menu`);
+                      } else {
+                        router.push(`/${restaurantId}/customer/combos/${tableNumber}`);
+                      }
+                    }}
                     className={STYLES.sectionViewAll}
                   >
                     <span>View All</span>
@@ -693,7 +741,13 @@ export default function SharedHomepageLayout({
                     </p>}
                   </div>
                   <button
-                    onClick={() => router.push(`/${restaurantId}/customer/offers/${tableNumber}`)}
+                    onClick={() => {
+                      if (currentToken) {
+                        router.push(`/customer/t/${currentToken}/menu`);
+                      } else {
+                        router.push(`/${restaurantId}/customer/offers/${tableNumber}`);
+                      }
+                    }}
                     className={STYLES.sectionViewAll}
                   >
                     <span>View All</span>
@@ -722,7 +776,13 @@ export default function SharedHomepageLayout({
                     </p>}
                   </div>
                   <button
-                    onClick={() => router.push(`/${restaurantId}/customer/popular/${tableNumber}`)}
+                    onClick={() => {
+                      if (currentToken) {
+                        router.push(`/customer/t/${currentToken}/menu`);
+                      } else {
+                        router.push(`/${restaurantId}/customer/popular/${tableNumber}`);
+                      }
+                    }}
                     className={STYLES.sectionViewAll}
                   >
                     <span>View All Items</span>
@@ -1013,7 +1073,11 @@ export default function SharedHomepageLayout({
                   onClick={() => {
                     const catId = selectedCategory.id;
                     setSelectedCategory(null);
-                    router.push(`/${restaurantId}/customer/menu/${tableNumber}?category=${catId}`);
+                    if (currentToken) {
+                      router.push(`/customer/t/${currentToken}/menu?category=${catId}`);
+                    } else {
+                      router.push(`/${restaurantId}/customer/menu/${tableNumber}?category=${catId}`);
+                    }
                   }}
                   style={{
                     boxShadow: '3px 3px 8px rgba(166, 180, 200, 0.45), -3px -3px 8px rgba(255, 255, 255, 0.95)',

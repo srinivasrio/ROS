@@ -190,6 +190,7 @@ export default function ComboCard({
               src={activeSlide.src}
               alt={activeSlide.name || title}
               fill
+              unoptimized
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 340px"
               className="object-cover group-hover:scale-105 transition-opacity duration-300 rounded-xl"
             />

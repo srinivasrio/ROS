@@ -85,6 +85,13 @@ export default function CustomerTokenLayout({
                         restaurant_slug: targetRes,
                         restaurant_name: data.restaurant.name,
                     });
+                    try {
+                        sessionStorage.setItem(`ros_session_${token}`, JSON.stringify({
+                            restaurant_id: data.restaurant.id,
+                            restaurant_slug: targetRes,
+                            table_number: data.table.table_number,
+                        }));
+                    } catch {}
                     
                     let mobile = '';
                     try {

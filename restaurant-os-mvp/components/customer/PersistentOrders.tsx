@@ -212,6 +212,16 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
     const pathname = usePathname();
     const router = useRouter();
     const isVisible = pathname.includes('/myorders') || pathname.includes('/orders');
+    const tokenMatch = pathname ? pathname.match(/\/customer\/t\/([^/?#]+)/i) : null;
+    const currentToken = tokenMatch ? tokenMatch[1] : null;
+
+    const navigateToMenu = () => {
+        if (currentToken) {
+            router.push(`/customer/t/${currentToken}/menu`);
+        } else {
+            router.push(`/${restaurantId}/customer/menu/${tableNumber}`);
+        }
+    };
     
     // Active vs Previous Orders Tabs
     const [activeTab, setActiveTab] = useState<'active' | 'previous'>('active');
@@ -597,7 +607,7 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                                 </p>
                                 <div className="flex flex-col sm:flex-row gap-3">
                                     <button
-                                        onClick={() => router.push(`/${restaurantId}/customer/menu/${tableNumber}`)}
+                                        onClick={navigateToMenu}
                                         className="py-3 px-6 rounded-2xl font-black text-xs text-white bg-gradient-to-r from-orange-500 to-amber-500 shadow-[0_4px_14px_rgba(255,107,53,0.38)] active:scale-95 transition-all cursor-pointer"
                                     >
                                         Browse Menu
@@ -871,7 +881,7 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                                             ) : (
                                                 <>
                                                     <button
-                                                        onClick={() => router.push(`/${restaurantId}/customer/menu/${tableNumber}`)}
+                                                        onClick={navigateToMenu}
                                                         className="flex-1 py-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold text-xs active:scale-98 transition-all shadow-xs cursor-pointer"
                                                     >
                                                         Add Items
@@ -913,7 +923,7 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                                     Your completed dining receipts and delivery history will stay permanently available here across all your visits.
                                 </p>
                                 <button
-                                    onClick={() => router.push(`/${restaurantId}/customer/menu/${tableNumber}`)}
+                                    onClick={navigateToMenu}
                                     className="py-3 px-6 rounded-2xl font-black text-xs text-white bg-gradient-to-r from-orange-500 to-amber-500 shadow-[0_4px_14px_rgba(255,107,53,0.38)] active:scale-95 transition-all cursor-pointer"
                                 >
                                     Browse Menu & Order
