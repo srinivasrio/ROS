@@ -86,6 +86,7 @@ export function TableDetailsSheet({
     const [expandedCombos, setExpandedCombos] = useState<Record<string, boolean>>({});
     const [paymentQrUrl, setPaymentQrUrl] = useState<string>('');
     const [upiId, setUpiId] = useState<string>('');
+    const [customerInfo, setCustomerInfo] = useState<{ name?: string; mobile?: string; dob?: string } | null>(null);
 
     useEffect(() => {
         tableOpenStore.set(true);
@@ -279,6 +280,37 @@ export function TableDetailsSheet({
                 }
             }
             setOrder(data ?? null);
+
+            // Resolve customer info for seated guests
+            if (data?.customer_id) {
+                try {
+                    const { data: cust } = await supabase
+                        .from('customers')
+                        .select('name, mobile, date_of_birth')
+                        .eq('id', data.customer_id)
+                        .maybeSingle();
+
+                    if (cust) {
+                        setCustomerInfo({
+                            name: cust.name || data.customer_name,
+                            mobile: cust.mobile || data.customer_phone,
+                            dob: cust.date_of_birth,
+                        });
+                    } else if (data.customer_name || data.customer_phone) {
+                        setCustomerInfo({
+                            name: data.customer_name,
+                            mobile: data.customer_phone,
+                        });
+                    }
+                } catch {}
+            } else if (data?.customer_name || data?.customer_phone) {
+                setCustomerInfo({
+                    name: data.customer_name,
+                    mobile: data.customer_phone,
+                });
+            } else {
+                setCustomerInfo(null);
+            }
         } catch (e) {
             console.error(e);
         } finally {
@@ -1007,6 +1039,35 @@ export function TableDetailsSheet({
                     >
                         <UserX size={14} className="text-slate-500" />
                         <span className="text-xs font-bold text-slate-600">No Waiter Assigned Yet</span>
+                    </div>
+                )}
+
+                {/* Seated Guest details (Name, Mobile, DOB) */}
+                {customerInfo && (customerInfo.name || customerInfo.mobile) && (
+                    <div
+                        className="rounded-2xl p-3.5 mb-3 flex items-center justify-between gap-3"
+                        style={{
+                            backgroundColor: '#EEF2F6',
+                            boxShadow: '3px 3px 8px rgba(166, 180, 200, 0.35), -3px -3px 8px rgba(255, 255, 255, 0.95)',
+                            border: '1.5px solid rgba(249, 115, 22, 0.45)',
+                        }}
+                    >
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="size-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center font-black text-white shrink-0 shadow-xs">
+                                {(customerInfo.name || customerInfo.mobile || 'G').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-black tracking-wider text-orange-600 uppercase">SEATED GUEST</span>
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-emerald-100 text-emerald-800">OTP Verified</span>
+                                </div>
+                                <p className="text-sm font-black text-slate-800 truncate">{customerInfo.name || 'Guest Diner'}</p>
+                                <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 font-semibold">
+                                    {customerInfo.mobile && <span>📱 +91 {customerInfo.mobile.replace(/\D/g, '').slice(-10)}</span>}
+                                    {customerInfo.dob && <span>🎂 {customerInfo.dob}</span>}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
 

@@ -378,7 +378,7 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                             border: '1px solid rgba(255, 255, 255, 0.85)',
                         }}
                     >
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-start gap-4">
                             <div
                                 className="p-1 rounded-[22px] shrink-0"
                                 style={{
@@ -391,22 +391,46 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                                 </div>
                             </div>
                             <div className="min-w-0 flex-1">
-                                <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight truncate">
-                                    {customerName || customerMobile || customerEmail}
-                                </h2>
-                                {customerName && (customerMobile || customerEmail) && (
-                                    <p className="text-xs font-semibold text-slate-500 truncate mt-0.5">
-                                        {customerMobile || customerEmail}
-                                    </p>
-                                )}
-                                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-base sm:text-lg font-black text-slate-800 tracking-tight truncate">
+                                        {customerName || 'Verified Diner'}
+                                    </h2>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200">
+                                        <Check size={10} strokeWidth={3} />
+                                        Verified
+                                    </span>
+                                </div>
+
+                                {/* Customer Details: Mobile, DOB, Email */}
+                                <div className="mt-2 space-y-1.5 text-xs font-semibold text-slate-600">
+                                    {customerMobile && (
+                                        <div className="flex items-center gap-2 text-slate-700">
+                                            <Phone size={13} className="text-orange-500 shrink-0" />
+                                            <span className="font-bold">+91 {customerMobile.replace(/\D/g, '').slice(-10)}</span>
+                                        </div>
+                                    )}
+                                    {customerDob && (
+                                        <div className="flex items-center gap-2 text-slate-700">
+                                            <Calendar size={13} className="text-orange-500 shrink-0" />
+                                            <span>Date of Birth: <strong className="text-slate-900 font-bold">{customerDob}</strong></span>
+                                        </div>
+                                    )}
+                                    {customerEmail && (
+                                        <div className="flex items-center gap-2 text-slate-500">
+                                            <Mail size={13} className="text-slate-400 shrink-0" />
+                                            <span className="truncate">{customerEmail}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mt-3 flex items-center gap-2 flex-wrap">
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-200/80">
                                         <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                         {formattedTable}
                                     </span>
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black text-orange-600 bg-orange-100/70 border border-orange-200/60">
                                         <Sparkles size={10} />
-                                        Personalized
+                                        MSG91 Verified
                                     </span>
                                 </div>
                             </div>

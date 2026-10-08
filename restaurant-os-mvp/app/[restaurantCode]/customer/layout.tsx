@@ -170,8 +170,9 @@ export default function CustomerLayout({
 
         try {
             const hasMobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`);
+            const isVerified = localStorage.getItem(`ros_customer_verified_${restaurantCode}`);
 
-            if (!hasMobile) {
+            if (!hasMobile || !isVerified) {
                 setNeedsCustomerInfo(true);
                 const tableQuery = isCleanTable && !isVirtualMode ? `?table=${encodeURIComponent(tableNumber)}` : '';
                 router.replace(`/${restaurantCode}/customer${tableQuery}`);

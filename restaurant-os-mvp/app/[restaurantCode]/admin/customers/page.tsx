@@ -15,6 +15,7 @@ import { SyncIndicator } from '@/components/admin/SyncIndicator';
 interface Customer {
     id: string;
     restaurant_id: string;
+    name?: string | null;
     mobile: string | null;
     email: string | null;
     date_of_birth: string | null;
@@ -305,11 +306,14 @@ export default function CustomersPage() {
                                         <td className="px-5 py-3.5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-black flex-shrink-0">
-                                                    {(c.mobile || c.email || '?').charAt(0).toUpperCase()}
+                                                    {(c.name || c.mobile || c.email || '?').charAt(0).toUpperCase()}
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <div className="flex items-center gap-1.5 text-sm font-semibold text-black">
-                                                        <Phone size={12} className="text-neutral-400 flex-shrink-0" />
+                                                    <p className="text-sm font-bold text-neutral-900 truncate">
+                                                        {c.name || 'Guest Diner'}
+                                                    </p>
+                                                    <div className="flex items-center gap-1.5 text-xs text-neutral-500">
+                                                        <Phone size={11} className="text-neutral-400 flex-shrink-0" />
                                                         <span className="truncate">{c.mobile || '—'}</span>
                                                     </div>
                                                 </div>
@@ -428,17 +432,22 @@ export default function CustomersPage() {
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-4">
                                         <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xl font-black">
-                                            {(selectedCustomer.customer.mobile || selectedCustomer.customer.email || '?').charAt(0).toUpperCase()}
+                                            {(selectedCustomer.customer.name || selectedCustomer.customer.mobile || selectedCustomer.customer.email || '?').charAt(0).toUpperCase()}
                                         </div>
                                         <div>
-                                            <p className="font-bold text-black flex items-center gap-2">
-                                                <Phone size={14} className="text-neutral-400" />
+                                            <h4 className="text-base font-black text-slate-900">
+                                                {selectedCustomer.customer.name || 'Guest Diner'}
+                                            </h4>
+                                            <p className="font-semibold text-slate-700 text-sm flex items-center gap-1.5 mt-0.5">
+                                                <Phone size={13} className="text-neutral-400" />
                                                 {selectedCustomer.customer.mobile || 'No mobile'}
                                             </p>
-                                            <p className="text-sm text-neutral-500 flex items-center gap-2 mt-0.5">
-                                                <Mail size={13} className="text-neutral-400" />
-                                                {selectedCustomer.customer.email || 'No email'}
-                                            </p>
+                                            {selectedCustomer.customer.email && (
+                                                <p className="text-xs text-neutral-500 flex items-center gap-1.5 mt-0.5">
+                                                    <Mail size={12} className="text-neutral-400" />
+                                                    {selectedCustomer.customer.email}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
 
