@@ -125,6 +125,23 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
         return () => clearInterval(timer);
     }, [resendCooldown]);
 
+    // Intercept third-party script errors from crashing Next.js client-side React tree
+    useEffect(() => {
+        const handleScriptError = (event: ErrorEvent) => {
+            const src = event.filename || '';
+            const msg = event.message || '';
+            if (src.includes('phone.email') || src.includes('sign_in_button') || msg.includes('getAttribute')) {
+                console.warn('[Phone.Email Widget notice intercepted]:', msg);
+                event.preventDefault?.();
+                event.stopImmediatePropagation?.();
+                return true;
+            }
+        };
+
+        window.addEventListener('error', handleScriptError, true);
+        return () => window.removeEventListener('error', handleScriptError, true);
+    }, []);
+
     // Register Phone.Email listener and inject official sign-in script
     useEffect(() => {
         if (!phoneEmailClientId) return;
@@ -165,15 +182,22 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             }
         };
 
-        const scriptId = 'phone-email-btn-script';
-        if (!document.getElementById(scriptId)) {
-            const script = document.createElement('script');
-            script.id = scriptId;
-            script.src = 'https://www.phone.email/sign_in_button_v1.js';
-            script.async = true;
-            document.body.appendChild(script);
+        // Only inject Phone.Email script when on 'phone' step and container element is verified present in DOM
+        if (step === 'phone') {
+            const scriptId = 'phone-email-btn-script';
+            const btnEl = document.querySelector('.pe_signin_button');
+            if (btnEl && !document.getElementById(scriptId)) {
+                const script = document.createElement('script');
+                script.id = scriptId;
+                script.src = 'https://www.phone.email/sign_in_button_v1.js';
+                script.async = true;
+                script.onerror = () => {
+                    console.warn('[Phone.Email] Script load failed, fallback OTP remains active.');
+                };
+                document.body.appendChild(script);
+            }
         }
-    }, [phoneEmailClientId, name, dob]);
+    }, [phoneEmailClientId, step, name, dob]);
 
     // Phone format handler
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -462,7 +486,13 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                             Date of Birth <span className="text-rose-500">*</span>
                                         </label>
                                         <div 
-                                            onClick={() => dobInputRef.current?.showPicker?.()}
+                                            onClick={() => {
+                                                try {
+                                                    dobInputRef.current?.showPicker?.();
+                                                } catch {
+                                                    dobInputRef.current?.focus();
+                                                }
+                                            }}
                                             className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all cursor-pointer"
                                         >
                                             <div className="pl-3 pr-2 text-slate-400">
