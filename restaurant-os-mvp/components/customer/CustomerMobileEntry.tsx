@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     Phone, ArrowRight, Loader2, Utensils,
     AlertCircle, CheckCircle2, ChevronRight, User, Calendar,
-    ShieldCheck, KeyRound, Edit2, RotateCcw, Sparkles
+    ShieldCheck, KeyRound, Edit2, RotateCcw, Sparkles, ExternalLink
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HomepageBuilderService } from '@/services/homepage-builder.service';
@@ -61,6 +61,9 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
     const phoneEmailEnabled = isPhoneEmailConfigured();
     const [phoneEmailVerified, setPhoneEmailVerified] = useState(false);
     const [verifiedJsonUrl, setVerifiedJsonUrl] = useState('');
+    const [phoneEmailPopupUrl, setPhoneEmailPopupUrl] = useState('');
+    const [isAwaitingPhoneEmail, setIsAwaitingPhoneEmail] = useState(false);
+    const [popupBlocked, setPopupBlocked] = useState(false);
 
     // Fallback OTP State
     const [otp, setOtp] = useState('');
@@ -146,6 +149,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
     useEffect(() => {
         if (!phoneEmailClientId) return;
 
+        // Callback used by Phone.Email's official script
         (window as any).phoneEmailListener = async (userObj: any) => {
             try {
                 const rawPhone = userObj?.user_phone_number || userObj?.phone_no || '';
@@ -159,15 +163,16 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                     setVerifiedJsonUrl(jsonUrl);
                 }
                 setPhoneEmailVerified(true);
+                setIsAwaitingPhoneEmail(false);
                 setValidationError('');
                 setServerError('');
 
-                toast.success(`Mobile +91 ${clean} verified via Phone.Email!`);
+                toast.success(`Mobile +91 ${clean || mobile} verified via Phone.Email!`);
 
                 const cleanName = name.trim();
                 if (cleanName && dob) {
                     await executeVerification({
-                        verifiedMobile: clean,
+                        verifiedMobile: clean || mobile,
                         userJsonUrl: jsonUrl,
                         isPhoneEmail: true,
                         customerName: cleanName,
@@ -182,7 +187,53 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             }
         };
 
-        // Only inject Phone.Email script when on 'phone' step and container element is verified present in DOM
+        // Direct Window Message Listener for Phone.Email popup callback
+        const handleDirectMessage = async (event: MessageEvent) => {
+            if (event.origin !== 'https://auth.phone.email') return;
+
+            if (event.data?.flag_phone === '1' && event.data?.user_json_url) {
+                const jsonUrl = event.data.user_json_url;
+                try {
+                    setIsAwaitingPhoneEmail(false);
+                    setVerifiedJsonUrl(jsonUrl);
+                    setPhoneEmailVerified(true);
+
+                    let finalPhone = mobile;
+                    try {
+                        const r = await fetch(jsonUrl);
+                        if (r.ok) {
+                            const d = await r.json();
+                            const p = String(d.user_phone_number || d.phone_no || '').replace(/\D/g, '').slice(-10);
+                            if (p) {
+                                finalPhone = p;
+                                setMobile(p);
+                            }
+                        }
+                    } catch {}
+
+                    toast.success(`Mobile +91 ${finalPhone} verified via Phone.Email!`);
+
+                    const cleanName = name.trim();
+                    if (cleanName && dob) {
+                        await executeVerification({
+                            verifiedMobile: finalPhone,
+                            userJsonUrl: jsonUrl,
+                            isPhoneEmail: true,
+                            customerName: cleanName,
+                            customerDob: dob,
+                        });
+                    } else {
+                        setStep('details');
+                    }
+                } catch (err: any) {
+                    console.error('[Phone.Email Direct Message Error]', err);
+                }
+            }
+        };
+
+        window.addEventListener('message', handleDirectMessage);
+
+        // Inject Phone.Email script when on 'phone' step and container element is verified present in DOM
         if (step === 'phone') {
             const scriptId = 'phone-email-btn-script';
             const btnEl = document.querySelector('.pe_signin_button');
@@ -192,12 +243,16 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                 script.src = 'https://www.phone.email/sign_in_button_v1.js';
                 script.async = true;
                 script.onerror = () => {
-                    console.warn('[Phone.Email] Script load failed, fallback OTP remains active.');
+                    console.warn('[Phone.Email] Script load failed.');
                 };
                 document.body.appendChild(script);
             }
         }
-    }, [phoneEmailClientId, step, name, dob]);
+
+        return () => {
+            window.removeEventListener('message', handleDirectMessage);
+        };
+    }, [phoneEmailClientId, step, name, dob, mobile]);
 
     // Phone format handler
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -339,6 +394,52 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
 
         // Advance to Step 2 (Phone verification)
         setStep('phone');
+    };
+
+    // Launch Phone.Email verification window with prefilled phone number
+    const handleLaunchPhoneEmail = (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        setServerError('');
+        setValidationError('');
+
+        const cleanPhone = mobile.replace(/\D/g, '').slice(-10);
+        if (cleanPhone.length !== 10) {
+            setValidationError('Please enter a valid 10-digit mobile number');
+            return;
+        }
+
+        if (!phoneEmailClientId) {
+            setServerError('Phone verification gateway is not configured.');
+            return;
+        }
+
+        const origin = window.location.origin;
+        const authUrl = `https://auth.phone.email/log-in?client_id=${phoneEmailClientId}&auth_type=8&origin=${encodeURIComponent(origin)}&user_phone_no=${cleanPhone}`;
+        setPhoneEmailPopupUrl(authUrl);
+        setIsAwaitingPhoneEmail(true);
+
+        const width = 500;
+        const height = 560;
+        const left = Math.max(0, (window.innerWidth - width) / 2 + (window.screenX || 0));
+        const top = Math.max(0, (window.innerHeight - height) / 2 + (window.screenY || 0));
+
+        try {
+            const popup = window.open(
+                authUrl,
+                'peLoginWindow',
+                `toolbar=0,scrollbars=1,location=0,statusbar=0,menubar=0,resizable=0,width=${width},height=${height},top=${top},left=${left}`
+            );
+
+            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+                setPopupBlocked(true);
+                toast.warning('Pop-up was blocked. Click "Open Verification Window" below.');
+            } else {
+                setPopupBlocked(false);
+                toast.info('Phone.Email verification window opened. Enter the SMS OTP there.');
+            }
+        } catch {
+            setPopupBlocked(true);
+        }
     };
 
     // Send fallback OTP
@@ -538,7 +639,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                 </form>
                             </motion.div>
                         ) : step === 'phone' ? (
-                            /* ── STEP 2: Mobile OTP Verification ───────── */
+                            /* ── STEP 2: Mobile OTP Verification via Phone.Email ───────── */
                             <motion.div
                                 key="step-phone"
                                 initial={{ opacity: 0, y: 10 }}
@@ -555,7 +656,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         Verify Mobile Number
                                     </h2>
                                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 leading-relaxed">
-                                        Confirm your mobile number with quick OTP to access the live menu.
+                                        Free SMS OTP via Phone.Email ensures quick, verified table dining.
                                     </p>
                                 </div>
 
@@ -575,29 +676,14 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                     </button>
                                 </div>
 
-                                {/* Phone.Email Official Widget Button */}
-                                {phoneEmailEnabled && (
-                                    <div className="mb-5 p-4 rounded-2xl bg-orange-50/60 border border-orange-200/80 text-center">
-                                        <p className="text-xs font-bold text-slate-800 mb-3">
-                                            Instant One-Tap SMS Verification:
-                                        </p>
-                                        <div className="flex justify-center">
-                                            <div
-                                                className="pe_signin_button"
-                                                data-client-id={phoneEmailClientId}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Fallback or Alternative Mobile OTP Form */}
-                                <form onSubmit={handleSendFallbackOtp} className="space-y-4">
+                                {/* Mobile Phone Form */}
+                                <form onSubmit={handleLaunchPhoneEmail} className="space-y-4">
                                     <div>
                                         <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
                                             Mobile Number <span className="text-rose-500">*</span>
                                         </label>
-                                        <div className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all">
-                                            <div className="pl-3 pr-2 text-slate-400 font-bold text-sm">
+                                        <div className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-[#02BD7E] focus-within:bg-white transition-all">
+                                            <div className="pl-3 pr-2 text-slate-500 font-bold text-sm">
                                                 +91
                                             </div>
                                             <input
@@ -607,7 +693,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                                 placeholder="9876543210"
                                                 value={mobile}
                                                 onChange={handlePhoneChange}
-                                                className="w-full px-2 py-2.5 bg-transparent text-slate-900 text-sm font-semibold placeholder:text-slate-400 focus:outline-none"
+                                                className="pe_phone_number w-full px-2 py-2.5 bg-transparent text-slate-900 text-sm font-bold tracking-wide placeholder:tracking-normal placeholder:font-normal placeholder:text-slate-400 focus:outline-none"
                                             />
                                         </div>
                                     </div>
@@ -626,12 +712,13 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         </div>
                                     )}
 
+                                    {/* Primary Phone.Email Verification Action */}
                                     <button
                                         type="submit"
                                         disabled={submitting || mobile.length !== 10}
                                         className={`w-full py-4 rounded-2xl font-black text-sm tracking-wide transition-all flex items-center justify-center gap-2 cursor-pointer ${
                                             mobile.length === 10 && !submitting
-                                                ? 'bg-gradient-to-r from-orange-500 to-rose-500 text-white shadow-lg shadow-orange-500/25 hover:shadow-xl active:scale-[0.99]'
+                                                ? 'bg-[#02BD7E] hover:bg-[#02a76f] text-white shadow-lg shadow-[#02BD7E]/30 hover:shadow-xl active:scale-[0.99]'
                                                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                         }`}
                                     >
@@ -639,11 +726,74 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                             <Loader2 size={18} className="animate-spin" />
                                         ) : (
                                             <>
-                                                <span>Send Verification OTP</span>
+                                                <ShieldCheck size={18} />
+                                                <span>Send SMS OTP via Phone.Email</span>
                                                 <ArrowRight size={18} />
                                             </>
                                         )}
                                     </button>
+
+                                    {/* Awaiting Verification Card */}
+                                    {isAwaitingPhoneEmail && (
+                                        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200/80 text-emerald-950 text-xs space-y-2 mt-2">
+                                            <div className="flex items-center gap-2 font-black text-emerald-800">
+                                                <Loader2 size={15} className="animate-spin text-emerald-600 shrink-0" />
+                                                <span>SMS Verification Window Opened</span>
+                                            </div>
+                                            <p className="text-emerald-700 leading-relaxed">
+                                                Check your SMS for the 6-digit code and submit it in the Phone.Email window.
+                                            </p>
+                                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleLaunchPhoneEmail()}
+                                                    className="px-3 py-1.5 rounded-xl bg-[#02BD7E] text-white font-bold hover:bg-[#02a76f] transition-all cursor-pointer shadow-xs"
+                                                >
+                                                    Re-open Window
+                                                </button>
+                                                {phoneEmailPopupUrl && (
+                                                    <a
+                                                        href={phoneEmailPopupUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white text-emerald-800 font-bold border border-emerald-300 hover:bg-emerald-100/50 transition-all shadow-xs"
+                                                    >
+                                                        <span>Open in New Tab</span>
+                                                        <ExternalLink size={12} />
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Phone.Email Official Widget Button as One-Tap Alternate */}
+                                    {phoneEmailEnabled && (
+                                        <div className="pt-2 flex flex-col items-center">
+                                            <div className="flex items-center gap-2 w-full my-2">
+                                                <div className="h-px bg-slate-200 flex-1" />
+                                                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">or 1-Tap Widget</span>
+                                                <div className="h-px bg-slate-200 flex-1" />
+                                            </div>
+                                            <div
+                                                className="pe_signin_button"
+                                                data-client-id={phoneEmailClientId}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Dev Test Fallback (Non-production only) */}
+                                    {process.env.NODE_ENV !== 'production' && (
+                                        <div className="pt-3 text-center">
+                                            <button
+                                                type="button"
+                                                onClick={handleSendFallbackOtp}
+                                                disabled={submitting || mobile.length !== 10}
+                                                className="text-[11px] text-slate-400 hover:text-slate-600 underline font-semibold cursor-pointer"
+                                            >
+                                                Dev Mode: Test without SMS
+                                            </button>
+                                        </div>
+                                    )}
                                 </form>
                             </motion.div>
                         ) : (
