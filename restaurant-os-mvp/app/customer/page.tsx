@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     QrCode, Camera, ArrowRight, Utensils, Sparkles, AlertCircle,
-    Hash, Store, CheckCircle2, ChevronRight, RefreshCw, X
+    Store, ChevronRight, RefreshCw, X
 } from 'lucide-react';
 import { parseTableQrCode } from '@/lib/table-qr-utils';
 
@@ -16,8 +16,15 @@ function CustomerPortalContent() {
     const tableParam = searchParams?.get('table') || searchParams?.get('tableNumber') || '';
     const restaurantParam = searchParams?.get('restaurant') || searchParams?.get('restaurantId') || searchParams?.get('rest') || '';
 
-    const [restaurantCode, setRestaurantCode] = useState(restaurantParam);
-    const [tableNumber, setTableNumber] = useState(tableParam);
+    // If query parameters already exist, redirect immediately
+    useEffect(() => {
+        if (restaurantParam) {
+            const query = tableParam ? `?table=${encodeURIComponent(tableParam)}` : '';
+            router.replace(`/${restaurantParam}/customer${query}`);
+        }
+    }, [restaurantParam, tableParam, router]);
+
+    const [recentRestaurant, setRecentRestaurant] = useState<string | null>(null);
     const [isScanning, setIsScanning] = useState(false);
     const [scanError, setScanError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -25,24 +32,23 @@ function CustomerPortalContent() {
     const scannerRef = useRef<any>(null);
     const scannerContainerId = 'customer-portal-qr-reader';
 
-    // Check for recent restaurant visited on this device
+    // Check for recently visited restaurant on this device
     useEffect(() => {
-        if (!restaurantCode && typeof window !== 'undefined') {
+        if (typeof window !== 'undefined') {
             try {
-                // Find any ros_customer_mobile_* keys in localStorage
                 for (let i = 0; i < localStorage.length; i++) {
                     const key = localStorage.key(i);
                     if (key?.startsWith('ros_customer_mobile_')) {
                         const code = key.replace('ros_customer_mobile_', '');
                         if (code && code !== 'customer') {
-                            setRestaurantCode(code);
+                            setRecentRestaurant(code);
                             break;
                         }
                     }
                 }
             } catch {}
         }
-    }, [restaurantCode]);
+    }, []);
 
     // Handle QR code scanning using html5-qrcode
     useEffect(() => {
@@ -82,7 +88,7 @@ function CustomerPortalContent() {
             } catch (err: any) {
                 console.error('[CustomerPortal] Camera access error:', err);
                 if (isMounted) {
-                    setScanError('Unable to open camera. Please grant camera permission or enter details manually.');
+                    setScanError('Unable to access camera. Please allow camera permissions to scan your table QR code.');
                 }
             }
         };
@@ -112,33 +118,24 @@ function CustomerPortalContent() {
 
             const parsed = parseTableQrCode(decodedText);
             if (parsed.restaurantCode) {
-                const targetTable = parsed.table || tableNumber || '';
-                const query = targetTable ? `?table=${encodeURIComponent(targetTable)}` : '';
+                const query = parsed.table ? `?table=${encodeURIComponent(parsed.table)}` : '';
                 router.push(`/${parsed.restaurantCode}/customer${query}`);
             } else if (decodedText.startsWith('http')) {
                 // If direct URL, navigate directly
                 window.location.href = decodedText;
             } else {
-                setScanError('QR code detected, but no restaurant code found. Please enter manually.');
+                setScanError('QR code detected, but not recognized as a restaurant table QR. Please scan the QR code located on your table.');
             }
         } catch (err) {
             console.error('[CustomerPortal] Parse QR error:', err);
-            setScanError('Could not process this QR code.');
+            setScanError('Could not process this QR code. Please try scanning again.');
         }
     };
 
-    const handleManualSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const cleanRest = restaurantCode.trim();
-        if (!cleanRest) {
-            setScanError('Please enter a restaurant code or ID.');
-            return;
-        }
-
+    const handleResumeRecent = () => {
+        if (!recentRestaurant) return;
         setLoading(true);
-        const cleanTable = tableNumber.trim();
-        const query = cleanTable ? `?table=${encodeURIComponent(cleanTable)}` : '';
-        router.push(`/${cleanRest}/customer${query}`);
+        router.push(`/${recentRestaurant}/customer`);
     };
 
     const handleDemoVisit = () => {
@@ -148,12 +145,12 @@ function CustomerPortalContent() {
 
     return (
         <div className="min-h-screen bg-[#EEF2F6] flex flex-col justify-between font-sans text-slate-800 antialiased p-4 md:p-8">
-            <div className="max-w-md w-full mx-auto my-auto">
+            <div className="max-w-md w-full mx-auto my-auto space-y-5">
                 {/* Header Card */}
                 <motion.div
                     initial={{ opacity: 0, y: -15 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-white rounded-3xl p-6 shadow-xl border border-slate-100 mb-6 text-center"
+                    className="bg-white rounded-3xl p-6 shadow-xl border border-slate-100 text-center"
                 >
                     <div className="w-16 h-16 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-500/20 text-white">
                         <Utensils size={30} strokeWidth={2.5} />
@@ -164,17 +161,17 @@ function CustomerPortalContent() {
                             Guest Dining
                         </span>
                     </div>
-                    <p className="text-xs text-slate-500 font-medium">
-                        Scan the QR code on your table to browse menu & order instantly
+                    <p className="text-xs text-slate-500 font-medium max-w-xs mx-auto">
+                        Scan the QR code on your table to view menu and order instantly
                     </p>
                 </motion.div>
 
-                {/* Primary Action Card: Scan or Enter */}
+                {/* Primary Action Card: Scan Camera */}
                 <motion.div
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 }}
-                    className="bg-white rounded-3xl p-6 shadow-xl border border-slate-100 mb-6 space-y-6"
+                    className="bg-white rounded-3xl p-6 shadow-xl border border-slate-100 space-y-4"
                 >
                     {/* Camera Scanner View */}
                     <AnimatePresence>
@@ -194,7 +191,7 @@ function CustomerPortalContent() {
                                 </button>
                                 <div className="absolute bottom-3 inset-x-0 text-center z-10 pointer-events-none">
                                     <span className="text-[11px] font-bold text-white/90 bg-black/60 px-3 py-1 rounded-full backdrop-blur-xs">
-                                        Align QR code within frame
+                                        Align table QR code within frame
                                     </span>
                                 </div>
                             </motion.div>
@@ -216,61 +213,35 @@ function CustomerPortalContent() {
                         </div>
                     )}
 
-                    <div className="relative flex items-center justify-center">
-                        <div className="border-t border-slate-200 w-full" />
-                        <span className="bg-white px-3 text-[11px] font-bold uppercase tracking-wider text-slate-400 absolute">
-                            Or enter manually
-                        </span>
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+                        <div className="size-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center shrink-0">
+                            <QrCode size={18} />
+                        </div>
+                        <div className="text-[11px] text-slate-500 leading-tight">
+                            <p className="font-semibold text-slate-700">Dining at a restaurant?</p>
+                            <p>Every table has an official QR code stand with instant menu access.</p>
+                        </div>
                     </div>
 
-                    {/* Manual Form */}
-                    <form onSubmit={handleManualSubmit} className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                                <Store size={14} className="text-slate-400" />
-                                Restaurant Code or ID
-                            </label>
-                            <input
-                                type="text"
-                                value={restaurantCode}
-                                onChange={(e) => {
-                                    setRestaurantCode(e.target.value);
-                                    setScanError(null);
-                                }}
-                                placeholder="e.g. 202609089153 or restaurant-slug"
-                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all placeholder:text-slate-400"
-                            />
+                    {/* Resume Recent Visit Card */}
+                    {recentRestaurant && (
+                        <div className="pt-2 border-t border-slate-100">
+                            <button
+                                onClick={handleResumeRecent}
+                                disabled={loading}
+                                className="w-full p-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-bold text-xs flex items-center justify-between transition-all active:scale-[0.98] cursor-pointer shadow-md shadow-slate-900/10"
+                            >
+                                <div className="flex items-center gap-2.5 text-left">
+                                    <Store size={16} className="text-orange-400 shrink-0" />
+                                    <div>
+                                        <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Recently Visited</div>
+                                        <div className="font-bold text-sm text-white">Restaurant ({recentRestaurant})</div>
+                                    </div>
+                                </div>
+                                <ArrowRight size={16} className="text-slate-400" />
+                            </button>
                         </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                                <Hash size={14} className="text-slate-400" />
-                                Table Number (Optional)
-                            </label>
-                            <input
-                                type="text"
-                                value={tableNumber}
-                                onChange={(e) => setTableNumber(e.target.value)}
-                                placeholder="e.g. 1, 2, 5 (or leave empty)"
-                                className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-800 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all placeholder:text-slate-400"
-                            />
-                        </div>
-
-                        <button
-                            type="submit"
-                            disabled={loading || !restaurantCode.trim()}
-                            className="w-full py-3.5 px-5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-slate-900/15 transition-all active:scale-[0.98] cursor-pointer"
-                        >
-                            {loading ? (
-                                <RefreshCw size={18} className="animate-spin" />
-                            ) : (
-                                <>
-                                    <span>Open Restaurant Menu</span>
-                                    <ArrowRight size={16} />
-                                </>
-                            )}
-                        </button>
-                    </form>
+                    )}
                 </motion.div>
 
                 {/* Demo Diner Quick Action */}
@@ -282,6 +253,7 @@ function CustomerPortalContent() {
                 >
                     <button
                         onClick={handleDemoVisit}
+                        disabled={loading}
                         className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-orange-600 transition-colors py-2 px-3 rounded-xl hover:bg-white/60 cursor-pointer"
                     >
                         <Sparkles size={14} className="text-amber-500" />

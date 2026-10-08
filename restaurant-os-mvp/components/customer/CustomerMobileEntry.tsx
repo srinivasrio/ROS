@@ -339,10 +339,11 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             toast.success('Mobile verified! Starting your dining experience.');
 
             setTimeout(() => {
-                const queryParams = new URLSearchParams();
-                if (tableFromUrl) queryParams.set('table', tableFromUrl);
-                const target = `/${restaurantCode}/customer/order-type${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-                router.push(target);
+                if (tableFromUrl) {
+                    router.push(`/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`);
+                } else {
+                    router.push(`/${restaurantCode}/customer/order-type`);
+                }
             }, 600);
         } catch (err: any) {
             console.error('[handleVerifyOtp Error]', err);
@@ -359,9 +360,11 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
 
     const handleProceedToNewOrder = () => {
         setShowMultipleOrdersModal(false);
-        const queryParams = new URLSearchParams();
-        if (tableFromUrl) queryParams.set('table', tableFromUrl);
-        router.push(`/${restaurantCode}/customer/order-type${queryParams.toString() ? `?${queryParams.toString()}` : ''}`);
+        if (tableFromUrl) {
+            router.push(`/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`);
+        } else {
+            router.push(`/${restaurantCode}/customer/order-type`);
+        }
     };
 
     const restaurantName = profile?.name || 'Restaurant';

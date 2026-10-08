@@ -23,7 +23,7 @@ export interface TableNotFoundWarningCardProps {
     isDifferentRestaurant?: boolean;
     customMessage?: string | null;
     onScanAgain: () => void;
-    onManualEntry: () => void;
+    onManualEntry?: () => void;
     onClose: () => void;
 }
 
@@ -182,17 +182,7 @@ export function TableNotFoundWarningCard({
                             <ArrowRight size={15} />
                         </button>
 
-                        {/* Secondary CTA: Manual Table Entry */}
-                        <button
-                            type="button"
-                            onClick={onManualEntry}
-                            className="w-full py-3 px-5 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-[0.98]"
-                        >
-                            <Hash size={14} className="text-orange-600" />
-                            <span>Enter Table Number Manually</span>
-                        </button>
-
-                        {/* Tertiary CTA: Dismiss */}
+                        {/* Secondary CTA: Dismiss */}
                         <button
                             type="button"
                             onClick={onClose}

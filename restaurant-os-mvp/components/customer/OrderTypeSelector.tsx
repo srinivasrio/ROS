@@ -39,7 +39,7 @@ interface DeliverySettings {
     address?: string;
 }
 
-type ModalType = 'none' | 'dine_in_options' | 'qr_scanner' | 'manual_table' | 'delivery_address' | 'table_warning';
+type ModalType = 'none' | 'qr_scanner' | 'delivery_address' | 'table_warning';
 
 export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorProps) {
     const router = useRouter();
@@ -55,7 +55,6 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
     const [customerName, setCustomerName] = useState('');
 
     const [activeModal, setActiveModal] = useState<ModalType>('none');
-    const [manualTableNumber, setManualTableNumber] = useState(tableFromUrl);
     const [verifyingTable, setVerifyingTable] = useState(false);
     const [warningDetails, setWarningDetails] = useState<{
         scannedTable: string | null;
@@ -200,8 +199,8 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
                 setVerifyingTable(false);
             }
         }
-        // Prompt for table access (Scan QR or enter table number)
-        setActiveModal('dine_in_options');
+        // Directly open camera to scan table QR
+        setActiveModal('qr_scanner');
     };
 
     // Handler 2: Takeaway
@@ -220,43 +219,6 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
         setActiveModal('delivery_address');
         if (userCoords && !deliveryAddress) {
             handleReverseGeocode(userCoords.lat, userCoords.lng);
-        }
-    };
-
-    // Manual Table Submit
-    const handleManualTableSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        const trimmed = manualTableNumber.trim();
-        if (!trimmed) {
-            toast.error('Please enter a table number');
-            return;
-        }
-
-        try {
-            setVerifyingTable(true);
-            const res = await fetch(`/api/customer/table/verify?restaurantId=${encodeURIComponent(restaurantCode)}&table=${encodeURIComponent(trimmed)}`);
-            if (res.ok) {
-                const data: TableVerifyResponse = await res.json();
-                if (!data.valid) {
-                    setWarningDetails({
-                        scannedTable: trimmed,
-                        scannedRestaurantName: null,
-                        scannedRestaurantCode: null,
-                        isDifferentRestaurant: false,
-                        message: data.message || `Table "${trimmed}" does not exist in this restaurant.`,
-                    });
-                    setActiveModal('table_warning');
-                    return;
-                }
-                toast.success(`Connected to Table ${data.tableNumber || trimmed}`);
-                setActiveModal('none');
-                router.push(`/${restaurantCode}/customer/home/${data.tableNumber || trimmed}`);
-                return;
-            }
-        } catch {
-            toast.error('Could not verify table. Please check your network.');
-        } finally {
-            setVerifyingTable(false);
         }
     };
 
@@ -291,8 +253,8 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
                 );
             } catch (err: any) {
                 console.error('Failed to start camera QR scanner:', err);
-                toast.error('Camera could not be accessed. You can enter the table number manually.');
-                setActiveModal('manual_table');
+                toast.error('Unable to open camera. Please grant camera permission to scan your table QR code.');
+                setActiveModal('none');
             }
         }, 300);
 
@@ -321,7 +283,7 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
 
             if (!scannedTable) {
                 toast.error('Invalid QR code format. Please scan a table QR code.');
-                setActiveModal('dine_in_options');
+                setActiveModal('qr_scanner');
                 return;
             }
 
@@ -356,8 +318,8 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
             setActiveModal('table_warning');
         } catch (err) {
             console.error('[handleQrSuccess] Verification error:', err);
-            toast.error('Failed to verify scanned QR code. You can enter the table number manually.');
-            setActiveModal('manual_table');
+            toast.error('Failed to verify scanned QR code. Please scan the QR code located on your table.');
+            setActiveModal('qr_scanner');
         } finally {
             setVerifyingTable(false);
         }
@@ -665,185 +627,8 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
                         isDifferentRestaurant={warningDetails.isDifferentRestaurant}
                         customMessage={warningDetails.message}
                         onScanAgain={() => setActiveModal('qr_scanner')}
-                        onManualEntry={() => setActiveModal('manual_table')}
                         onClose={() => setActiveModal('none')}
                     />
-                )}
-
-                {/* Dine In Choice Modal: Scan QR vs Manual Entry */}
-                {activeModal === 'dine_in_options' && (
-                    <div key="modal-dine-in-options" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.94, y: 20 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.94, y: 20 }}
-                            className="w-full max-w-sm rounded-3xl p-6 space-y-4 text-center relative overflow-hidden"
-                            style={{
-                                backgroundColor: '#EEF2F6',
-                                boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35)',
-                                border: '1px solid rgba(255, 255, 255, 0.9)',
-                            }}
-                        >
-                            <button
-                                onClick={() => setActiveModal('none')}
-                                className="absolute top-4 right-4 p-1 rounded-full text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                            >
-                                <X size={18} />
-                            </button>
-
-                            <div className="size-16 rounded-2xl mx-auto flex items-center justify-center text-orange-600 bg-orange-100/70 border border-orange-200/80 shadow-xs">
-                                <Utensils size={30} />
-                            </div>
-
-                            <div>
-                                <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                                    Dine In Table Access
-                                </h3>
-                                <p className="text-xs text-slate-500 font-medium mt-1">
-                                    Connect to your table at <span className="font-bold text-slate-700">{profile?.name || 'this restaurant'}</span>
-                                </p>
-                            </div>
-
-                            <div className="space-y-2.5 pt-1">
-                                {/* Option 1: Scan QR */}
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveModal('qr_scanner')}
-                                    className="w-full p-4 rounded-2xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-bold text-sm shadow-md shadow-orange-500/25 active:scale-[0.98] transition-all flex items-center gap-3.5 cursor-pointer text-left group"
-                                >
-                                    <div className="size-11 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                                        <Camera size={22} className="group-hover:scale-110 transition-transform" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5 font-black text-sm">
-                                            <span>Scan Table QR</span>
-                                            <span className="text-[10px] font-extrabold uppercase bg-white/25 px-1.5 py-0.5 rounded-full">Fast</span>
-                                        </div>
-                                        <div className="text-[11px] text-orange-100 font-medium">
-                                            Point camera at your table stand
-                                        </div>
-                                    </div>
-                                    <ChevronRight size={18} className="text-white/70 group-hover:translate-x-0.5 transition-transform" />
-                                </button>
-
-                                {/* Option 2: Enter Manually */}
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveModal('manual_table')}
-                                    className="w-full p-4 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-sm active:scale-[0.98] transition-all flex items-center gap-3.5 cursor-pointer text-left group shadow-xs"
-                                >
-                                    <div className="size-11 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-slate-700">
-                                        <Hash size={20} className="group-hover:scale-110 transition-transform" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-black text-sm text-slate-900">
-                                            Enter Table Number
-                                        </div>
-                                        <div className="text-[11px] text-slate-500 font-medium">
-                                            Type number if camera unavailable
-                                        </div>
-                                    </div>
-                                    <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-
-                {/* Manual Table Modal */}
-                {activeModal === 'manual_table' && (
-                    <div key="modal-manual-table" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: 15 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                            className="w-full max-w-sm rounded-3xl p-6 space-y-4"
-                            style={{
-                                backgroundColor: '#EEF2F6',
-                                boxShadow: '0 20px 40px rgba(0, 0, 0, 0.25)',
-                                border: '1px solid rgba(255, 255, 255, 0.9)',
-                            }}
-                        >
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-base font-black text-slate-900">
-                                    Enter Table Number
-                                </h3>
-                                <button
-                                    onClick={() => setActiveModal('none')}
-                                    className="p-1 rounded-full text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-
-                            <p className="text-xs text-slate-500">
-                                Enter the number printed on your table stand at <span className="font-semibold text-slate-700">{profile?.name || 'this restaurant'}</span>.
-                            </p>
-
-                            <form onSubmit={handleManualTableSubmit} className="space-y-3">
-                                <div>
-                                    <input
-                                        type="text"
-                                        value={manualTableNumber}
-                                        onChange={e => setManualTableNumber(e.target.value)}
-                                        placeholder="e.g. 1, 2, 5"
-                                        autoFocus
-                                        required
-                                        className="w-full px-4 py-3 rounded-2xl bg-white border border-slate-200 text-center font-black text-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500/30"
-                                    />
-                                    {/* Quick Table Selection Chips */}
-                                    <div className="mt-2.5">
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 text-center">
-                                            Quick Select Table
-                                        </div>
-                                        <div className="flex flex-wrap justify-center gap-1.5 max-h-24 overflow-y-auto">
-                                            {['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map(tbl => (
-                                                 <button
-                                                    key={tbl}
-                                                    type="button"
-                                                    onClick={() => setManualTableNumber(tbl)}
-                                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                                                        manualTableNumber === tbl
-                                                            ? 'bg-orange-500 text-white shadow-xs'
-                                                            : 'bg-white hover:bg-orange-50 text-slate-700 border border-slate-200'
-                                                    }`}
-                                                >
-                                                    T-{tbl}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <button
-                                    type="submit"
-                                    disabled={verifyingTable}
-                                    className="w-full py-3.5 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm shadow-md shadow-orange-600/20 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-60"
-                                >
-                                    {verifyingTable ? (
-                                        <>
-                                            <Loader2 size={16} className="animate-spin" />
-                                            <span>Verifying Table...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span>Continue to Menu</span>
-                                            <ArrowRight size={16} />
-                                        </>
-                                    )}
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={() => setActiveModal('qr_scanner')}
-                                    className="w-full py-3 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                                >
-                                    <Camera size={14} className="text-orange-600" />
-                                    <span>Scan Table QR with Camera Instead</span>
-                                </button>
-                            </form>
-                        </motion.div>
-                    </div>
                 )}
 
                 {/* QR Scanner Modal with Framing Guide */}
@@ -903,10 +688,10 @@ export default function OrderTypeSelector({ restaurantCode }: OrderTypeSelectorP
 
                             <button
                                 type="button"
-                                onClick={() => setActiveModal('manual_table')}
+                                onClick={() => setActiveModal('none')}
                                 className="w-full py-2.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
                             >
-                                Enter Table Number Manually
+                                Cancel
                             </button>
                         </motion.div>
                     </div>
