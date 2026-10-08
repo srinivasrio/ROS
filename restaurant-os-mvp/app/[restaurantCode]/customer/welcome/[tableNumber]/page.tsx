@@ -62,7 +62,8 @@ export default function WelcomePage({ params: paramsPromise }: any) {
 
         try {
             const hasMobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`);
-            if (!hasMobile) {
+            const isVerified = localStorage.getItem(`ros_customer_verified_${restaurantCode}`);
+            if (!hasMobile || !isVerified) {
                 router.replace(`/${restaurantCode}/customer?table=${encodeURIComponent(tableNumber)}`);
                 return;
             }

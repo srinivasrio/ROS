@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
         const otp = (body.otp || body.code || '').trim();
         const name = (body.name || '').trim();
         const email = (body.email || '').trim().toLowerCase();
+        const dob = (body.dob || body.dateOfBirth || '').trim();
 
         if (!restaurantCode) {
             return NextResponse.json({ error: 'Restaurant code is required' }, { status: 400 });
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
             name: name || undefined,
             mobile: cleanPhone,
             email: email || undefined,
+            dateOfBirth: dob || undefined,
         });
 
         // 3. Issue verified Customer JWT (valid for 30 days)
@@ -68,20 +70,25 @@ export async function POST(req: NextRequest) {
             restaurantId: actualRestaurantId,
             restaurantCode,
             mobile: cleanPhone,
-            name: name || undefined,
+            name: name || customerResult.customer?.name || undefined,
             role: 'customer',
         }, 3600 * 24 * 30);
 
         const cookieName = getCustomerTokenName(actualRestaurantId);
         const isProduction = process.env.NODE_ENV === 'production';
 
+        const finalDob = dob || customerResult.customer?.date_of_birth || undefined;
+        const finalName = name || customerResult.customer?.name || undefined;
+
         const response = NextResponse.json({
             success: true,
             customer: {
                 id: customerResult.customerId,
-                name: name || undefined,
+                name: finalName,
                 mobile: cleanPhone,
-                email: email || undefined,
+                email: email || customerResult.customer?.email || undefined,
+                dateOfBirth: finalDob,
+                dob: finalDob,
             },
             token,
         });

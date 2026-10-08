@@ -277,6 +277,12 @@ export default function CustomersPage() {
                                                             <span>{c.mobile}</span>
                                                         </div>
                                                     )}
+                                                    {c.date_of_birth && (
+                                                        <div className="flex items-center gap-1.5 text-neutral-500 text-[11px]">
+                                                            <Calendar size={11} className="text-neutral-400" />
+                                                            <span>DOB: {c.date_of_birth}</span>
+                                                        </div>
+                                                    )}
                                                     {c.email && (
                                                         <div className="flex items-center gap-1.5 text-neutral-500 text-[11px]">
                                                             <Mail size={11} className="text-neutral-400" />
