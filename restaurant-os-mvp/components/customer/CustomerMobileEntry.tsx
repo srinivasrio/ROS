@@ -12,9 +12,7 @@ import { toast } from 'sonner';
 import { HomepageBuilderService } from '@/services/homepage-builder.service';
 import { CustomerCache } from '@/services/homepage-cache.service';
 import { formatAddress } from '@/lib/utils';
-import { isFirebaseConfigured } from '@/lib/firebase';
-import { initRecaptchaVerifier, sendFirebaseOtp, verifyFirebaseOtp } from '@/lib/firebase-otp';
-import type { ConfirmationResult } from 'firebase/auth';
+import { getPhoneEmailClientId, isPhoneEmailConfigured } from '@/lib/phone-email';
 
 interface CustomerMobileEntryProps {
     restaurantCode: string;
@@ -46,7 +44,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
 
     const tableFromUrl = initialTable || searchParams?.get('table') || searchParams?.get('tableNumber') || searchParams?.get('table_number') || searchParams?.get('t') || '';
 
-    // Flow Step: 'details' (Name, DOB, Mobile) -> 'otp' (Verify 6-digit code)
+    // Flow Step: 'details' (Name, DOB, Mobile) -> 'otp' (Fallback verify 6-digit code)
     const [step, setStep] = useState<'details' | 'otp'>('details');
 
     // Customer Form Inputs
@@ -56,13 +54,17 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
     const dobInputRef = useRef<HTMLInputElement>(null);
     const [mobile, setMobile] = useState('');
 
-    // OTP State
+    // Phone.Email State
+    const phoneEmailClientId = getPhoneEmailClientId();
+    const phoneEmailEnabled = isPhoneEmailConfigured();
+    const [phoneEmailVerified, setPhoneEmailVerified] = useState(false);
+    const [verifiedJsonUrl, setVerifiedJsonUrl] = useState('');
+
+    // Fallback OTP State (used if Phone.Email client id is not configured yet)
     const [otp, setOtp] = useState('');
     const [devOtp, setDevOtp] = useState<string | null>(null);
     const [resendCooldown, setResendCooldown] = useState(0);
     const [maskedPhone, setMaskedPhone] = useState('');
-    const confirmationResultRef = useRef<ConfirmationResult | null>(null);
-    const recaptchaContainerId = 'customer-firebase-recaptcha';
 
     // Restaurant Profile
     const [profile, setProfile] = useState<RestaurantProfile | null>(null);
@@ -112,7 +114,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             .finally(() => setLoadingProfile(false));
     }, [restaurantCode]);
 
-    // Resend countdown timer
+    // Resend countdown timer for fallback OTP
     useEffect(() => {
         if (resendCooldown <= 0) return;
         const timer = setInterval(() => {
@@ -120,6 +122,56 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
         }, 1000);
         return () => clearInterval(timer);
     }, [resendCooldown]);
+
+    // Register Phone.Email listener and inject official sign-in script
+    useEffect(() => {
+        if (!phoneEmailClientId) return;
+
+        (window as any).phoneEmailListener = async (userObj: any) => {
+            try {
+                const rawPhone = userObj?.user_phone_number || userObj?.phone_no || '';
+                const jsonUrl = userObj?.user_json_url || '';
+                const clean = String(rawPhone).replace(/\D/g, '').slice(-10);
+
+                if (clean) {
+                    setMobile(clean);
+                }
+                if (jsonUrl) {
+                    setVerifiedJsonUrl(jsonUrl);
+                }
+                setPhoneEmailVerified(true);
+                setValidationError('');
+                setServerError('');
+
+                toast.success(`Mobile +91 ${clean} verified via Phone.Email!`);
+
+                // If customer already entered Name & DOB, immediately submit and proceed!
+                const cleanName = name.trim();
+                if (cleanName && dob) {
+                    await executeVerification({
+                        verifiedMobile: clean,
+                        userJsonUrl: jsonUrl,
+                        isPhoneEmail: true,
+                        customerName: cleanName,
+                        customerDob: dob,
+                    });
+                } else {
+                    toast.info('Please enter your Full Name and Date of Birth to finish.');
+                }
+            } catch (err: any) {
+                console.error('[Phone.Email Listener Error]', err);
+            }
+        };
+
+        const scriptId = 'phone-email-btn-script';
+        if (!document.getElementById(scriptId)) {
+            const script = document.createElement('script');
+            script.id = scriptId;
+            script.src = 'https://www.phone.email/sign_in_button_v1.js';
+            script.async = true;
+            document.body.appendChild(script);
+        }
+    }, [phoneEmailClientId, name, dob]);
 
     // Phone format handler
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -143,168 +195,56 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
         setServerError('');
     };
 
-    // Step 1: Send OTP
-    const handleSendOtp = async (e?: React.FormEvent) => {
-        if (e) e.preventDefault();
+    /**
+     * Executes the actual server verification, JWT session issuance, and redirects
+     */
+    const executeVerification = async ({
+        verifiedMobile,
+        userJsonUrl,
+        isPhoneEmail,
+        customerName,
+        customerDob,
+        otpCode,
+    }: {
+        verifiedMobile: string;
+        userJsonUrl?: string;
+        isPhoneEmail: boolean;
+        customerName: string;
+        customerDob: string;
+        otpCode?: string;
+    }) => {
+        setSubmitting(true);
         setServerError('');
         setValidationError('');
 
-        const cleanName = name.trim();
-        if (!cleanName || cleanName.length < 2) {
-            setValidationError('Please enter your full name');
-            return;
-        }
-
-        if (!dob) {
-            setValidationError('Please select your Date of Birth');
-            return;
-        }
-
-        const cleanMobile = mobile.trim().replace(/\D/g, '');
-        if (!cleanMobile) {
-            setValidationError('Please enter your mobile number');
-            return;
-        }
-        if (cleanMobile.length !== 10) {
-            setValidationError('Please enter a complete 10-digit mobile number');
-            return;
-        }
-        if (!/^[6-9]\d{9}$/.test(cleanMobile)) {
-            setValidationError('Mobile number should start with 6, 7, 8, or 9');
-            return;
-        }
-
         try {
-            setSubmitting(true);
-
-            // Primary: Firebase Authentication Phone OTP
-            if (isFirebaseConfigured()) {
-                const verifier = initRecaptchaVerifier(recaptchaContainerId);
-                if (!verifier) {
-                    throw new Error('Security check could not be initialized. Please refresh the page.');
-                }
-
-                const fbRes = await sendFirebaseOtp(cleanMobile, verifier);
-                if (!fbRes.success || !fbRes.confirmationResult) {
-                    setServerError(fbRes.error || 'Failed to dispatch SMS code via Firebase.');
-                    setSubmitting(false);
-                    return;
-                }
-
-                confirmationResultRef.current = fbRes.confirmationResult;
-                setMaskedPhone(`+91 ******${cleanMobile.slice(-4)}`);
-                setResendCooldown(60);
-                setDevOtp(null);
-                setStep('otp');
-                setOtp('');
-                setSubmitting(false);
-                toast.success('Firebase SMS verification code sent!');
-                return;
-            }
-
-            // Fallback (when Firebase keys are pending in environment)
-            const res = await fetch('/api/customer/auth/send-otp', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    restaurantCode,
-                    mobile: cleanMobile,
-                }),
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                setServerError(data.error || 'Failed to send verification code. Please try again.');
-                setSubmitting(false);
-                return;
-            }
-
-            setMaskedPhone(data.maskedPhone || `+91 ******${cleanMobile.slice(-4)}`);
-            setResendCooldown(data.cooldownRemaining || 60);
-            setDevOtp(data.devOtp || null);
-            setStep('otp');
-            setOtp('');
-            setSubmitting(false);
-
-            if (data.devOtp) {
-                toast.info(`Development Mode: Verification code is ${data.devOtp}`, {
-                    duration: 10000,
-                });
-            } else {
-                toast.success('Verification code dispatched via SMS!');
-            }
-        } catch (err: any) {
-            console.error('[handleSendOtp Error]', err);
-            setServerError(err.message || 'Network error. Please check your connection and try again.');
-            setSubmitting(false);
-        }
-    };
-
-    // Resend OTP handler
-    const handleResendOtp = async () => {
-        if (resendCooldown > 0 || submitting) return;
-        await handleSendOtp();
-    };
-
-    // Step 2: Verify OTP and Redirect
-    const handleVerifyOtp = async (e?: React.FormEvent) => {
-        if (e) e.preventDefault();
-        setServerError('');
-        setValidationError('');
-
-        const cleanOtp = otp.trim();
-        if (cleanOtp.length !== 6) {
-            setValidationError('Please enter the complete 6-digit verification code');
-            return;
-        }
-
-        const cleanMobile = mobile.trim().replace(/\D/g, '');
-
-        try {
-            setSubmitting(true);
-
-            let idToken: string | undefined = undefined;
-
-            // If Firebase confirmation result is active, verify through Firebase Auth
-            if (confirmationResultRef.current) {
-                const fbVerify = await verifyFirebaseOtp(confirmationResultRef.current, cleanOtp);
-                if (!fbVerify.success) {
-                    setServerError(fbVerify.error || 'Incorrect verification code. Please check and try again.');
-                    setSubmitting(false);
-                    return;
-                }
-                idToken = fbVerify.idToken;
-            }
-
             const verifyRes = await fetch('/api/customer/auth/verify-otp', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     restaurantCode,
-                    mobile: cleanMobile,
-                    otp: cleanOtp,
-                    idToken,
-                    firebaseVerified: !!idToken,
-                    name: name.trim(),
-                    dob: dob.trim(),
+                    mobile: verifiedMobile,
+                    otp: otpCode,
+                    userJsonUrl,
+                    phoneEmailVerified: isPhoneEmail,
+                    name: customerName,
+                    dob: customerDob,
                 }),
             });
 
             const verifyData = await verifyRes.json();
 
             if (!verifyRes.ok) {
-                setServerError(verifyData.error || 'Invalid verification code. Please try again.');
+                setServerError(verifyData.error || 'Verification failed. Please try again.');
                 setSubmitting(false);
                 return;
             }
 
-            // Successfully Verified!
             // Clean old session if a different user logged in on this device
             try {
                 const prevMobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`) || '';
                 const cleanPrev = prevMobile.replace(/\D/g, '').slice(-10);
-                if (cleanPrev && cleanPrev !== cleanMobile) {
+                if (cleanPrev && cleanPrev !== verifiedMobile) {
                     localStorage.removeItem(`ros_customer_${restaurantCode}`);
                     localStorage.removeItem(`ros_customer_name_${restaurantCode}`);
                     localStorage.removeItem(`ros_customer_email_${restaurantCode}`);
@@ -321,9 +261,9 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
 
             // Persist verified customer info
             try {
-                localStorage.setItem(`ros_customer_mobile_${restaurantCode}`, cleanMobile);
-                localStorage.setItem(`ros_customer_name_${restaurantCode}`, name.trim());
-                localStorage.setItem(`ros_customer_dob_${restaurantCode}`, dob.trim());
+                localStorage.setItem(`ros_customer_mobile_${restaurantCode}`, verifiedMobile);
+                localStorage.setItem(`ros_customer_name_${restaurantCode}`, customerName);
+                localStorage.setItem(`ros_customer_dob_${restaurantCode}`, customerDob);
                 localStorage.setItem(`ros_customer_verified_${restaurantCode}`, 'true');
                 localStorage.setItem(`ros_customer_skipped_${restaurantCode}`, 'true');
                 if (verifyData.customer?.id) {
@@ -338,7 +278,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         restaurantCode,
-                        mobile: cleanMobile,
+                        mobile: verifiedMobile,
                     }),
                 });
 
@@ -381,7 +321,8 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
             }
 
             // Redirect to dining experience
-            setRedirectingMessage('Verification successful! Welcome...');
+            const restaurantDisplayName = profile?.name || 'Restaurant';
+            setRedirectingMessage(`Welcome to ${restaurantDisplayName}! Starting dining...`);
             toast.success('Mobile verified! Starting your dining experience.');
 
             setTimeout(() => {
@@ -392,10 +333,142 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                 }
             }, 600);
         } catch (err: any) {
-            console.error('[handleVerifyOtp Error]', err);
-            setServerError('Network error during verification. Please try again.');
+            console.error('[executeVerification Error]', err);
+            setServerError(err.message || 'Network error during verification. Please try again.');
             setSubmitting(false);
         }
+    };
+
+    // Final form submission when Phone.Email is verified
+    const handleFinalSubmitWithPhoneEmail = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setServerError('');
+        setValidationError('');
+
+        const cleanName = name.trim();
+        if (!cleanName || cleanName.length < 2) {
+            setValidationError('Please enter your full name');
+            return;
+        }
+
+        if (!dob) {
+            setValidationError('Please select your Date of Birth');
+            return;
+        }
+
+        if (!phoneEmailVerified || !mobile) {
+            setValidationError('Please click the Phone.Email button above to verify your mobile number via OTP.');
+            return;
+        }
+
+        await executeVerification({
+            verifiedMobile: mobile,
+            userJsonUrl: verifiedJsonUrl,
+            isPhoneEmail: true,
+            customerName: cleanName,
+            customerDob: dob,
+        });
+    };
+
+    // Step 1: Send Fallback OTP (when Phone.Email is not configured yet)
+    const handleSendFallbackOtp = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        setServerError('');
+        setValidationError('');
+
+        const cleanName = name.trim();
+        if (!cleanName || cleanName.length < 2) {
+            setValidationError('Please enter your full name');
+            return;
+        }
+
+        if (!dob) {
+            setValidationError('Please select your Date of Birth');
+            return;
+        }
+
+        const cleanMobile = mobile.trim().replace(/\D/g, '');
+        if (!cleanMobile) {
+            setValidationError('Please enter your mobile number');
+            return;
+        }
+        if (cleanMobile.length !== 10) {
+            setValidationError('Please enter a complete 10-digit mobile number');
+            return;
+        }
+        if (!/^[6-9]\d{9}$/.test(cleanMobile)) {
+            setValidationError('Mobile number should start with 6, 7, 8, or 9');
+            return;
+        }
+
+        try {
+            setSubmitting(true);
+
+            const res = await fetch('/api/customer/auth/send-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    restaurantCode,
+                    mobile: cleanMobile,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                setServerError(data.error || 'Failed to send verification code. Please try again.');
+                setSubmitting(false);
+                return;
+            }
+
+            setMaskedPhone(data.maskedPhone || `+91 ******${cleanMobile.slice(-4)}`);
+            setResendCooldown(data.cooldownRemaining || 60);
+            setDevOtp(data.devOtp || null);
+            setStep('otp');
+            setOtp('');
+            setSubmitting(false);
+
+            if (data.devOtp) {
+                toast.info(`Development Mode: Verification code is ${data.devOtp}`, {
+                    duration: 10000,
+                });
+            } else {
+                toast.success('Verification code dispatched via SMS!');
+            }
+        } catch (err: any) {
+            console.error('[handleSendFallbackOtp Error]', err);
+            setServerError(err.message || 'Network error. Please check your connection and try again.');
+            setSubmitting(false);
+        }
+    };
+
+    // Resend OTP handler for fallback
+    const handleResendOtp = async () => {
+        if (resendCooldown > 0 || submitting) return;
+        await handleSendFallbackOtp();
+    };
+
+    // Step 2: Verify Fallback OTP
+    const handleVerifyFallbackOtp = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        setServerError('');
+        setValidationError('');
+
+        const cleanOtp = otp.trim();
+        if (cleanOtp.length !== 6) {
+            setValidationError('Please enter the complete 6-digit verification code');
+            return;
+        }
+
+        const cleanMobile = mobile.trim().replace(/\D/g, '');
+
+        await executeVerification({
+            verifiedMobile: cleanMobile,
+            isPhoneEmail: false,
+            customerName: name.trim(),
+            customerDob: dob.trim(),
+            otpCode: cleanOtp,
+        });
     };
 
     const handleSelectExistingOrder = (order: ActiveOrderInfo) => {
@@ -449,52 +522,42 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                         {restaurantName}
                     </h1>
 
-                    <p className="text-xs sm:text-sm text-slate-500 max-w-xs line-clamp-1">
+                    <p className="text-xs sm:text-sm text-slate-500 font-medium">
                         {tagline}
                     </p>
 
                     {tableFromUrl && (
-                        <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-700">
-                            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-50 border border-orange-200/80 text-orange-700 text-xs font-bold shadow-2xs">
+                            <Utensils size={13} className="text-orange-500" />
                             <span>Table {tableFromUrl}</span>
                         </div>
                     )}
                 </motion.div>
             </header>
 
-            {/* Main Form Content */}
-            <main className="w-full max-w-md mx-auto flex-1 flex flex-col justify-center py-2 sm:py-4">
+            {/* Main Content Card */}
+            <main className="w-full max-w-md mx-auto my-auto py-2">
                 <motion.div
-                    initial={{ opacity: 0, scale: 0.97 }}
+                    initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.35, delay: 0.1 }}
-                    className="p-6 sm:p-7 rounded-[28px] relative overflow-hidden"
+                    transition={{ duration: 0.3 }}
+                    className="rounded-3xl p-6 sm:p-7 relative overflow-hidden"
                     style={{
                         backgroundColor: '#EEF2F6',
-                        boxShadow: '8px 8px 22px rgba(166, 180, 200, 0.45), -8px -8px 22px rgba(255, 255, 255, 0.95)',
-                        border: '1px solid rgba(255, 255, 255, 0.85)',
+                        boxShadow: '12px 12px 24px rgba(166, 180, 200, 0.5), -12px -12px 24px rgba(255, 255, 255, 0.95)',
+                        border: '1px solid rgba(255, 255, 255, 0.8)',
                     }}
                 >
-                    {/* Redirecting Banner */}
-                    <AnimatePresence>
-                        {redirectingMessage && (
-                            <motion.div
-                                key="banner-redirecting"
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="mb-5 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2.5"
-                            >
-                                <CheckCircle2 size={18} className="text-emerald-600 shrink-0 animate-bounce" />
-                                <span>{redirectingMessage}</span>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                    {redirectingMessage && (
+                        <div className="absolute inset-0 z-20 bg-white/80 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center">
+                            <Loader2 size={36} className="text-orange-500 animate-spin mb-3" />
+                            <p className="text-sm font-black text-slate-900">{redirectingMessage}</p>
+                        </div>
+                    )}
 
-                    {/* Step Switcher */}
                     <AnimatePresence mode="wait">
                         {step === 'details' ? (
-                            /* ── STEP 1: Name, DOB, Mobile ─────────────────────── */
+                            /* ── STEP 1: Details & Phone.Email Verification ───────── */
                             <motion.div
                                 key="step-details"
                                 initial={{ opacity: 0, x: -20 }}
@@ -505,17 +568,20 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                 <div className="mb-5">
                                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-100/70 text-orange-700 text-[10px] font-black uppercase tracking-wider mb-2">
                                         <Sparkles size={11} />
-                                        <span>Guest Details & OTP Verification</span>
+                                        <span>Guest Details & Phone OTP</span>
                                     </div>
                                     <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                                         Enter Your Details
                                     </h2>
                                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 leading-relaxed">
-                                        Please provide your name, date of birth, and mobile number to verify with OTP and begin dining.
+                                        Please provide your name, date of birth, and verify your mobile with OTP to begin dining.
                                     </p>
                                 </div>
 
-                                <form onSubmit={handleSendOtp} className="space-y-4">
+                                <form
+                                    onSubmit={phoneEmailEnabled ? handleFinalSubmitWithPhoneEmail : handleSendFallbackOtp}
+                                    className="space-y-4"
+                                >
                                     {/* Full Name */}
                                     <div>
                                         <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
@@ -585,58 +651,137 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         </div>
                                     </div>
 
-                                    {/* Mobile Number with +91 Prefix */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
-                                            Mobile Number <span className="text-rose-500">*</span>
-                                        </label>
-                                        <div
-                                            className={`flex items-center rounded-2xl p-1.5 transition-all ${
-                                                validationError || serverError
-                                                    ? 'ring-2 ring-rose-400 bg-rose-50/30'
-                                                    : mobile.length === 10
-                                                    ? 'ring-2 ring-emerald-400/50 bg-white'
-                                                    : 'focus-within:ring-2 focus-within:ring-orange-500/40 bg-white'
-                                            }`}
-                                            style={{
-                                                boxShadow: 'inset 2px 2px 4px rgba(166, 180, 200, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.9)',
-                                                border: '1px solid rgba(226, 232, 240, 0.8)',
-                                            }}
-                                        >
-                                            <div
-                                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 select-none shrink-0"
-                                                style={{
-                                                    backgroundColor: '#EEF2F6',
-                                                    boxShadow: '2px 2px 4px rgba(166, 180, 200, 0.3), -2px -2px 4px rgba(255, 255, 255, 0.9)',
-                                                }}
-                                            >
-                                                <span className="text-sm">🇮🇳</span>
-                                                <span>+91</span>
-                                            </div>
+                                    {/* ── MOBILE VERIFICATION SECTION ── */}
+                                    {phoneEmailEnabled ? (
+                                        /* Mode A: Phone.Email Official Free SMS OTP Verification */
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">
+                                                Mobile Verification <span className="text-rose-500">*</span>
+                                            </label>
 
-                                            <input
-                                                type="tel"
-                                                inputMode="numeric"
-                                                pattern="[0-9]*"
-                                                disabled={submitting}
-                                                placeholder="10-digit number"
-                                                value={mobile}
-                                                onChange={handlePhoneChange}
-                                                className="w-full px-3 py-2 bg-transparent text-slate-900 font-bold text-base placeholder:text-slate-400 placeholder:font-normal focus:outline-none tracking-wider"
-                                            />
-
-                                            {mobile && !submitting && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setMobile('')}
-                                                    className="size-7 rounded-full text-slate-400 hover:text-slate-600 flex items-center justify-center text-xs font-bold hover:bg-slate-100 transition-colors mr-1 cursor-pointer"
-                                                    title="Clear"
+                                            {phoneEmailVerified && mobile ? (
+                                                /* State: Verified */
+                                                <div
+                                                    className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-300 text-emerald-900"
+                                                    style={{
+                                                        boxShadow: '2px 2px 6px rgba(166, 180, 200, 0.25)',
+                                                    }}
                                                 >
-                                                    ✕
-                                                </button>
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className="size-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                                                            <CheckCircle2 size={18} />
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm font-extrabold text-emerald-900 tracking-wide">
+                                                                +91 {mobile}
+                                                            </p>
+                                                            <p className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
+                                                                <ShieldCheck size={11} />
+                                                                <span>Phone.Email Verified</span>
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setPhoneEmailVerified(false);
+                                                            setVerifiedJsonUrl('');
+                                                        }}
+                                                        className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 underline px-2 py-1"
+                                                    >
+                                                        Change
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                /* State: Click to verify with Phone.Email */
+                                                <div
+                                                    className="p-4 rounded-2xl bg-white transition-all flex flex-col items-center justify-center gap-2.5"
+                                                    style={{
+                                                        boxShadow: 'inset 2px 2px 4px rgba(166, 180, 200, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.9)',
+                                                        border: '1px solid rgba(226, 232, 240, 0.8)',
+                                                    }}
+                                                >
+                                                    <p className="text-xs font-bold text-slate-700 text-center">
+                                                        Verify your mobile number via instant SMS OTP:
+                                                    </p>
+
+                                                    {/* Official Phone.Email Button Mount */}
+                                                    <div
+                                                        className="pe_signin_button"
+                                                        data-client-id={phoneEmailClientId}
+                                                        style={{
+                                                            minHeight: '44px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                        }}
+                                                    />
+
+                                                    <p className="text-[10px] text-slate-400 font-medium text-center">
+                                                        🔒 Powered by Phone.Email (Zero SMS spam • 100% Secure)
+                                                    </p>
+                                                </div>
                                             )}
                                         </div>
-                                    </div>
+                                    ) : (
+                                        /* Mode B: Direct Fallback Input (Used before Client ID is provided) */
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
+                                                Mobile Number <span className="text-rose-500">*</span>
+                                            </label>
+                                            <div
+                                                className={`flex items-center rounded-2xl p-1.5 transition-all ${
+                                                    validationError || serverError
+                                                        ? 'ring-2 ring-rose-400 bg-rose-50/30'
+                                                        : mobile.length === 10
+                                                        ? 'ring-2 ring-emerald-400/50 bg-white'
+                                                        : 'focus-within:ring-2 focus-within:ring-orange-500/40 bg-white'
+                                                }`}
+                                                style={{
+                                                    boxShadow: 'inset 2px 2px 4px rgba(166, 180, 200, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.9)',
+                                                    border: '1px solid rgba(226, 232, 240, 0.8)',
+                                                }}
+                                            >
+                                                <div
+                                                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 select-none shrink-0"
+                                                    style={{
+                                                        backgroundColor: '#EEF2F6',
+                                                        boxShadow: '2px 2px 4px rgba(166, 180, 200, 0.3), -2px -2px 4px rgba(255, 255, 255, 0.9)',
+                                                    }}
+                                                >
+                                                    <span className="text-sm">🇮🇳</span>
+                                                    <span>+91</span>
+                                                </div>
+
+                                                <input
+                                                    type="tel"
+                                                    inputMode="numeric"
+                                                    pattern="[0-9]*"
+                                                    disabled={submitting}
+                                                    placeholder="10-digit number"
+                                                    value={mobile}
+                                                    onChange={handlePhoneChange}
+                                                    className="w-full px-3 py-2 bg-transparent text-slate-900 font-bold text-base placeholder:text-slate-400 placeholder:font-normal focus:outline-none tracking-wider"
+                                                />
+
+                                                {mobile && !submitting && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMobile('')}
+                                                        className="size-7 rounded-full text-slate-400 hover:text-slate-600 flex items-center justify-center text-xs font-bold hover:bg-slate-100 transition-colors mr-1 cursor-pointer"
+                                                        title="Clear"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Dev Mode Setup Tip */}
+                                            <div className="mt-2 p-2.5 rounded-xl bg-orange-50/80 border border-orange-200/60 text-[11px] text-orange-800">
+                                                💡 <strong>Production Tip:</strong> Add <code className="bg-orange-100 px-1 py-0.5 rounded text-[10px]">NEXT_PUBLIC_PHONE_EMAIL_CLIENT_ID</code> to enable free Phone.Email SMS OTPs.
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Validation Error */}
                                     {validationError && (
@@ -656,17 +801,19 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         </div>
                                     )}
 
-                                    {/* Invisible Firebase reCAPTCHA Container */}
-                                    <div id={recaptchaContainerId} />
-
                                     {/* Submit Button */}
                                     <button
                                         type="submit"
-                                        disabled={submitting || !name.trim() || !dob || mobile.length < 10}
+                                        disabled={
+                                            submitting ||
+                                            !name.trim() ||
+                                            !dob ||
+                                            (phoneEmailEnabled ? !phoneEmailVerified : mobile.length < 10)
+                                        }
                                         className={`w-full py-4 rounded-2xl font-black text-sm tracking-wide transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-md ${
                                             submitting
                                                 ? 'bg-slate-300 text-slate-600 cursor-not-allowed'
-                                                : name.trim() && dob && mobile.length === 10
+                                                : name.trim() && dob && (phoneEmailEnabled ? phoneEmailVerified : mobile.length === 10)
                                                 ? 'bg-gradient-to-r from-orange-500 via-orange-600 to-rose-500 text-white shadow-orange-500/30 hover:scale-[1.01] active:scale-[0.99]'
                                                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                         }`}
@@ -674,7 +821,12 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         {submitting ? (
                                             <>
                                                 <Loader2 size={18} className="animate-spin" />
-                                                <span>Sending Verification Code...</span>
+                                                <span>Completing Verification...</span>
+                                            </>
+                                        ) : phoneEmailEnabled ? (
+                                            <>
+                                                <span>{phoneEmailVerified ? 'Start Dining' : 'Verify Mobile to Continue'}</span>
+                                                <ArrowRight size={18} />
                                             </>
                                         ) : (
                                             <>
@@ -686,7 +838,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                 </form>
                             </motion.div>
                         ) : (
-                            /* ── STEP 2: Verify 6-digit OTP ───────────────────── */
+                            /* ── STEP 2: Verify Fallback 6-digit OTP ───────────── */
                             <motion.div
                                 key="step-otp"
                                 initial={{ opacity: 0, x: 20 }}
@@ -750,41 +902,36 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                     </div>
                                 )}
 
-                                <form onSubmit={handleVerifyOtp} className="space-y-4">
-                                    {/* 6-Digit OTP Input */}
+                                <form onSubmit={handleVerifyFallbackOtp} className="space-y-4">
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-700 mb-1.5 ml-1">
+                                        <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
                                             6-Digit OTP Code <span className="text-rose-500">*</span>
                                         </label>
                                         <div
-                                            className={`flex items-center rounded-2xl p-2 transition-all ${
-                                                validationError || serverError
-                                                    ? 'ring-2 ring-rose-400 bg-rose-50/30'
-                                                    : otp.length === 6
-                                                    ? 'ring-2 ring-emerald-400/50 bg-white'
-                                                    : 'focus-within:ring-2 focus-within:ring-orange-500/40 bg-white'
-                                            }`}
+                                            className="flex items-center rounded-2xl p-1.5 bg-white transition-all focus-within:ring-2 focus-within:ring-orange-500/40"
                                             style={{
                                                 boxShadow: 'inset 2px 2px 4px rgba(166, 180, 200, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.9)',
                                                 border: '1px solid rgba(226, 232, 240, 0.8)',
                                             }}
                                         >
+                                            <div className="pl-3 pr-2 text-slate-400">
+                                                <KeyRound size={18} />
+                                            </div>
                                             <input
-                                                type="tel"
+                                                type="text"
                                                 inputMode="numeric"
                                                 pattern="[0-9]*"
+                                                maxLength={6}
                                                 autoFocus
                                                 disabled={submitting}
-                                                maxLength={6}
                                                 placeholder="• • • • • •"
                                                 value={otp}
                                                 onChange={handleOtpChange}
-                                                className="w-full text-center py-2 bg-transparent text-slate-900 font-black text-2xl tracking-[0.4em] placeholder:text-slate-300 placeholder:tracking-[0.4em] focus:outline-none"
+                                                className="w-full px-2 py-2.5 bg-transparent text-slate-900 font-extrabold text-lg text-center tracking-[0.5em] placeholder:tracking-normal placeholder:font-normal placeholder:text-sm placeholder:text-slate-400 focus:outline-none"
                                             />
                                         </div>
                                     </div>
 
-                                    {/* Errors */}
                                     {validationError && (
                                         <p className="text-xs text-rose-500 font-semibold mt-1 ml-1 flex items-center gap-1">
                                             <AlertCircle size={13} className="shrink-0" />
@@ -801,7 +948,6 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         </div>
                                     )}
 
-                                    {/* Verify Button */}
                                     <button
                                         type="submit"
                                         disabled={submitting || otp.length !== 6}
@@ -816,22 +962,33 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         {submitting ? (
                                             <>
                                                 <Loader2 size={18} className="animate-spin" />
-                                                <span>Verifying Code...</span>
+                                                <span>Verifying...</span>
                                             </>
                                         ) : (
                                             <>
-                                                <ShieldCheck size={18} />
                                                 <span>Verify & Start Dining</span>
+                                                <ArrowRight size={18} />
                                             </>
                                         )}
                                     </button>
 
-                                    {/* Resend OTP Action */}
-                                    <div className="pt-2 flex items-center justify-between text-xs text-slate-500 px-1">
-                                        <span>Didn't receive the SMS code?</span>
+                                    {/* Resend Countdown / Button */}
+                                    <div className="pt-2 flex items-center justify-between text-xs text-slate-500">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setStep('details');
+                                                setServerError('');
+                                                setValidationError('');
+                                            }}
+                                            className="text-slate-500 hover:text-slate-700 font-medium underline"
+                                        >
+                                            Change Number
+                                        </button>
+
                                         {resendCooldown > 0 ? (
-                                            <span className="font-semibold text-slate-400">
-                                                Resend in {resendCooldown}s
+                                            <span className="text-slate-400 font-medium">
+                                                Resend in <strong className="font-bold text-slate-600">{resendCooldown}s</strong>
                                             </span>
                                         ) : (
                                             <button
@@ -853,7 +1010,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                     {/* Trust footer info */}
                     <div className="mt-5 pt-4 border-t border-slate-200/60 text-center">
                         <p className="text-[11px] text-slate-400 font-medium">
-                            🔒 Verified via secure Firebase SMS. Your details are safe & confidential.
+                            🔒 Verified via Phone.Email secure SMS OTP. Your details are safe & confidential.
                         </p>
                     </div>
                 </motion.div>
@@ -880,110 +1037,70 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                             className="w-full max-w-md rounded-3xl p-5 sm:p-6 space-y-4 max-h-[85vh] flex flex-col"
                             style={{
                                 backgroundColor: '#EEF2F6',
-                                boxShadow: '0 20px 40px rgba(0, 0, 0, 0.25)',
+                                boxShadow: '16px 16px 32px rgba(0, 0, 0, 0.3), -8px -8px 24px rgba(255, 255, 255, 0.9)',
                                 border: '1px solid rgba(255, 255, 255, 0.9)',
                             }}
                         >
-                            <div className="flex items-start justify-between">
+                            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                                 <div>
-                                    <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase mb-1">
-                                        <span>{multipleActiveOrders.length} Active Orders Found</span>
-                                    </div>
-                                    <h3 className="text-lg font-black text-slate-900">
-                                        Select Active Order
-                                    </h3>
-                                    <p className="text-xs text-slate-500 font-medium mt-0.5">
-                                        We found ongoing orders for +91 {mobile}. Which one would you like to open?
-                                    </p>
+                                    <h3 className="font-black text-slate-900 text-lg">Active Orders Found</h3>
+                                    <p className="text-xs text-slate-500 font-medium">You have orders in progress with this mobile</p>
                                 </div>
+                                <span className="px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 font-extrabold text-xs">
+                                    {multipleActiveOrders.length}
+                                </span>
                             </div>
 
-                            {/* Active Orders List */}
-                            <div className="flex-1 overflow-y-auto space-y-3 py-1 pr-1">
-                                {multipleActiveOrders.map((order, idx) => {
-                                    const isDelivery = order.orderType === 'DELIVERY';
-                                    const isTakeaway = order.orderType === 'TAKEAWAY';
+                            <div className="overflow-y-auto space-y-2.5 max-h-[50vh] pr-1">
+                                {multipleActiveOrders.map((ord) => {
+                                    const isDineIn = ord.orderType === 'DINE_IN';
+                                    const isTakeaway = ord.orderType === 'TAKEAWAY';
 
                                     return (
-                                        <button
-                                            key={order.id || `order-${idx}`}
-                                            onClick={() => handleSelectExistingOrder(order)}
-                                            className="w-full text-left p-4 rounded-2xl transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-between gap-3 group cursor-pointer"
-                                            style={{
-                                                backgroundColor: '#EEF2F6',
-                                                boxShadow: '4px 4px 10px rgba(166, 180, 200, 0.4), -4px -4px 10px rgba(255, 255, 255, 0.95)',
-                                                border: '1px solid rgba(255, 255, 255, 0.85)',
-                                            }}
+                                        <div
+                                            key={ord.id}
+                                            onClick={() => handleSelectExistingOrder(ord)}
+                                            className="p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-orange-300 transition-all cursor-pointer flex items-center justify-between group shadow-2xs hover:shadow-sm"
                                         >
                                             <div className="flex items-center gap-3">
-                                                <div
-                                                    className={`size-11 rounded-xl flex items-center justify-center shrink-0 ${
-                                                        isDelivery
-                                                            ? 'text-blue-600'
-                                                            : isTakeaway
-                                                            ? 'text-emerald-600'
-                                                            : 'text-orange-600'
-                                                    }`}
-                                                    style={{
-                                                        backgroundColor: '#EEF2F6',
-                                                        boxShadow: 'inset 2px 2px 4px rgba(166, 180, 200, 0.35), inset -2px -2px 4px rgba(255, 255, 255, 0.9)',
-                                                    }}
-                                                >
-                                                    {isDelivery ? (
-                                                        <Bike size={22} />
-                                                    ) : isTakeaway ? (
-                                                        <ShoppingBag size={22} />
-                                                    ) : (
-                                                        <Utensils size={22} />
-                                                    )}
+                                                <div className={`size-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                                    isDineIn ? 'bg-orange-100 text-orange-600' :
+                                                    isTakeaway ? 'bg-blue-100 text-blue-600' :
+                                                    'bg-emerald-100 text-emerald-600'
+                                                }`}>
+                                                    {isDineIn ? <Utensils size={18} /> :
+                                                     isTakeaway ? <ShoppingBag size={18} /> :
+                                                     <Bike size={18} />}
                                                 </div>
-
                                                 <div>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="font-black text-xs text-slate-900">
-                                                            Order #{order.orderNumber || order.id.slice(0, 6)}
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-extrabold text-slate-900 text-sm">
+                                                            Order #{ord.orderNumber}
                                                         </span>
-                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                                                            isDelivery
-                                                                ? 'bg-blue-100 text-blue-700'
-                                                                : isTakeaway
-                                                                ? 'bg-emerald-100 text-emerald-700'
-                                                                : 'bg-orange-100 text-orange-700'
-                                                        }`}>
-                                                            {isDelivery ? 'Delivery' : isTakeaway ? 'Takeaway' : `Table ${order.tableNumber || 'Dine-In'}`}
+                                                        <span className="text-[10px] uppercase font-black px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                                                            {ord.status.replace(/_/g, ' ')}
                                                         </span>
                                                     </div>
-
-                                                    <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 font-medium">
-                                                        <span className="capitalize font-bold text-slate-700">
-                                                            ● {order.status}
-                                                        </span>
-                                                        {order.totalAmount > 0 && (
-                                                            <>
-                                                                <span>•</span>
-                                                                <span>₹{order.totalAmount}</span>
-                                                            </>
-                                                        )}
-                                                    </div>
+                                                    <p className="text-xs text-slate-500 mt-0.5">
+                                                        {isDineIn && ord.tableNumber ? `Table ${ord.tableNumber} • ` : ''}
+                                                        ₹{Number(ord.totalAmount).toFixed(0)}
+                                                    </p>
                                                 </div>
                                             </div>
 
-                                            <div className="size-8 rounded-full flex items-center justify-center text-slate-400 group-hover:text-orange-500 group-hover:translate-x-1 transition-all">
-                                                <ChevronRight size={18} />
-                                            </div>
-                                        </button>
+                                            <ChevronRight size={18} className="text-slate-400 group-hover:text-orange-500 transition-colors" />
+                                        </div>
                                     );
                                 })}
                             </div>
 
-                            {/* Option to start a new order */}
-                            <div className="pt-2 border-t border-slate-200/80 flex flex-col gap-2">
+                            <div className="pt-2 flex flex-col gap-2">
                                 <button
+                                    type="button"
                                     onClick={handleProceedToNewOrder}
-                                    className="w-full py-3 rounded-xl bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                                    className="w-full py-3 rounded-2xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
                                 >
-                                    <span>Or Start a New Order</span>
-                                    <ArrowRight size={14} />
+                                    Start a New Order Instead
                                 </button>
                             </div>
                         </motion.div>

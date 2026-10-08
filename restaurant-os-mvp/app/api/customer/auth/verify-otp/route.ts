@@ -1,38 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveRestaurantId } from '@/services/utils.service';
 import { CustomerOtpService, sanitizePhone } from '@/lib/customer-otp';
+import { verifyPhoneEmailPayload } from '@/lib/phone-email';
 import { CustomerService } from '@/services/customers.server.service';
 import { signJwt, getCustomerTokenName } from '@/lib/jwt-utils';
 
 /**
  * POST /api/customer/auth/verify-otp
  * 
- * Verifies a customer phone OTP.
+ * Verifies a customer phone OTP via Phone.Email or internal fallback.
  * Upon successful verification, upserts/fetches customer record, issues a cryptographically
  * signed Customer JWT, and sets secure httpOnly cookies.
- * Strictly required before any Customer JWT can be issued.
  */
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
         const restaurantCode = (body.restaurantCode || body.restaurantId || '').trim();
-        const mobile = (body.mobile || body.phone || '').trim();
+        let mobile = (body.mobile || body.phone || '').trim();
         const otp = (body.otp || body.code || '').trim();
         const name = (body.name || '').trim();
         const email = (body.email || '').trim().toLowerCase();
         const dob = (body.dob || body.dateOfBirth || '').trim();
+        const userJsonUrl = (body.userJsonUrl || body.user_json_url || '').trim();
+        const phoneEmailVerified = body.phoneEmailVerified === true || !!userJsonUrl;
 
         if (!restaurantCode) {
             return NextResponse.json({ error: 'Restaurant code is required' }, { status: 400 });
         }
 
-        if (!mobile) {
+        if (!mobile && !phoneEmailVerified) {
             return NextResponse.json({ error: 'Mobile number is required' }, { status: 400 });
         }
 
-        const firebaseVerified = body.firebaseVerified === true || !!body.idToken;
-
-        if (!otp && !firebaseVerified) {
+        if (!otp && !phoneEmailVerified) {
             return NextResponse.json({ error: 'Verification code is required' }, { status: 400 });
         }
 
@@ -43,8 +43,18 @@ export async function POST(req: NextRequest) {
 
         const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || '127.0.0.1';
 
-        // 1. Verify OTP: either through Firebase Authentication or internal fallback
-        if (!firebaseVerified) {
+        // 1. Verify OTP: either through Phone.Email server-side check or internal OTP fallback
+        if (phoneEmailVerified && userJsonUrl) {
+            const peRes = await verifyPhoneEmailPayload(userJsonUrl);
+            if (!peRes.success || !peRes.phone) {
+                return NextResponse.json(
+                    { error: peRes.error || 'Phone.Email OTP verification failed.' },
+                    { status: 400 }
+                );
+            }
+            // Use the verified phone number from Phone.Email
+            mobile = peRes.phone;
+        } else if (!phoneEmailVerified) {
             const verification = await CustomerOtpService.verifyOtp(actualRestaurantId, mobile, otp, clientIp);
 
             if (!verification.success) {
