@@ -15,6 +15,9 @@ import { PersistentProfile } from '@/components/customer/PersistentProfile';
 import CustomerMobileEntry from '@/components/customer/CustomerMobileEntry';
 import { CustomerJoinTableScreen } from '@/components/customer/CustomerJoinTableScreen';
 import { HostJoinApprovalModal } from '@/components/customer/HostJoinApprovalModal';
+import { CustomerConnectedOtherTableScreen } from '@/components/customer/CustomerConnectedOtherTableScreen';
+import { CustomerDiningEndedScreen } from '@/components/customer/CustomerDiningEndedScreen';
+import { supabase } from '@/lib/supabase';
 
 interface TableSessionInfo {
     table_token: string;
@@ -45,6 +48,12 @@ export default function CustomerTokenLayout({
         hostName: string;
         requestId?: string | null;
     } | null>(null);
+    const [otherActiveSession, setOtherActiveSession] = useState<{
+        tableNumber: string;
+        isHost?: boolean;
+    } | null>(null);
+    const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+    const [isTableCleared, setIsTableCleared] = useState(false);
 
     // Auto-redirect root token URL to /home
     useEffect(() => {
@@ -146,11 +155,13 @@ export default function CustomerTokenLayout({
                             );
                             if (sessRes.ok && isMounted) {
                                 const sessData = await sessRes.json();
-                                if (!sessData.hasActiveSession) {
+                                if (sessData.customerHasOtherActiveSession && sessData.otherSession) {
+                                    setOtherActiveSession(sessData.otherSession);
+                                } else if (!sessData.hasActiveSession) {
                                     // Claim session as host
                                     const custName = localStorage.getItem(`ros_customer_name_${targetRes}`) || 'Table Host';
                                     const custId = localStorage.getItem(`ros_customer_${targetRes}`);
-                                    await fetch('/api/customer/table-session/active', {
+                                    const claimRes = await fetch('/api/customer/table-session/active', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({
@@ -163,10 +174,22 @@ export default function CustomerTokenLayout({
                                             customerMobile: mobile,
                                         }),
                                     });
+                                    if (claimRes.ok) {
+                                        const claimData = await claimRes.json();
+                                        if (claimData.sessionId && isMounted) {
+                                            setCurrentSessionId(claimData.sessionId);
+                                        }
+                                    }
                                     setApprovalStatus('host');
                                 } else if (sessData.isHost || sessData.approvalStatus === 'approved') {
+                                    if (sessData.sessionId && isMounted) {
+                                        setCurrentSessionId(sessData.sessionId);
+                                    }
                                     setApprovalStatus(sessData.isHost ? 'host' : 'approved');
                                 } else {
+                                    if (sessData.sessionId && isMounted) {
+                                        setCurrentSessionId(sessData.sessionId);
+                                    }
                                     setApprovalStatus(sessData.approvalStatus || 'none');
                                     setHostInfo({
                                         sessionId: sessData.sessionId,
@@ -196,6 +219,71 @@ export default function CustomerTokenLayout({
             isMounted = false;
         };
     }, [token]);
+
+    // Real-time listener: Auto-logout and session termination when waiter or admin clears the table
+    useEffect(() => {
+        if (!sessionInfo?.table_number || !sessionInfo?.restaurant_id) return;
+
+        const tableNum = sessionInfo.table_number;
+        const restId = sessionInfo.restaurant_id;
+
+        const handleTableCleared = () => {
+            try {
+                if (typeof window !== 'undefined') {
+                    sessionStorage.setItem('ros_logged_out', 'true');
+                    sessionStorage.removeItem(`ros_session_${token}`);
+                    localStorage.removeItem('customer_cart');
+                    localStorage.removeItem('customer_table_number');
+                }
+            } catch {}
+            setIsTableCleared(true);
+        };
+
+        const channelName = `token-table-cleared-${tableNum}-${Date.now()}`;
+        const channel = supabase
+            .channel(channelName)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'table_active_sessions',
+                },
+                (payload: any) => {
+                    const row = payload.new;
+                    if (!row) return;
+
+                    const matchesSession = currentSessionId && row.id === currentSessionId;
+                    const matchesTable = String(row.table_number) === String(tableNum);
+
+                    if ((matchesSession || matchesTable) && row.is_active === false) {
+                        handleTableCleared();
+                    }
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'tables',
+                },
+                (payload: any) => {
+                    const row = payload.new;
+                    if (!row) return;
+
+                    const matchesTable = String(row.table_number) === String(tableNum) || String(row.id) === String(tableNum);
+                    if (matchesTable && row.status === 'available') {
+                        handleTableCleared();
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [sessionInfo, token, currentSessionId]);
 
     if (status === 'validating') {
         return (
@@ -269,6 +357,23 @@ export default function CustomerTokenLayout({
         );
     }
 
+    // Customer is already connected to another table in this restaurant
+    if (otherActiveSession) {
+        return (
+            <CustomerConnectedOtherTableScreen
+                restaurantCode={restaurant_slug || restaurant_id}
+                currentTableNumber={table_number}
+                activeTableNumber={otherActiveSession.tableNumber}
+                isHost={otherActiveSession.isHost}
+                customerMobile={customerMobile}
+                onSwitched={() => {
+                    setOtherActiveSession(null);
+                    window.location.reload();
+                }}
+            />
+        );
+    }
+
     // Secondary guest waiting for host approval
     if (approvalStatus && approvalStatus !== 'host' && approvalStatus !== 'approved' && hostInfo) {
         const guestName = (typeof window !== 'undefined' ? (localStorage.getItem(`ros_customer_name_${restaurant_slug}`) || localStorage.getItem(`ros_customer_name_${restaurant_id}`)) : '') || 'Guest';
@@ -284,6 +389,20 @@ export default function CustomerTokenLayout({
                 initialRequestId={hostInfo.requestId}
                 initialStatus={approvalStatus}
                 onApproved={() => setApprovalStatus('approved')}
+            />
+        );
+    }
+
+    // Realtime: Table has been cleared by waiter or admin
+    if (isTableCleared) {
+        return (
+            <CustomerDiningEndedScreen
+                restaurantCode={restaurant_slug || restaurant_id}
+                tableNumber={table_number}
+                onAcknowledge={() => {
+                    setIsTableCleared(false);
+                    router.push(`/${restaurant_slug || restaurant_id}/customer`);
+                }}
             />
         );
     }

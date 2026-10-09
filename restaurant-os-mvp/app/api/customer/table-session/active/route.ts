@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { resolveRestaurantId } from '@/services/utils.service';
+import { extractCustomerTokenForRestaurant, verifyJwt } from '@/lib/jwt-utils';
 
 function cleanPhone(raw: string): string {
     return String(raw || '').replace(/\D/g, '').slice(-10);
@@ -41,26 +42,6 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // Query by canonical ID or slug, and by table_number or table_token
-        let { data: session, error } = await supabaseAdmin
-            .from('table_active_sessions')
-            .select('*')
-            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
-            .or(`table_number.eq.${resolvedTableNumber},table_token.eq.${tableNumber},table_number.eq.${tableNumber}`)
-            .eq('is_active', true)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-        if (error) {
-            console.error('[table-session/active] DB Error:', error);
-            return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
-        }
-
-        if (!session) {
-            return NextResponse.json({ hasActiveSession: false });
-        }
-
         let resolvedCustomerPhone = customerMobile || '';
         if (!resolvedCustomerPhone) {
             const authHeader = req.headers.get('authorization');
@@ -82,6 +63,82 @@ export async function GET(req: NextRequest) {
         }
 
         const cleanCustomer = cleanPhone(resolvedCustomerPhone);
+
+        // Check if customer already belongs to an active session at ANOTHER table in this restaurant
+        if (cleanCustomer) {
+            const { data: otherHostSession } = await supabaseAdmin
+                .from('table_active_sessions')
+                .select('*')
+                .in('restaurant_id', [restaurantId, canonicalRestaurantId])
+                .eq('host_customer_mobile', cleanCustomer)
+                .eq('is_active', true)
+                .maybeSingle();
+
+            if (otherHostSession && String(otherHostSession.table_number) !== String(resolvedTableNumber)) {
+                return NextResponse.json({
+                    hasActiveSession: true,
+                    customerHasOtherActiveSession: true,
+                    otherSession: {
+                        sessionId: otherHostSession.id,
+                        tableNumber: otherHostSession.table_number,
+                        isHost: true,
+                        hostName: otherHostSession.host_customer_name,
+                    },
+                    isAuthorized: false,
+                    isHost: false,
+                    tableNumber: resolvedTableNumber,
+                    message: `You are already seated at Table ${otherHostSession.table_number}`,
+                });
+            }
+
+            const { data: otherMemberReq } = await supabaseAdmin
+                .from('table_join_requests')
+                .select('*, table_active_sessions!inner(*)')
+                .in('table_active_sessions.restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
+                .eq('table_active_sessions.is_active', true)
+                .eq('requester_customer_mobile', cleanCustomer)
+                .eq('status', 'approved')
+                .maybeSingle();
+
+            if (otherMemberReq && String(otherMemberReq.table_active_sessions?.table_number) !== String(resolvedTableNumber)) {
+                const otherTbl = otherMemberReq.table_active_sessions?.table_number;
+                return NextResponse.json({
+                    hasActiveSession: true,
+                    customerHasOtherActiveSession: true,
+                    otherSession: {
+                        sessionId: otherMemberReq.table_active_sessions?.id,
+                        tableNumber: otherTbl,
+                        isHost: false,
+                        hostName: otherMemberReq.table_active_sessions?.host_customer_name,
+                    },
+                    isAuthorized: false,
+                    isHost: false,
+                    tableNumber: resolvedTableNumber,
+                    message: `You are already a member of Table ${otherTbl}`,
+                });
+            }
+        }
+
+        // Query by canonical ID or slug, and by table_number or table_token
+        let { data: session, error } = await supabaseAdmin
+            .from('table_active_sessions')
+            .select('*')
+            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
+            .or(`table_number.eq.${resolvedTableNumber},table_token.eq.${tableNumber},table_number.eq.${tableNumber}`)
+            .eq('is_active', true)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (error) {
+            console.error('[table-session/active] DB Error:', error);
+            return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
+        }
+
+        if (!session) {
+            return NextResponse.json({ hasActiveSession: false, customerHasOtherActiveSession: false });
+        }
+
         const cleanHost = cleanPhone(session.host_customer_mobile);
         const isHost = Boolean(cleanCustomer && cleanCustomer === cleanHost);
 
@@ -115,6 +172,7 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.json({
             hasActiveSession: true,
+            customerHasOtherActiveSession: false,
             isAuthorized,
             sessionId: session.id,
             tableNumber: session.table_number,
@@ -172,6 +230,51 @@ export async function POST(req: NextRequest) {
         }
 
         const cleanCustomer = cleanPhone(customerMobile);
+
+        // 1. Enforce: Customer cannot create a session if already active on another table
+        const { data: otherHostSession } = await supabaseAdmin
+            .from('table_active_sessions')
+            .select('*')
+            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
+            .eq('host_customer_mobile', cleanCustomer)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        if (otherHostSession && String(otherHostSession.table_number) !== String(resolvedTableNumber)) {
+            return NextResponse.json({
+                error: `You already have an active session at Table ${otherHostSession.table_number}`,
+                customerHasOtherActiveSession: true,
+                otherSession: {
+                    sessionId: otherHostSession.id,
+                    tableNumber: otherHostSession.table_number,
+                    isHost: true,
+                    hostName: otherHostSession.host_customer_name,
+                },
+            }, { status: 409 });
+        }
+
+        const { data: otherMemberReq } = await supabaseAdmin
+            .from('table_join_requests')
+            .select('*, table_active_sessions!inner(*)')
+            .in('table_active_sessions.restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
+            .eq('table_active_sessions.is_active', true)
+            .eq('requester_customer_mobile', cleanCustomer)
+            .eq('status', 'approved')
+            .maybeSingle();
+
+        if (otherMemberReq && String(otherMemberReq.table_active_sessions?.table_number) !== String(resolvedTableNumber)) {
+            const otherTbl = otherMemberReq.table_active_sessions?.table_number;
+            return NextResponse.json({
+                error: `You are already an approved member of Table ${otherTbl}`,
+                customerHasOtherActiveSession: true,
+                otherSession: {
+                    sessionId: otherMemberReq.table_active_sessions?.id,
+                    tableNumber: otherTbl,
+                    isHost: false,
+                    hostName: otherMemberReq.table_active_sessions?.host_customer_name,
+                },
+            }, { status: 409 });
+        }
 
         // Check for existing active session on table
         const { data: existingSession } = await supabaseAdmin

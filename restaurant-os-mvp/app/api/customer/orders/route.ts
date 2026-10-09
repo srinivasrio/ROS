@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
         // 1. Resolve Authenticated Customer strictly from verified JWT
         let authenticatedCustomerId: string | null = null;
         let token: string | null = null;
+        let payload: CustomerJwtPayload | null = null;
         const authHeader = req.headers.get('authorization');
         if (authHeader && authHeader.startsWith('Bearer ')) {
             token = authHeader.substring(7).trim();
@@ -75,7 +76,6 @@ export async function GET(req: NextRequest) {
         }
 
         if (token) {
-            let payload: CustomerJwtPayload | null = null;
             try {
                 payload = await verifyJwt(token);
             } catch {
