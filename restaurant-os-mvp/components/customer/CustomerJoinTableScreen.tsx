@@ -39,6 +39,7 @@ export function CustomerJoinTableScreen({
 
     // Sanitize display table number: if it's a long cryptographic token, don't show the 32-char string as title
     const isTableNumberClean = Boolean(tableNumber && tableNumber.length < 16 && tableNumber !== 'Dining');
+    const displayTableNumber = isTableNumberClean ? tableNumber : '';
     const headingTitle = isTableNumberClean ? `Table ${tableNumber} is Occupied` : 'This Table is Occupied';
     const benefitTableText = isTableNumberClean ? `Table ${tableNumber}` : 'your table';
 

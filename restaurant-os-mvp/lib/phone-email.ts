@@ -7,7 +7,7 @@ export function getPhoneEmailClientId(): string {
     return (
         process.env.NEXT_PUBLIC_PHONE_EMAIL_CLIENT_ID ||
         process.env.PHONE_EMAIL_CLIENT_ID ||
-        ''
+        '14103460909950831548'
     ).trim();
 }
 
@@ -15,7 +15,7 @@ export function getPhoneEmailApiKey(): string {
     return (
         process.env.PHONE_EMAIL_API_KEY ||
         process.env.NEXT_PUBLIC_PHONE_EMAIL_API_KEY ||
-        ''
+        'Q54LFIsR1hxV1Vb6XfJgWu1oA3IrBF6m'
     ).trim();
 }
 

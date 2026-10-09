@@ -77,6 +77,43 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Active table session no longer exists' }, { status: 404 });
         }
 
+        // Prevent joining if already host of another active table session
+        const { data: hostOther } = await supabaseAdmin
+            .from('table_active_sessions')
+            .select('id, table_number')
+            .eq('restaurant_id', session.restaurant_id)
+            .eq('host_customer_mobile', cleanMobile)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        if (hostOther && hostOther.id !== session.id) {
+            return NextResponse.json({
+                error: `You are already the host of active Table ${hostOther.table_number}. Please return to your table or resolve that session first.`,
+                customerHasOtherActiveSession: true,
+                otherTableNumber: hostOther.table_number,
+            }, { status: 409 });
+        }
+
+        // Prevent joining if already approved member of another active table session
+        const { data: memberOther } = await supabaseAdmin
+            .from('table_join_requests')
+            .select('id, table_number, session_id, table_active_sessions!inner(id, table_number, is_active)')
+            .eq('table_active_sessions.restaurant_id', session.restaurant_id)
+            .eq('table_active_sessions.is_active', true)
+            .eq('requester_customer_mobile', cleanMobile)
+            .eq('status', 'approved')
+            .neq('session_id', session.id)
+            .maybeSingle();
+
+        if (memberOther) {
+            const oTbl = (memberOther as any).table_active_sessions?.table_number;
+            return NextResponse.json({
+                error: `You are already an approved member of active Table ${oTbl}. Please return to your table or resolve that session first.`,
+                customerHasOtherActiveSession: true,
+                otherTableNumber: oTbl,
+            }, { status: 409 });
+        }
+
         // Check if an existing request exists for this customer
         const { data: existing } = await supabaseAdmin
             .from('table_join_requests')

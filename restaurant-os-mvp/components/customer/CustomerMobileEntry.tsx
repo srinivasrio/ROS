@@ -16,6 +16,7 @@ import { getPhoneEmailClientId, isPhoneEmailConfigured } from '@/lib/phone-email
 import { AuthBackground } from '@/components/auth/AuthBackground';
 import { DineInOneWaveLogo } from '@/components/auth/DineInOneWaveLogo';
 import { CustomerJoinTableScreen } from '@/components/customer/CustomerJoinTableScreen';
+import { CustomerConnectedOtherTableScreen } from '@/components/customer/CustomerConnectedOtherTableScreen';
 
 interface CustomerMobileEntryProps {
     restaurantCode: string;
@@ -68,7 +69,6 @@ export default function CustomerMobileEntry({
     const phoneEmailEnabled = isPhoneEmailConfigured();
     const [phoneEmailVerified, setPhoneEmailVerified] = useState(false);
     const [verifiedJsonUrl, setVerifiedJsonUrl] = useState('');
-    const [isAwaitingPhoneEmail, setIsAwaitingPhoneEmail] = useState(false);
 
     // Fallback OTP State
     const [otp, setOtp] = useState('');
@@ -93,6 +93,10 @@ export default function CustomerMobileEntry({
         participantCount?: number;
         initialStatus: 'pending' | 'rejected' | 'none';
         initialRequestId: string | null;
+    } | null>(null);
+    const [otherActiveSession, setOtherActiveSession] = useState<{
+        tableNumber: string;
+        isHost?: boolean;
     } | null>(null);
 
     // Load saved details and restaurant profile on mount
@@ -138,67 +142,89 @@ export default function CustomerMobileEntry({
         return () => clearInterval(timer);
     }, [resendCooldown]);
 
-    // Phone.Email PostMessage Listener
+    // Check URL searchParams on mount for Phone.Email redirect return
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const urlParams = new URLSearchParams(window.location.search);
+            const redirectUserJsonUrl = urlParams.get('user_json_url');
+            if (redirectUserJsonUrl && redirectUserJsonUrl.startsWith('https://user.phone.email/')) {
+                const savedMobile = sessionStorage.getItem('pe_pending_mobile') || mobile;
+                try {
+                    sessionStorage.removeItem('pe_pending_mobile');
+                    urlParams.delete('user_json_url');
+                    const cleanQuery = urlParams.toString();
+                    const newUrl = window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '');
+                    window.history.replaceState({}, '', newUrl);
+                } catch {}
+
+                handleVerifyMobileToken({
+                    verifiedMobile: savedMobile,
+                    userJsonUrl: redirectUserJsonUrl,
+                    isPhoneEmail: true,
+                });
+            }
+        }
+    }, []);
+
+    // Phone.Email PostMessage & Global Listener
     useEffect(() => {
         const handleDirectMessage = async (event: MessageEvent) => {
-            if (typeof event.data === 'string' && event.data.includes('phone.email')) {
+            if (typeof event.data === 'string') {
                 return;
             }
 
-            if (event.data?.flag_phone === '1' && event.data?.user_json_url) {
-                const jsonUrl = event.data.user_json_url;
+            if (
+                (event.origin === 'https://auth.phone.email' || (typeof event.origin === 'string' && event.origin.includes('phone.email'))) &&
+                event.data &&
+                (event.data.user_json_url || event.data.userJsonUrl || event.data.flag_phone === '1')
+            ) {
+                const jsonUrl = event.data.user_json_url || event.data.userJsonUrl;
+                if (!jsonUrl) return;
+
+                const pendingMobile = sessionStorage.getItem('pe_pending_mobile') || mobile;
+                const cleanPhone = pendingMobile.replace(/\D/g, '').slice(-10);
+
                 try {
-                    setIsAwaitingPhoneEmail(false);
                     setVerifiedJsonUrl(jsonUrl);
                     setPhoneEmailVerified(true);
-
-                    let finalPhone = mobile;
-                    try {
-                        const r = await fetch(jsonUrl);
-                        if (r.ok) {
-                            const d = await r.json();
-                            const p = String(d.user_phone_number || d.phone_no || '').replace(/\D/g, '').slice(-10);
-                            if (p) {
-                                finalPhone = p;
-                                setMobile(p);
-                            }
-                        }
-                    } catch {}
-
-                    toast.success(`Mobile +91 ${finalPhone} verified via Phone.Email!`);
+                    toast.success(`Mobile verified via Phone.Email!`);
                     await handleVerifyMobileToken({
-                        verifiedMobile: finalPhone,
+                        verifiedMobile: cleanPhone,
                         userJsonUrl: jsonUrl,
                         isPhoneEmail: true,
                     });
                 } catch (err: any) {
                     console.error('[Phone.Email Direct Message Error]', err);
+                    setServerError('Failed to complete verification. Please try again.');
+                    setSubmitting(false);
                 }
+            }
+        };
+
+        (window as any).phoneEmailListener = async (userObj: any) => {
+            const jsonUrl = userObj?.user_json_url;
+            const phone = userObj?.user_phone_number
+                ? String(userObj.user_phone_number).replace(/\D/g, '').slice(-10)
+                : (sessionStorage.getItem('pe_pending_mobile') || mobile);
+            if (jsonUrl) {
+                setVerifiedJsonUrl(jsonUrl);
+                setPhoneEmailVerified(true);
+                if (phone) setMobile(phone);
+                toast.success('Mobile verified via Phone.Email!');
+                await handleVerifyMobileToken({
+                    verifiedMobile: phone,
+                    userJsonUrl: jsonUrl,
+                    isPhoneEmail: true,
+                });
             }
         };
 
         window.addEventListener('message', handleDirectMessage);
 
-        // Inject Phone.Email script when on 'phone' step
-        if (step === 'phone') {
-            const scriptId = 'phone-email-btn-script';
-            const btnEl = document.querySelector('.pe_signin_button');
-            if (btnEl && !document.getElementById(scriptId)) {
-                const script = document.createElement('script');
-                script.id = scriptId;
-                script.src = 'https://www.phone.email/sign_in_button_v1.js';
-                script.async = true;
-                script.onerror = () => {
-                    console.warn('[Phone.Email] Script load failed.');
-                };
-                document.body.appendChild(script);
-            }
-        }
-
         return () => {
             window.removeEventListener('message', handleDirectMessage);
         };
-    }, [phoneEmailClientId, step, mobile]);
+    }, [phoneEmailClientId, mobile]);
 
     // Phone format handler
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -273,14 +299,26 @@ export default function CustomerMobileEntry({
                     }),
                 });
 
+                const sessData = await sessionRes.json();
+
+                if (sessData.customerHasOtherActiveSession && sessData.otherSession) {
+                    setOtherActiveSession(sessData.otherSession);
+                    setSubmitting(false);
+                    return;
+                }
+
                 if (sessionRes.ok) {
-                    const sessData = await sessionRes.json();
                     if (sessData.hasActiveSession && !sessData.isHost) {
                         const checkRes = await fetch(
                             `/api/customer/table-session/active?restaurantId=${encodeURIComponent(targetRestaurantId)}&tableNumber=${encodeURIComponent(tableFromUrl)}&customerMobile=${encodeURIComponent(customerMobileNum)}`
                         );
                         if (checkRes.ok) {
                             const checkData = await checkRes.json();
+                            if (checkData.customerHasOtherActiveSession && checkData.otherSession) {
+                                setOtherActiveSession(checkData.otherSession);
+                                setSubmitting(false);
+                                return;
+                            }
                             if (checkData.approvalStatus !== 'approved' && checkData.approvalStatus !== 'host') {
                                 setJoinSessionData({
                                     sessionId: sessData.sessionId,
@@ -364,7 +402,13 @@ export default function CustomerMobileEntry({
                 }
             } catch {}
 
-            // Check if customer was already registered previously with a name
+            // Extract verified details
+            const actualVerifiedMobile = (verifyData.customer?.mobile || verifiedMobile).replace(/\D/g, '').slice(-10);
+            const customerName = (verifyData.customer?.name || name || 'Guest').trim();
+            const customerDob = verifyData.customer?.dateOfBirth || verifyData.customer?.dob || dob || '';
+
+            persistCustomerSession(actualVerifiedMobile, customerName, customerDob, verifyData.customer?.id);
+
             const isReturningCustomer = Boolean(
                 verifyData.isReturning && 
                 verifyData.customer?.name && 
@@ -373,26 +417,77 @@ export default function CustomerMobileEntry({
             );
 
             if (isReturningCustomer) {
-                const customerName = verifyData.customer.name.trim();
-                const customerDob = verifyData.customer.dateOfBirth || verifyData.customer.dob || '';
-                persistCustomerSession(verifiedMobile, customerName, customerDob, verifyData.customer.id);
                 toast.success(`Welcome back, ${customerName}!`);
-                await proceedToDiningOrJoinSession(customerName, verifiedMobile, verifyData.customer.id);
             } else {
-                // Not registered before or without saved name -> proceed to Step 3: ask Name & DOB with Skip
-                setVerifiedCustomer({
-                    id: verifyData.customer?.id,
-                    mobile: verifiedMobile,
-                    userJsonUrl,
-                    isPhoneEmail,
-                });
-                setSubmitting(false);
-                setStep('details');
+                toast.success('Mobile verified successfully!');
             }
+
+            // Automatically redirect customer to the correct customer homepage associated with the scanned table
+            await proceedToDiningOrJoinSession(customerName, actualVerifiedMobile, verifyData.customer?.id);
         } catch (err: any) {
             console.error('[Verification Error]', err);
             setServerError(err.message || 'Network error during verification. Please try again.');
             setSubmitting(false);
+        }
+    };
+
+    /**
+     * Primary handler when user clicks "Get OTP"
+     * Directs to Phone.Email verification portal with prefilled mobile and automatic OTP delivery.
+     */
+    const handleGetOtp = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        setValidationError('');
+        setServerError('');
+
+        const cleanMobile = mobile.replace(/\D/g, '').slice(-10);
+        if (!/^[6-9]\d{9}$/.test(cleanMobile)) {
+            setValidationError('Please enter a valid 10-digit mobile number starting with 6, 7, 8, or 9');
+            return;
+        }
+
+        if (phoneEmailEnabled && phoneEmailClientId) {
+            setSubmitting(true);
+            try {
+                // Determine origin: use current window location if on dineinone.com domain, else fallback to registered origin https://dineinone.com
+                const currentHref = typeof window !== 'undefined' ? window.location.href : '';
+                const isDineInOneDomain = currentHref.includes('dineinone.com');
+                const origin = isDineInOneDomain ? currentHref : 'https://dineinone.com';
+                const targetUrl = `https://auth.phone.email/log-in?client_id=${encodeURIComponent(phoneEmailClientId)}&auth_type=8&origin=${encodeURIComponent(origin)}&user_phone_no=${encodeURIComponent(cleanMobile)}`;
+
+                try {
+                    sessionStorage.setItem('pe_pending_mobile', cleanMobile);
+                } catch {}
+
+                const top = Math.max(0, (window.screen.height - 600) / 2);
+                const left = Math.max(0, (window.screen.width - 500) / 2);
+                const peWin = window.open(
+                    targetUrl,
+                    'peLoginWindow',
+                    `toolbar=0,scrollbars=0,location=0,statusbar=0,menubar=0,resizable=0,width=500,height=560,top=${top},left=${left}`
+                );
+
+                if (!peWin || peWin.closed || typeof peWin.closed === 'undefined') {
+                    // Mobile browser or popup blocker: direct navigation to Phone.Email verification portal
+                    window.location.href = targetUrl;
+                    return;
+                }
+
+                // If popup window is opened, monitor closure in case user dismisses without verifying
+                const checkClosed = setInterval(() => {
+                    if (peWin.closed) {
+                        clearInterval(checkClosed);
+                        setSubmitting(false);
+                    }
+                }, 800);
+            } catch (err) {
+                console.error('[Phone.Email Portal Error]', err);
+                setSubmitting(false);
+                await handleSendOtp();
+            }
+        } else {
+            // Fallback for development/environments without Phone.Email configured
+            await handleSendOtp();
         }
     };
 
@@ -498,6 +593,23 @@ export default function CustomerMobileEntry({
         await proceedToDiningOrJoinSession(finalName, activeMobile, customerId);
     };
 
+    // Customer is already connected to another table in this restaurant
+    if (otherActiveSession) {
+        return (
+            <CustomerConnectedOtherTableScreen
+                restaurantCode={restaurantCode}
+                currentTableNumber={tableFromUrl}
+                activeTableNumber={otherActiveSession.tableNumber}
+                isHost={otherActiveSession.isHost}
+                customerMobile={verifiedCustomer?.mobile || mobile}
+                onSwitched={() => {
+                    setOtherActiveSession(null);
+                    window.location.reload();
+                }}
+            />
+        );
+    }
+
     // If join session modal is active
     if (joinSessionData) {
         return (
@@ -524,6 +636,9 @@ export default function CustomerMobileEntry({
             />
         );
     }
+
+    const cleanMobileDigits = mobile.replace(/\D/g, '').slice(-10);
+    const isValidMobile = /^[6-9]\d{9}$/.test(cleanMobileDigits);
 
     return (
         <AuthBackground className="min-h-screen py-8 px-4 flex flex-col justify-center items-center">
@@ -576,13 +691,13 @@ export default function CustomerMobileEntry({
                                     </p>
                                 </div>
 
-                                <form onSubmit={handleSendOtp} className="space-y-4">
+                                <form onSubmit={handleGetOtp} className="space-y-4">
                                     {/* Mobile Number Input */}
                                     <div>
                                         <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
                                             Mobile Number <span className="text-rose-500">*</span>
                                         </label>
-                                        <div className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all">
+                                        <div className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-emerald-500 focus-within:bg-white transition-all">
                                             <div className="flex items-center gap-1.5 pl-3 pr-2 border-r border-slate-200 text-slate-700 font-bold text-sm shrink-0">
                                                 <span className="text-base">🇮🇳</span>
                                                 <span>+91</span>
@@ -616,13 +731,13 @@ export default function CustomerMobileEntry({
                                         </div>
                                     )}
 
-                                    {/* Primary Button: Get OTP */}
+                                    {/* Primary Button: Get OTP (Only button, activates with green color upon entering 10 valid digits) */}
                                     <button
                                         type="submit"
-                                        disabled={submitting || mobile.length !== 10}
-                                        className={`w-full py-4 rounded-2xl font-black text-sm tracking-wide transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                                            mobile.length === 10 && !submitting
-                                                ? 'bg-gradient-to-r from-orange-500 to-rose-500 text-white shadow-lg shadow-orange-500/25 hover:shadow-xl active:scale-[0.99]'
+                                        disabled={!isValidMobile || submitting}
+                                        className={`w-full py-4 rounded-2xl font-black text-sm tracking-wide transition-all flex items-center justify-center gap-2 ${
+                                            isValidMobile && !submitting
+                                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 hover:shadow-xl active:scale-[0.99] cursor-pointer'
                                                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                         }`}
                                     >
@@ -636,24 +751,6 @@ export default function CustomerMobileEntry({
                                             </>
                                         )}
                                     </button>
-
-                                    {/* Phone.Email Instant Verification (If enabled) */}
-                                    {phoneEmailEnabled && (
-                                        <div className="pt-2">
-                                            <div className="relative flex py-2 items-center">
-                                                <div className="flex-grow border-t border-slate-200" />
-                                                <span className="flex-shrink mx-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">or verify instantly</span>
-                                                <div className="flex-grow border-t border-slate-200" />
-                                            </div>
-
-                                            <div className="flex justify-center pt-1">
-                                                <div
-                                                    className="pe_signin_button"
-                                                    data-client-id={phoneEmailClientId}
-                                                />
-                                            </div>
-                                        </div>
-                                    )}
                                 </form>
                             </motion.div>
                         ) : step === 'otp' ? (

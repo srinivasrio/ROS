@@ -25,13 +25,9 @@ import ConfirmRemoveItemModal from '@/components/customer/ConfirmRemoveItemModal
 import { CartItem } from '@/context/CartContext';
 import CartSuggestions from '@/components/customer/CartSuggestions';
 
-export default function CustomerCart({
-    restaurantCode: propRestaurantCode,
-    tableNumber: propTableNumber,
-}: {
-    restaurantCode?: string;
-    tableNumber?: string;
-} = {}) {
+export default function CustomerCart(props: any) {
+    const propRestaurantCode = props?.restaurantCode;
+    const propTableNumber = props?.tableNumber;
     const params = useParams();
     const router = useRouter();
     const pathname = usePathname();

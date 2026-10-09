@@ -41,9 +41,9 @@ export function SharedFloatingCart({ restaurantCode: propRestaurantCode, tableNu
     if (!cartContext || cartContext.totalItems === 0) return null;
     
     // Check if we are on cart, checkout, or order status page to avoid double cart or button overlap
-    const isCartPage = pathname.includes('/customer/cart/');
-    const isCheckoutPage = pathname.includes('/customer/checkout/');
-    const isStatusPage = pathname.includes('/customer/status/');
+    const isCartPage = pathname.includes('/cart');
+    const isCheckoutPage = pathname.includes('/checkout');
+    const isStatusPage = pathname.includes('/status');
     
     if (isCartPage || isCheckoutPage || isStatusPage) return null;
 

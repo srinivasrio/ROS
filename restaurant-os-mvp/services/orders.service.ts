@@ -3099,7 +3099,7 @@ export const OrderService = {
                 const { data: activeSession } = await supabase
                     .from('table_active_sessions')
                     .select('*')
-                    .in('restaurant_id', [actualRestaurantId, restaurantCode])
+                    .in('restaurant_id', Array.from(new Set([actualRestaurantId, restaurantId].filter(Boolean))))
                     .or(`table_number.eq.${physicalTable.table_number},table_id.eq.${physicalTable.id}`)
                     .eq('is_active', true)
                     .order('created_at', { ascending: false })
@@ -3134,6 +3134,33 @@ export const OrderService = {
                         throw new Error(`Unauthorized: Table ${physicalTable.table_number} is currently occupied by an active dining session. Only the host or approved table members can place orders.`);
                     }
                 } else if (cleanCustPhone) {
+                    // Enforce: customer cannot place order or claim session if already active on another table
+                    const { data: otherHostSess } = await supabase
+                        .from('table_active_sessions')
+                        .select('id, table_number')
+                        .in('restaurant_id', Array.from(new Set([actualRestaurantId, restaurantId].filter(Boolean))))
+                        .eq('host_customer_mobile', cleanCustPhone)
+                        .eq('is_active', true)
+                        .maybeSingle();
+
+                    if (otherHostSess && String(otherHostSess.table_number) !== String(physicalTable.table_number)) {
+                        throw new Error(`Unauthorized: You are already active at Table ${otherHostSess.table_number}. Please return to your table or resolve that session before placing orders at Table ${physicalTable.table_number}.`);
+                    }
+
+                    const { data: otherMemberSess } = await supabase
+                        .from('table_join_requests')
+                        .select('id, table_number, table_active_sessions!inner(id, table_number, is_active)')
+                        .in('table_active_sessions.restaurant_id', Array.from(new Set([actualRestaurantId, restaurantId].filter(Boolean))))
+                        .eq('table_active_sessions.is_active', true)
+                        .eq('requester_customer_mobile', cleanCustPhone)
+                        .eq('status', 'approved')
+                        .maybeSingle();
+
+                    if (otherMemberSess && String((otherMemberSess as any).table_active_sessions?.table_number) !== String(physicalTable.table_number)) {
+                        const oTbl = (otherMemberSess as any).table_active_sessions?.table_number;
+                        throw new Error(`Unauthorized: You are already an approved member at Table ${oTbl}. Please return to your table or resolve that session before placing orders at Table ${physicalTable.table_number}.`);
+                    }
+
                     // No active session exists yet on this physical table:
                     // Auto-claim table session with this customer as host so subsequent guests must be approved!
                     try {
@@ -4779,6 +4806,28 @@ export const OrderService = {
             try {
                 await supabase.rpc('calculate_waiter_workload', { waiter_uuid: assignedWaiterId });
             } catch (_) {}
+        }
+
+        // Deactivate active table session so subsequent diners can start a fresh session
+        try {
+            const tableNum = String(physicalTable.table_number || '');
+            const tId = String(physicalTable.id || '');
+            let sessQuery = supabase
+                .from('table_active_sessions')
+                .update({ is_active: false })
+                .eq('restaurant_id', actualRestaurantId)
+                .eq('is_active', true);
+
+            if (tableNum && tId) {
+                sessQuery = sessQuery.or(`table_number.eq.${tableNum},table_id.eq.${tId}`);
+            } else if (tableNum) {
+                sessQuery = sessQuery.eq('table_number', tableNum);
+            } else if (tId) {
+                sessQuery = sessQuery.eq('table_id', tId);
+            }
+            await sessQuery;
+        } catch (sessErr) {
+            console.warn('[clearTable] Deactivating active session error:', sessErr);
         }
 
         // Invalidate customer cache for this table

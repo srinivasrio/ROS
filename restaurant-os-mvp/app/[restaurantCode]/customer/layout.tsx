@@ -12,6 +12,10 @@ import { PersistentService } from '@/components/customer/PersistentService';
 import { PersistentOrders } from '@/components/customer/PersistentOrders';
 import { PersistentProfile } from '@/components/customer/PersistentProfile';
 import { HostJoinApprovalModal } from '@/components/customer/HostJoinApprovalModal';
+import { CustomerConnectedOtherTableScreen } from '@/components/customer/CustomerConnectedOtherTableScreen';
+import { CustomerJoinTableScreen } from '@/components/customer/CustomerJoinTableScreen';
+import { CustomerDiningEndedScreen } from '@/components/customer/CustomerDiningEndedScreen';
+import { supabase } from '@/lib/supabase';
 
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -131,6 +135,7 @@ export default function CustomerLayout({
     const isWelcomePage = pathname.includes('/customer/welcome/');
     const isTableRedirectPage = pathname.includes('/customer/table/');
     const isOrderStatusPage = pathname.includes('/customer/status/');
+    const isCartPage = pathname.includes('/cart');
 
     // Define persistent tabs
     const isPersistentTab = pathname.includes('/customer/home/') || 
@@ -210,6 +215,209 @@ export default function CustomerLayout({
         );
     }
 
+    // Table session membership and host approval states
+    const [approvalStatus, setApprovalStatus] = useState<'host' | 'approved' | 'pending' | 'rejected' | 'none' | null>(() => {
+        if (!isCleanTable || isVirtualMode) return 'approved';
+        return null;
+    });
+    const [hostInfo, setHostInfo] = useState<{
+        sessionId: string;
+        hostName: string;
+        requestId?: string | null;
+        participantCount?: number;
+    } | null>(null);
+    const [otherActiveSession, setOtherActiveSession] = useState<{
+        tableNumber: string;
+        isHost?: boolean;
+    } | null>(null);
+    const [customerMobile, setCustomerMobile] = useState('');
+    const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+    const [isTableCleared, setIsTableCleared] = useState(false);
+
+    useEffect(() => {
+        if (!isCleanTable || isVirtualMode) {
+            setApprovalStatus('approved');
+            return;
+        }
+
+        if (tableStatus !== 'valid') return;
+        if (isCustomerEntryPage || isWelcomePage || isTableRedirectPage || isOrderStatusPage || isOrderTypePage) {
+            setApprovalStatus('approved');
+            return;
+        }
+
+        const effectiveRestId = restaurantId || restaurantCode;
+        if (!effectiveRestId) return;
+
+        let mobile = '';
+        try {
+            mobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`) ||
+                     (restaurantId ? localStorage.getItem(`ros_customer_mobile_${restaurantId}`) : '') || '';
+        } catch {}
+
+        if (!mobile) return;
+        setCustomerMobile(mobile);
+
+        let isMounted = true;
+        const checkTableSession = async () => {
+            try {
+                const res = await fetch(
+                    `/api/customer/table-session/active?restaurantId=${encodeURIComponent(effectiveRestId)}&tableNumber=${encodeURIComponent(tableNumber)}&customerMobile=${encodeURIComponent(mobile)}`
+                );
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!isMounted) return;
+
+                if (data.customerHasOtherActiveSession && data.otherSession) {
+                    setOtherActiveSession(data.otherSession);
+                    return;
+                }
+
+                if (!data.hasActiveSession) {
+                    // Auto-claim session as host
+                    const custName = (typeof window !== 'undefined' ? (
+                        localStorage.getItem(`ros_customer_name_${restaurantCode}`) ||
+                        (restaurantId ? localStorage.getItem(`ros_customer_name_${restaurantId}`) : '')
+                    ) : '') || 'Table Host';
+                    const custId = typeof window !== 'undefined' ? (
+                        localStorage.getItem(`ros_customer_${restaurantCode}`) ||
+                        (restaurantId ? localStorage.getItem(`ros_customer_${restaurantId}`) : '')
+                    ) : '';
+
+                    const claimRes = await fetch('/api/customer/table-session/active', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            restaurantId: effectiveRestId,
+                            tableId: tableNumber,
+                            tableNumber: tableNumber,
+                            customerId: custId,
+                            customerName: custName,
+                            customerMobile: mobile,
+                        }),
+                    });
+
+                    if (claimRes.status === 409) {
+                        const claimData = await claimRes.json();
+                        if (claimData.customerHasOtherActiveSession && claimData.otherSession) {
+                            setOtherActiveSession(claimData.otherSession);
+                            return;
+                        }
+                    } else if (claimRes.ok) {
+                        const claimData = await claimRes.json();
+                        if (claimData.sessionId && isMounted) {
+                            setCurrentSessionId(claimData.sessionId);
+                        }
+                    }
+                    if (isMounted) setApprovalStatus('host');
+                } else if (data.isHost || data.approvalStatus === 'approved') {
+                    if (data.sessionId && isMounted) {
+                        setCurrentSessionId(data.sessionId);
+                    }
+                    if (isMounted) setApprovalStatus(data.isHost ? 'host' : 'approved');
+                } else {
+                    if (isMounted) {
+                        setApprovalStatus(data.approvalStatus || 'none');
+                        setHostInfo({
+                            sessionId: data.sessionId,
+                            hostName: data.hostName,
+                            requestId: data.requestId,
+                            participantCount: data.participantCount || 1,
+                        });
+                        if (data.sessionId) setCurrentSessionId(data.sessionId);
+                    }
+                }
+            } catch (err) {
+                console.warn('[CustomerLayout Table Session Warning]', err);
+            }
+        };
+
+        checkTableSession();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [isCleanTable, isVirtualMode, tableStatus, restaurantCode, restaurantId, tableNumber, isCustomerEntryPage, isWelcomePage, isTableRedirectPage, isOrderStatusPage, isOrderTypePage]);
+
+    // Real-time listener: Auto-logout and session termination when waiter or admin clears the table
+    useEffect(() => {
+        if (!isCleanTable || isVirtualMode || !tableNumber) return;
+        if (isCustomerEntryPage || isWelcomePage || isTableRedirectPage || isOrderStatusPage || isOrderTypePage) return;
+
+        const effectiveRestId = restaurantId || restaurantCode;
+        if (!effectiveRestId) return;
+
+        const handleTableCleared = () => {
+            try {
+                if (typeof window !== 'undefined') {
+                    sessionStorage.setItem('ros_logged_out', 'true');
+                    localStorage.removeItem('customer_cart');
+                    localStorage.removeItem('customer_table_number');
+                }
+            } catch {}
+            setIsTableCleared(true);
+        };
+
+        const channelName = `customer-table-cleared-${effectiveRestId}-${tableNumber}-${Date.now()}`;
+        const channel = supabase
+            .channel(channelName)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'table_active_sessions',
+                },
+                (payload: any) => {
+                    const row = payload.new;
+                    if (!row) return;
+
+                    const matchesSession = currentSessionId && row.id === currentSessionId;
+                    const matchesTable = String(row.table_number) === String(tableNumber);
+
+                    if ((matchesSession || matchesTable) && row.is_active === false) {
+                        handleTableCleared();
+                    }
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'tables',
+                },
+                (payload: any) => {
+                    const row = payload.new;
+                    if (!row) return;
+
+                    const matchesTable = String(row.table_number) === String(tableNumber) || String(row.id) === String(tableNumber);
+                    if (matchesTable && row.status === 'available') {
+                        handleTableCleared();
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [isCleanTable, isVirtualMode, tableNumber, restaurantId, restaurantCode, currentSessionId, isCustomerEntryPage, isWelcomePage, isTableRedirectPage, isOrderStatusPage, isOrderTypePage]);
+
+    // Realtime: Table has been cleared by waiter or admin
+    if (isTableCleared) {
+        return (
+            <CustomerDiningEndedScreen
+                restaurantCode={restaurantCode}
+                tableNumber={tableNumber}
+                onAcknowledge={() => {
+                    setIsTableCleared(false);
+                    window.location.href = `/${restaurantCode}/customer`;
+                }}
+            />
+        );
+    }
+
     if (isCleanTable && !isVirtualMode && tableStatus === 'invalid') {
         return (
             <div className="fixed inset-0 h-[100dvh] bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
@@ -263,6 +471,56 @@ export default function CustomerLayout({
         );
     }
 
+    // Customer is already connected to another table in this restaurant
+    if (otherActiveSession) {
+        return (
+            <CustomerConnectedOtherTableScreen
+                restaurantCode={restaurantCode}
+                currentTableNumber={tableNumber}
+                activeTableNumber={otherActiveSession.tableNumber}
+                isHost={otherActiveSession.isHost}
+                customerMobile={customerMobile}
+                onSwitched={() => {
+                    setOtherActiveSession(null);
+                    window.location.reload();
+                }}
+            />
+        );
+    }
+
+    // Secondary guest waiting for host approval
+    if (approvalStatus && approvalStatus !== 'host' && approvalStatus !== 'approved' && hostInfo) {
+        const guestName = (typeof window !== 'undefined' ? (
+            localStorage.getItem(`ros_customer_name_${restaurantCode}`) || 
+            (restaurantId ? localStorage.getItem(`ros_customer_name_${restaurantId}`) : '')
+        ) : '') || 'Guest';
+        return (
+            <CustomerJoinTableScreen
+                restaurantId={restaurantId || restaurantCode}
+                tableNumber={tableNumber}
+                customerName={guestName}
+                customerMobile={customerMobile}
+                sessionId={hostInfo.sessionId}
+                hostName={hostInfo.hostName}
+                participantCount={hostInfo.participantCount || 1}
+                initialRequestId={hostInfo.requestId}
+                initialStatus={approvalStatus}
+                onApproved={() => setApprovalStatus('approved')}
+            />
+        );
+    }
+
+    if (isCleanTable && !isVirtualMode && tableStatus === 'valid' && !needsCustomerInfo && approvalStatus === null && !isCustomerEntryPage && !isWelcomePage && !isTableRedirectPage && !isOrderStatusPage && !isOrderTypePage) {
+        return (
+            <div className="fixed inset-0 h-[100dvh] bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
+                <div className="flex flex-col items-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500 mb-4" />
+                    <p className="text-sm font-semibold text-slate-600">Checking table dining session...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <CartProvider>
             <div className="fixed inset-0 h-[100dvh] md:h-screen flex items-start justify-center p-0 md:py-6 overflow-hidden font-sans text-slate-800 overscroll-none" style={{ backgroundColor: '#EEF2F6' }}>
@@ -289,7 +547,7 @@ export default function CustomerLayout({
                         {/* Only show standard children if NOT on a persistent tab */}
                         {!isPersistentTab && children}
                     </div>
-                    {!isWelcomePage && <SharedFloatingCart restaurantCode={restaurantCode} tableNumber={tableNumber || ''} />}
+                    {!isWelcomePage && !isCartPage && <SharedFloatingCart restaurantCode={restaurantCode} tableNumber={tableNumber || ''} />}
                     {!isWelcomePage && Boolean(tableNumber) && <CustomerBottomNav restaurantCode={restaurantCode} tableNumber={tableNumber} />}
                 </div>
             </div>
