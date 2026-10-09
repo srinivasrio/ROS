@@ -232,6 +232,10 @@ export default function CustomerMobileEntry({
         customerId?: string
     ) => {
         try {
+            if (typeof window !== 'undefined') {
+                sessionStorage.removeItem('ros_logged_out');
+                sessionStorage.removeItem('ros_logging_out');
+            }
             const keys = [restaurantCode, targetRestaurantId];
             keys.forEach(k => {
                 if (!k) return;

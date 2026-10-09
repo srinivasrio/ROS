@@ -95,38 +95,47 @@ export default function CustomerTokenLayout({
                     
                     let mobile = '';
                     try {
-                        mobile = localStorage.getItem(`ros_customer_mobile_${targetRes}`) ||
-                                 localStorage.getItem(`ros_customer_mobile_${data.restaurant.id}`) ||
-                                 localStorage.getItem(`ros_customer_mobile_${data.restaurant.slug}`) || '';
-                        const verified = localStorage.getItem(`ros_customer_verified_${targetRes}`) ||
-                                         localStorage.getItem(`ros_customer_verified_${data.restaurant.id}`) ||
-                                         localStorage.getItem(`ros_customer_verified_${data.restaurant.slug}`);
+                        const isExplicitlyLoggedOut = typeof window !== 'undefined' && (
+                            sessionStorage.getItem('ros_logged_out') === 'true' ||
+                            sessionStorage.getItem('ros_logging_out') === 'true'
+                        );
 
-                        if (mobile && verified) {
-                            setCustomerMobile(mobile);
-                            setIsCustomerVerified(true);
+                        if (isExplicitlyLoggedOut) {
+                            setIsCustomerVerified(false);
                         } else {
-                            // Check backend session cookie
-                            const sessionRes = await fetch(`/api/customer/auth/session?restaurantId=${encodeURIComponent(data.restaurant.id)}`);
-                            if (sessionRes.ok) {
-                                const sessionData = await sessionRes.json();
-                                if (sessionData.authenticated && sessionData.customer) {
-                                    mobile = sessionData.customer.mobile;
-                                    setCustomerMobile(mobile);
-                                    localStorage.setItem(`ros_customer_${targetRes}`, sessionData.customer.id);
-                                    localStorage.setItem(`ros_customer_mobile_${targetRes}`, sessionData.customer.mobile);
-                                    if (sessionData.customer.name) localStorage.setItem(`ros_customer_name_${targetRes}`, sessionData.customer.name);
-                                    localStorage.setItem(`ros_customer_verified_${targetRes}`, 'true');
-                                    setIsCustomerVerified(true);
+                            mobile = localStorage.getItem(`ros_customer_mobile_${targetRes}`) ||
+                                     localStorage.getItem(`ros_customer_mobile_${data.restaurant.id}`) ||
+                                     localStorage.getItem(`ros_customer_mobile_${data.restaurant.slug}`) || '';
+                            const verified = localStorage.getItem(`ros_customer_verified_${targetRes}`) ||
+                                             localStorage.getItem(`ros_customer_verified_${data.restaurant.id}`) ||
+                                             localStorage.getItem(`ros_customer_verified_${data.restaurant.slug}`);
+
+                            if (mobile && verified) {
+                                setCustomerMobile(mobile);
+                                setIsCustomerVerified(true);
+                            } else {
+                                // Check backend session cookie
+                                const sessionRes = await fetch(`/api/customer/auth/session?restaurantId=${encodeURIComponent(data.restaurant.id)}`);
+                                if (sessionRes.ok) {
+                                    const sessionData = await sessionRes.json();
+                                    if (sessionData.authenticated && sessionData.customer) {
+                                        mobile = sessionData.customer.mobile;
+                                        setCustomerMobile(mobile);
+                                        localStorage.setItem(`ros_customer_${targetRes}`, sessionData.customer.id);
+                                        localStorage.setItem(`ros_customer_mobile_${targetRes}`, sessionData.customer.mobile);
+                                        if (sessionData.customer.name) localStorage.setItem(`ros_customer_name_${targetRes}`, sessionData.customer.name);
+                                        localStorage.setItem(`ros_customer_verified_${targetRes}`, 'true');
+                                        setIsCustomerVerified(true);
+                                    } else {
+                                        setIsCustomerVerified(false);
+                                    }
                                 } else {
                                     setIsCustomerVerified(false);
                                 }
-                            } else {
-                                setIsCustomerVerified(false);
                             }
                         }
                     } catch {
-                        setIsCustomerVerified(true);
+                        setIsCustomerVerified(false);
                     }
 
                     // Check or claim active table session

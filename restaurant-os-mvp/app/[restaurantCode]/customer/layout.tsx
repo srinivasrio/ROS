@@ -158,10 +158,14 @@ export default function CustomerLayout({
         }
 
         try {
+            const isExplicitlyLoggedOut = typeof window !== 'undefined' && (
+                sessionStorage.getItem('ros_logged_out') === 'true' ||
+                sessionStorage.getItem('ros_logging_out') === 'true'
+            );
             const hasMobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`);
             const isVerified = localStorage.getItem(`ros_customer_verified_${restaurantCode}`);
 
-            if (!hasMobile || !isVerified) {
+            if (!hasMobile || !isVerified || isExplicitlyLoggedOut) {
                 setNeedsCustomerInfo(true);
                 const tableQuery = isCleanTable && !isVirtualMode ? `?table=${encodeURIComponent(tableNumber)}` : '';
                 router.replace(`/${restaurantCode}/customer${tableQuery}`);

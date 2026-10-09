@@ -633,20 +633,30 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                                     setIsLoggingOut(true);
                                     try {
                                         if (typeof window !== 'undefined') {
+                                            sessionStorage.setItem('ros_logged_out', 'true');
                                             sessionStorage.setItem('ros_logging_out', 'true');
                                         }
-                                        await fetch('/api/customer/auth/logout', { method: 'POST' });
+                                        await fetch('/api/customer/auth/logout', { 
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ restaurantId }),
+                                        });
                                     } catch (err) {
                                         console.warn('Backend logout failed:', err);
                                     }
                                     try {
-                                        localStorage.removeItem(`ros_customer_${restaurantId}`);
-                                        localStorage.removeItem(`ros_customer_name_${restaurantId}`);
-                                        localStorage.removeItem(`ros_customer_mobile_${restaurantId}`);
-                                        localStorage.removeItem(`ros_customer_email_${restaurantId}`);
-                                        localStorage.removeItem(`ros_customer_dob_${restaurantId}`);
-                                        localStorage.removeItem(`ros_customer_skipped_${restaurantId}`);
-                                        localStorage.removeItem(`ros_customer_verified_${restaurantId}`);
+                                        const keysToRemove: string[] = [];
+                                        for (let i = 0; i < localStorage.length; i++) {
+                                            const k = localStorage.key(i);
+                                            if (k && (
+                                                k.startsWith('ros_customer') ||
+                                                k.startsWith('table_join_request_') ||
+                                                k.startsWith('table_session_')
+                                            )) {
+                                                keysToRemove.push(k);
+                                            }
+                                        }
+                                        keysToRemove.forEach(k => localStorage.removeItem(k));
                                     } catch {}
                                     setCustomerName('');
                                     setCustomerMobile('');
