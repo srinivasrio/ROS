@@ -13,6 +13,7 @@ interface CustomerJoinTableScreenProps {
     customerMobile: string;
     sessionId: string;
     hostName: string;
+    participantCount?: number;
     initialRequestId?: string | null;
     initialStatus?: 'pending' | 'rejected' | 'none';
     onApproved: () => void;
@@ -25,6 +26,7 @@ export function CustomerJoinTableScreen({
     customerMobile,
     sessionId,
     hostName,
+    participantCount = 1,
     initialRequestId = null,
     initialStatus = 'none',
     onApproved,
@@ -34,6 +36,9 @@ export function CustomerJoinTableScreen({
     );
     const [requestId, setRequestId] = useState<string | null>(initialRequestId);
     const [submitting, setSubmitting] = useState(false);
+
+    // Sanitize display table number: if it's a long cryptographic token, don't show the 32-char string as title
+    const displayTableNumber = (tableNumber && tableNumber.length < 16) ? tableNumber : 'Dining';
 
     // Request to join
     const handleRequestJoin = async () => {
@@ -127,13 +132,13 @@ export function CustomerJoinTableScreen({
     }, [state, requestId, onApproved]);
 
     return (
-        <div className="fixed inset-0 z-50 bg-[#EEF2F6] flex items-center justify-center p-4 font-sans text-slate-800">
+        <div className="fixed inset-0 z-50 bg-[#EEF2F6] flex items-center justify-center p-4 sm:p-6 font-sans text-slate-800 overflow-y-auto">
             <div
-                className="w-full max-w-md rounded-3xl p-7 sm:p-8 text-center flex flex-col items-center"
+                className="w-full max-w-md rounded-3xl p-6 sm:p-8 text-center flex flex-col items-center my-auto transition-all"
                 style={{
                     backgroundColor: '#FFFFFF',
-                    boxShadow: '0 20px 40px rgba(15, 23, 42, 0.12), 0 1px 3px rgba(15, 23, 42, 0.05)',
-                    border: '1px solid rgba(226, 232, 240, 0.8)',
+                    boxShadow: '0 20px 45px rgba(15, 23, 42, 0.1), 0 4px 12px rgba(0, 0, 0, 0.04)',
+                    border: '1px solid rgba(226, 232, 240, 0.9)',
                 }}
             >
                 {state === 'prompt' && (
@@ -142,42 +147,69 @@ export function CustomerJoinTableScreen({
                         animate={{ opacity: 1, scale: 1 }}
                         className="w-full flex flex-col items-center"
                     >
-                        <div className="size-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 mb-4 shadow-lg shadow-amber-500/10">
-                            <Users size={30} />
+                        {/* Top Icon Badge */}
+                        <div className="size-16 rounded-2xl bg-orange-50 border border-orange-200/80 flex items-center justify-center text-orange-600 mb-4 shadow-md shadow-orange-500/10">
+                            <Users size={28} />
                         </div>
 
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-700 text-xs font-black uppercase tracking-wider mb-3">
+                        {/* Status Pill */}
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-[11px] font-black uppercase tracking-wider mb-2">
+                            <span className="size-2 rounded-full bg-orange-500 animate-pulse" />
                             <span>Active Table Session</span>
                         </div>
 
-                        <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">
-                            Table {tableNumber} is Occupied
+                        {/* Main Heading */}
+                        <h2 className="text-2xl font-black text-slate-900 mb-1.5 tracking-tight">
+                            Table {displayTableNumber} is Occupied
                         </h2>
 
-                        <p className="text-xs text-slate-500 font-medium mb-4 leading-relaxed max-w-xs">
-                            This table currently has an active dining session hosted by <span className="font-bold text-slate-800">{hostName}</span>.
+                        {/* Host & Participant info */}
+                        <p className="text-xs text-slate-500 font-medium mb-5 leading-relaxed max-w-xs">
+                            This table already has an active dining session hosted by <span className="font-bold text-slate-800">{hostName || 'Table Host'}</span>
+                            {participantCount > 1 ? ` with ${participantCount} guests` : ''}.
                         </p>
 
-                        <div className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left mb-6 space-y-2">
-                            <p className="text-xs font-bold text-slate-700">Joining this table lets you:</p>
-                            <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside">
-                                <li>View the live digital menu together</li>
-                                <li>Place shared or individual dishes on Table {tableNumber}</li>
-                                <li>Keep orders synchronized with your group</li>
+                        {/* 3-item Benefits List */}
+                        <div className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-left mb-5 space-y-2.5">
+                            <p className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                                Benefits of joining this table:
+                            </p>
+                            <ul className="text-xs text-slate-700 space-y-2">
+                                <li className="flex items-center gap-2">
+                                    <span className="size-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-[10px] font-black shrink-0">1</span>
+                                    <span>View the live digital menu together</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                    <span className="size-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-[10px] font-black shrink-0">2</span>
+                                    <span>Place shared or individual dishes on Table {displayTableNumber}</span>
+                                </li>
+                                <li className="flex items-center gap-2">
+                                    <span className="size-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-[10px] font-black shrink-0">3</span>
+                                    <span>Keep orders and bill synchronized with your table</span>
+                                </li>
                             </ul>
                         </div>
 
+                        {/* Notice text */}
+                        <p className="text-[11px] text-slate-400 font-medium mb-4 leading-normal">
+                            Your request will be sent to the table host. You can order after approval.
+                        </p>
+
+                        {/* Action Button */}
                         <button
                             type="button"
                             disabled={submitting}
                             onClick={handleRequestJoin}
-                            className="w-full py-4 rounded-2xl font-black text-sm tracking-wide bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-lg shadow-orange-500/25 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                            className="w-full py-3.5 px-5 rounded-2xl font-black text-sm tracking-wide bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-lg shadow-orange-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
                         >
                             {submitting ? (
-                                <Loader2 size={18} className="animate-spin" />
+                                <>
+                                    <Loader2 size={18} className="animate-spin" />
+                                    <span>Sending Request...</span>
+                                </>
                             ) : (
                                 <>
-                                    <span>Request to Join Table {tableNumber}</span>
+                                    <span>Request to Join Table</span>
                                     <ArrowRight size={18} />
                                 </>
                             )}
@@ -195,24 +227,33 @@ export function CustomerJoinTableScreen({
                             <Loader2 size={32} className="animate-spin" />
                         </div>
 
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-xs font-black uppercase tracking-wider mb-3">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-xs font-black uppercase tracking-wider mb-2">
                             <span>Waiting for Host</span>
                         </div>
 
                         <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">
-                            Request Sent to {hostName}
+                            Request Sent
                         </h2>
 
-                        <p className="text-xs text-slate-500 font-medium mb-6 leading-relaxed max-w-xs">
-                            A real-time prompt has appeared on the host&rsquo;s phone. As soon as they tap <span className="font-bold text-emerald-600">Approve</span>, your table menu will load automatically.
+                        <p className="text-xs text-slate-500 font-medium mb-5 leading-relaxed max-w-xs">
+                            Your join request has been sent to <span className="font-bold text-slate-800">{hostName || 'the table host'}</span>. You can order as soon as they approve.
                         </p>
 
-                        <div className="w-full p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3 text-left">
+                        <div className="w-full p-4 rounded-2xl bg-amber-50/80 border border-amber-200 flex items-center gap-3 text-left mb-4">
                             <Loader2 size={20} className="animate-spin text-amber-600 shrink-0" />
                             <p className="text-xs text-amber-900 font-semibold leading-snug">
-                                Waiting for live approval from {hostName}...
+                                Waiting for live approval from {hostName || 'the host'}...
                             </p>
                         </div>
+
+                        <button
+                            type="button"
+                            disabled={true}
+                            className="w-full py-3.5 px-5 rounded-2xl font-black text-sm tracking-wide bg-slate-100 text-slate-400 border border-slate-200 flex items-center justify-center gap-2 cursor-not-allowed opacity-80"
+                        >
+                            <Loader2 size={16} className="animate-spin" />
+                            <span>Request Sent • Waiting for Approval</span>
+                        </button>
                     </motion.div>
                 )}
 
@@ -226,12 +267,12 @@ export function CustomerJoinTableScreen({
                             <XCircle size={32} />
                         </div>
 
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-black uppercase tracking-wider mb-3">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-black uppercase tracking-wider mb-2">
                             <span>Request Declined</span>
                         </div>
 
                         <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">
-                            Unable to Join Table {tableNumber}
+                            Unable to Join Table {displayTableNumber}
                         </h2>
 
                         <p className="text-xs text-slate-500 font-medium mb-6 leading-relaxed max-w-xs">

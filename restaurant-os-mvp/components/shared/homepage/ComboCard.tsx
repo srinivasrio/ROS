@@ -136,7 +136,7 @@ export default function ComboCard({
     combo.description?.trim() ||
     'Chef-curated value combo meal pairing with premium portions.';
 
-  // Slideshow images: Combo image first, then individual item images, cycling every 1 second
+  // Slideshow images: Combo image first, then individual item images, cycling every 2.5 seconds
   const slideshowImages = useMemo(() => {
     const list: { src: string; name: string }[] = [];
     if (combo.image_url) {
@@ -157,7 +157,7 @@ export default function ComboCard({
     if (slideshowImages.length <= 1) return;
     const interval = setInterval(() => {
       setCurrentSlideIndex((prev) => (prev + 1) % slideshowImages.length);
-    }, 1000);
+    }, 2500);
     return () => clearInterval(interval);
   }, [slideshowImages.length]);
 
@@ -184,21 +184,31 @@ export default function ComboCard({
         }}
       >
         <div className="relative w-full h-full rounded-xl overflow-hidden bg-white/40">
-          {activeSlide?.src ? (
-            <Image
-              key={activeSlide.src}
-              src={activeSlide.src}
-              alt={activeSlide.name || title}
-              fill
-              unoptimized
-              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 340px"
-              className="object-cover group-hover:scale-105 transition-opacity duration-300 rounded-xl"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-slate-400">
-              <Layers className="size-10 text-orange-500" />
-            </div>
-          )}
+          <AnimatePresence initial={false} mode="popLayout">
+            {activeSlide?.src ? (
+              <motion.div
+                key={activeSlide.src}
+                initial={{ x: '100%', opacity: 0.6 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: '-100%', opacity: 0.4 }}
+                transition={{ duration: 0.55, ease: [0.25, 1, 0.5, 1] }}
+                className="absolute inset-0 w-full h-full"
+              >
+                <Image
+                  src={activeSlide.src}
+                  alt={activeSlide.name || title}
+                  fill
+                  unoptimized
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 340px"
+                  className="object-cover group-hover:scale-105 transition-transform duration-500 rounded-xl"
+                />
+              </motion.div>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-slate-400">
+                <Layers className="size-10 text-orange-500" />
+              </div>
+            )}
+          </AnimatePresence>
 
           {/* Active slide item indicator badge when cycling item images */}
           {slideshowImages.length > 1 && currentSlideIndex > 0 && activeSlide?.name && (
@@ -425,7 +435,7 @@ export default function ComboCard({
           {quantity > 0 ? (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="inline-flex items-center gap-2 rounded-xl p-1 bg-white shadow-xs border border-white"
+              className="inline-flex items-center gap-2 rounded-xl px-1.5 h-8 bg-white shadow-xs border border-white"
             >
               <button
                 onClick={(e) => {
@@ -458,7 +468,7 @@ export default function ComboCard({
                 onAdd({ ...combo, price: offerPrice, original_price: totalOriginalPrice > 0 ? totalOriginalPrice : undefined });
               }}
               aria-label={`Add ${title} to order`}
-              className="px-3.5 py-1.5 rounded-xl font-black text-xs bg-orange-500 text-white shadow-xs active:scale-95 hover:bg-orange-600 flex items-center gap-1 cursor-pointer transition-all"
+              className="px-4 h-8 rounded-xl font-black text-xs bg-orange-500 text-white shadow-xs active:scale-95 hover:bg-orange-600 flex items-center justify-center gap-1 cursor-pointer transition-all shrink-0"
             >
               <Plus className="size-3.5 stroke-[3]" />
               <span>ADD</span>

@@ -633,7 +633,7 @@ export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: st
             <div className="flex-1 flex overflow-hidden min-h-0 relative">
                 {/* Left Column: Category Sidebar (Completely independent scrolling, rock solid) */}
                 <aside 
-                    className="w-[92px] sm:w-28 shrink-0 h-full overflow-y-auto no-scrollbar py-3 px-2 sm:px-2.5 space-y-3 pb-36"
+                    className="w-[104px] sm:w-32 shrink-0 h-full overflow-y-auto no-scrollbar py-3 px-2 sm:px-2.5 space-y-3 pb-36"
                     style={{
                         backgroundColor: '#EEF2F6',
                         borderRight: '1px solid rgba(255, 255, 255, 0.8)'
@@ -659,7 +659,7 @@ export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: st
 
                                 <div className="flex flex-col items-center gap-1.5 w-full">
                                     <div
-                                        className={`size-14 sm:size-16 rounded-xl overflow-hidden flex items-center justify-center transition-all ${
+                                        className={`size-16 sm:size-20 rounded-2xl overflow-hidden flex items-center justify-center transition-all ${
                                             isSpecialsActive
                                                 ? 'ring-[2.5px] ring-orange-500 ring-offset-2 shadow-md scale-105'
                                                 : 'bg-white shadow-xs border border-neutral-100 group-hover:shadow-md group-hover:scale-102'
@@ -674,7 +674,7 @@ export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: st
                                         ) : (
                                             <LucideFlame 
                                                 className={isSpecialsActive ? 'text-orange-600' : 'text-amber-500'} 
-                                                size={26} 
+                                                size={30} 
                                             />
                                         )}
                                     </div>
@@ -710,7 +710,7 @@ export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: st
 
                                 <div className="flex flex-col items-center gap-1.5 w-full">
                                     <div
-                                        className={`size-14 sm:size-16 rounded-xl overflow-hidden flex items-center justify-center transition-all ${
+                                        className={`size-16 sm:size-20 rounded-2xl overflow-hidden flex items-center justify-center transition-all ${
                                             isCombosActive
                                                 ? 'ring-[2.5px] ring-orange-500 ring-offset-2 shadow-md scale-105'
                                                 : 'bg-white shadow-xs border border-neutral-100 group-hover:shadow-md group-hover:scale-102'
@@ -725,7 +725,7 @@ export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: st
                                         ) : (
                                             <LucideShoppingBag 
                                                 className={isCombosActive ? 'text-orange-600' : 'text-orange-500'} 
-                                                size={26} 
+                                                size={30} 
                                             />
                                         )}
                                     </div>
@@ -761,7 +761,7 @@ export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: st
 
                                 <div className="flex flex-col items-center gap-1.5 w-full">
                                     <div 
-                                        className={`size-14 sm:size-16 rounded-xl overflow-hidden transition-all ${
+                                        className={`size-16 sm:size-20 rounded-2xl overflow-hidden transition-all ${
                                             isCatActive
                                                 ? 'ring-[2.5px] ring-orange-500 ring-offset-2 shadow-md scale-105'
                                                 : 'bg-white shadow-xs border border-neutral-100 group-hover:shadow-md group-hover:scale-102'
@@ -872,7 +872,7 @@ export function PersistentMenu({ restaurantId, tableNumber }: { restaurantId: st
                                             setSelectedItemForDetail(item);
                                         }
                                     }}
-                                    className="rounded-2xl p-3 transition-all flex gap-3 cursor-pointer group active:scale-[0.99] relative"
+                                    className="rounded-2xl p-3 transition-all flex gap-3 cursor-pointer group active:scale-[0.99] relative min-h-[112px] sm:min-h-[120px] items-stretch"
                                     style={{
                                         backgroundColor: '#EEF2F6',
                                         boxShadow: '4px 4px 10px rgba(166, 180, 200, 0.38), -4px -4px 10px rgba(255, 255, 255, 0.95)',

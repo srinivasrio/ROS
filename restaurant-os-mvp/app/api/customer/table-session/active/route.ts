@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { resolveRestaurantId } from '@/services/utils.service';
 
 function cleanPhone(raw: string): string {
     return String(raw || '').replace(/\D/g, '').slice(-10);
@@ -26,12 +27,29 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'restaurantId and tableNumber are required' }, { status: 400 });
         }
 
-        const { data: session, error } = await supabaseAdmin
+        const canonicalRestaurantId = (await resolveRestaurantId(restaurantId)) || restaurantId;
+
+        let resolvedTableNumber = tableNumber;
+        if (tableNumber.length >= 16) {
+            const { data: tRow } = await supabaseAdmin
+                .from('tables')
+                .select('table_number')
+                .eq('table_token', tableNumber)
+                .maybeSingle();
+            if (tRow?.table_number) {
+                resolvedTableNumber = String(tRow.table_number);
+            }
+        }
+
+        // Query by canonical ID or slug, and by table_number or table_token
+        let { data: session, error } = await supabaseAdmin
             .from('table_active_sessions')
             .select('*')
-            .eq('restaurant_id', restaurantId)
-            .eq('table_number', tableNumber)
+            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
+            .or(`table_number.eq.${resolvedTableNumber},table_token.eq.${tableNumber},table_number.eq.${tableNumber}`)
             .eq('is_active', true)
+            .order('created_at', { ascending: false })
+            .limit(1)
             .maybeSingle();
 
         if (error) {
@@ -102,15 +120,34 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'restaurantId, tableNumber and customerMobile are required' }, { status: 400 });
         }
 
-        const cleanCustomer = cleanPhone(customerMobile);
+        const canonicalRestaurantId = (await resolveRestaurantId(restaurantId)) || restaurantId;
+
+        let resolvedTableNumber = tableNumber;
+        let resolvedTableToken = tableToken || null;
+        let resolvedTableId = String(tableId || tableNumber);
+
+        if (tableNumber.length >= 16) {
+            resolvedTableToken = tableNumber;
+            const { data: tRow } = await supabaseAdmin
+                .from('tables')
+                .select('id, table_number')
+                .eq('table_token', tableNumber)
+                .maybeSingle();
+            if (tRow) {
+                resolvedTableNumber = String(tRow.table_number);
+                resolvedTableId = String(tRow.id);
+            }
+        }
 
         // Check for existing active session on table
         const { data: existingSession } = await supabaseAdmin
             .from('table_active_sessions')
             .select('*')
-            .eq('restaurant_id', restaurantId)
-            .eq('table_number', tableNumber)
+            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
+            .or(`table_number.eq.${resolvedTableNumber},table_token.eq.${tableNumber},table_number.eq.${tableNumber}`)
             .eq('is_active', true)
+            .order('created_at', { ascending: false })
+            .limit(1)
             .maybeSingle();
 
         if (existingSession) {
@@ -130,10 +167,10 @@ export async function POST(req: NextRequest) {
         const { data: newSession, error: insertErr } = await supabaseAdmin
             .from('table_active_sessions')
             .insert({
-                restaurant_id: restaurantId,
-                table_id: String(tableId || tableNumber),
-                table_number: tableNumber,
-                table_token: tableToken || null,
+                restaurant_id: canonicalRestaurantId,
+                table_id: resolvedTableId,
+                table_number: resolvedTableNumber,
+                table_token: resolvedTableToken,
                 host_customer_id: customerId || null,
                 host_customer_name: (customerName || 'Table Host').trim(),
                 host_customer_mobile: cleanCustomer,

@@ -32,7 +32,7 @@ export default function CategoryCard({
     >
       {/* Neumorphic Circular Avatar */}
       <div
-        className="relative size-16 sm:size-20 lg:size-24 rounded-full overflow-hidden transition-all duration-300 p-1.5"
+        className="relative size-20 sm:size-24 lg:size-28 rounded-full overflow-hidden transition-all duration-300 p-1.5"
         style={{
           backgroundColor: '#EEF2F6',
           boxShadow: isSelected
@@ -47,12 +47,12 @@ export default function CategoryCard({
               src={imageUrl}
               alt={category.name}
               fill
-              sizes="(max-width: 640px) 64px, (max-width: 1024px) 80px, 96px"
+              sizes="(max-width: 640px) 80px, (max-width: 1024px) 96px, 112px"
               className="object-cover transition-transform duration-500 group-hover:scale-110 rounded-full"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-orange-50 text-orange-600 rounded-full">
-              <Utensils className="size-6 sm:size-8" />
+              <Utensils className="size-8 sm:size-10" />
             </div>
           )}
         </div>
@@ -60,7 +60,7 @@ export default function CategoryCard({
 
       {/* Category Name */}
       <span
-        className={`text-xs sm:text-sm text-center max-w-[80px] sm:max-w-[96px] truncate transition-all duration-200 ${
+        className={`text-xs sm:text-sm text-center max-w-[96px] sm:max-w-[112px] truncate transition-all duration-200 ${
           isSelected
             ? 'text-orange-600 font-black'
             : 'text-slate-800 font-bold group-hover:text-orange-600'

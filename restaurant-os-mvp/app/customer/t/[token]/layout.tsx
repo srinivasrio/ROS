@@ -242,7 +242,9 @@ export default function CustomerTokenLayout({
         return (
             <CustomerMobileEntry
                 restaurantCode={restaurant_slug || restaurant_id}
-                initialTable={token}
+                initialTable={table_number || token}
+                initialTableToken={token}
+                canonicalRestaurantId={restaurant_id}
             />
         );
     }

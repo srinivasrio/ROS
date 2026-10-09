@@ -20,17 +20,8 @@ import { CustomerJoinTableScreen } from '@/components/customer/CustomerJoinTable
 interface CustomerMobileEntryProps {
     restaurantCode: string;
     initialTable?: string | null;
-}
-
-interface ActiveOrderInfo {
-    id: string;
-    orderNumber: number | string;
-    orderType: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
-    status: string;
-    tableNumber: string | null;
-    totalAmount: number;
-    createdAt: string;
-    redirectUrl: string;
+    initialTableToken?: string | null;
+    canonicalRestaurantId?: string | null;
 }
 
 interface RestaurantProfile {
@@ -41,30 +32,43 @@ interface RestaurantProfile {
     tagline?: string;
 }
 
-export default function CustomerMobileEntry({ restaurantCode, initialTable }: CustomerMobileEntryProps) {
+export default function CustomerMobileEntry({ 
+    restaurantCode, 
+    initialTable, 
+    initialTableToken, 
+    canonicalRestaurantId 
+}: CustomerMobileEntryProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
 
     const tableFromUrl = initialTable || searchParams?.get('table') || searchParams?.get('tableNumber') || searchParams?.get('table_number') || searchParams?.get('t') || '';
+    const tableToken = initialTableToken || (tableFromUrl.length >= 16 ? tableFromUrl : null);
+    const targetRestaurantId = canonicalRestaurantId || restaurantCode;
 
-    // Step 1: 'details' (Name, DOB) -> Step 2: 'phone' (Phone.Email / Mobile OTP) -> 'otp' (Manual OTP if fallback)
-    const [step, setStep] = useState<'details' | 'phone' | 'otp'>('details');
+    // Flow: Step 1 'phone' -> Step 2 'otp' -> (if new customer) Step 3 'details' (Name, DOB with Skip button)
+    const [step, setStep] = useState<'phone' | 'otp' | 'details'>('phone');
 
     // Customer Form Inputs
+    const [mobile, setMobile] = useState('');
     const [name, setName] = useState('');
     const [dob, setDob] = useState('');
     const [dobFocused, setDobFocused] = useState(false);
     const dobInputRef = useRef<HTMLInputElement>(null);
-    const [mobile, setMobile] = useState('');
+
+    // Verified Customer Cache across steps
+    const [verifiedCustomer, setVerifiedCustomer] = useState<{
+        id?: string;
+        mobile: string;
+        userJsonUrl?: string;
+        isPhoneEmail: boolean;
+    } | null>(null);
 
     // Phone.Email State
     const phoneEmailClientId = getPhoneEmailClientId();
     const phoneEmailEnabled = isPhoneEmailConfigured();
     const [phoneEmailVerified, setPhoneEmailVerified] = useState(false);
     const [verifiedJsonUrl, setVerifiedJsonUrl] = useState('');
-    const [phoneEmailPopupUrl, setPhoneEmailPopupUrl] = useState('');
     const [isAwaitingPhoneEmail, setIsAwaitingPhoneEmail] = useState(false);
-    const [popupBlocked, setPopupBlocked] = useState(false);
 
     // Fallback OTP State
     const [otp, setOtp] = useState('');
@@ -81,13 +85,12 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
     const [validationError, setValidationError] = useState('');
     const [serverError, setServerError] = useState('');
 
-    // Active Orders State
-    const [multipleActiveOrders, setMultipleActiveOrders] = useState<ActiveOrderInfo[]>([]);
-    const [showMultipleOrdersModal, setShowMultipleOrdersModal] = useState(false);
+    // Join Session State
     const [redirectingMessage, setRedirectingMessage] = useState('');
     const [joinSessionData, setJoinSessionData] = useState<{
         sessionId: string;
         hostName: string;
+        participantCount?: number;
         initialStatus: 'pending' | 'rejected' | 'none';
         initialRequestId: string | null;
     } | null>(null);
@@ -135,68 +138,12 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
         return () => clearInterval(timer);
     }, [resendCooldown]);
 
-    // Intercept third-party script errors from crashing Next.js client-side React tree
+    // Phone.Email PostMessage Listener
     useEffect(() => {
-        const handleScriptError = (event: ErrorEvent) => {
-            const src = event.filename || '';
-            const msg = event.message || '';
-            if (src.includes('phone.email') || src.includes('sign_in_button') || msg.includes('getAttribute')) {
-                console.warn('[Phone.Email Widget notice intercepted]:', msg);
-                event.preventDefault?.();
-                event.stopImmediatePropagation?.();
-                return true;
-            }
-        };
-
-        window.addEventListener('error', handleScriptError, true);
-        return () => window.removeEventListener('error', handleScriptError, true);
-    }, []);
-
-    // Register Phone.Email listener and inject official sign-in script
-    useEffect(() => {
-        if (!phoneEmailClientId) return;
-
-        // Callback used by Phone.Email's official script
-        (window as any).phoneEmailListener = async (userObj: any) => {
-            try {
-                const rawPhone = userObj?.user_phone_number || userObj?.phone_no || '';
-                const jsonUrl = userObj?.user_json_url || '';
-                const clean = String(rawPhone).replace(/\D/g, '').slice(-10);
-
-                if (clean) {
-                    setMobile(clean);
-                }
-                if (jsonUrl) {
-                    setVerifiedJsonUrl(jsonUrl);
-                }
-                setPhoneEmailVerified(true);
-                setIsAwaitingPhoneEmail(false);
-                setValidationError('');
-                setServerError('');
-
-                toast.success(`Mobile +91 ${clean || mobile} verified via Phone.Email!`);
-
-                const cleanName = name.trim();
-                if (cleanName && dob) {
-                    await executeVerification({
-                        verifiedMobile: clean || mobile,
-                        userJsonUrl: jsonUrl,
-                        isPhoneEmail: true,
-                        customerName: cleanName,
-                        customerDob: dob,
-                    });
-                } else {
-                    toast.info('Please confirm your Name and Date of Birth to complete verification.');
-                    setStep('details');
-                }
-            } catch (err: any) {
-                console.error('[Phone.Email Listener Error]', err);
-            }
-        };
-
-        // Direct Window Message Listener for Phone.Email popup callback
         const handleDirectMessage = async (event: MessageEvent) => {
-            if (event.origin !== 'https://auth.phone.email') return;
+            if (typeof event.data === 'string' && event.data.includes('phone.email')) {
+                return;
+            }
 
             if (event.data?.flag_phone === '1' && event.data?.user_json_url) {
                 const jsonUrl = event.data.user_json_url;
@@ -219,19 +166,11 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                     } catch {}
 
                     toast.success(`Mobile +91 ${finalPhone} verified via Phone.Email!`);
-
-                    const cleanName = name.trim();
-                    if (cleanName && dob) {
-                        await executeVerification({
-                            verifiedMobile: finalPhone,
-                            userJsonUrl: jsonUrl,
-                            isPhoneEmail: true,
-                            customerName: cleanName,
-                            customerDob: dob,
-                        });
-                    } else {
-                        setStep('details');
-                    }
+                    await handleVerifyMobileToken({
+                        verifiedMobile: finalPhone,
+                        userJsonUrl: jsonUrl,
+                        isPhoneEmail: true,
+                    });
                 } catch (err: any) {
                     console.error('[Phone.Email Direct Message Error]', err);
                 }
@@ -240,7 +179,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
 
         window.addEventListener('message', handleDirectMessage);
 
-        // Inject Phone.Email script when on 'phone' step and container element is verified present in DOM
+        // Inject Phone.Email script when on 'phone' step
         if (step === 'phone') {
             const scriptId = 'phone-email-btn-script';
             const btnEl = document.querySelector('.pe_signin_button');
@@ -259,7 +198,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
         return () => {
             window.removeEventListener('message', handleDirectMessage);
         };
-    }, [phoneEmailClientId, step, name, dob, mobile]);
+    }, [phoneEmailClientId, step, mobile]);
 
     // Phone format handler
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -284,21 +223,106 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
     };
 
     /**
-     * Executes the actual server verification, JWT session issuance, and redirects to homepage
+     * Helper to persist verified customer info across storage keys
      */
-    const executeVerification = async ({
+    const persistCustomerSession = (
+        verifiedMobile: string,
+        customerName: string,
+        customerDob: string,
+        customerId?: string
+    ) => {
+        try {
+            const keys = [restaurantCode, targetRestaurantId];
+            keys.forEach(k => {
+                if (!k) return;
+                localStorage.setItem(`ros_customer_mobile_${k}`, verifiedMobile);
+                localStorage.setItem(`ros_customer_name_${k}`, customerName);
+                if (customerDob) localStorage.setItem(`ros_customer_dob_${k}`, customerDob);
+                localStorage.setItem(`ros_customer_verified_${k}`, 'true');
+                localStorage.setItem(`ros_customer_skipped_${k}`, 'true');
+                if (customerId) localStorage.setItem(`ros_customer_${k}`, customerId);
+            });
+        } catch {}
+    };
+
+    /**
+     * Checks table session and redirects customer to dining or join request screen
+     */
+    const proceedToDiningOrJoinSession = async (
+        customerName: string,
+        customerMobileNum: string,
+        customerId?: string
+    ) => {
+        if (tableFromUrl) {
+            try {
+                const sessionRes = await fetch('/api/customer/table-session/active', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        restaurantId: targetRestaurantId,
+                        tableId: tableFromUrl,
+                        tableNumber: tableFromUrl,
+                        tableToken: tableToken,
+                        customerId: customerId,
+                        customerName,
+                        customerMobile: customerMobileNum,
+                    }),
+                });
+
+                if (sessionRes.ok) {
+                    const sessData = await sessionRes.json();
+                    if (sessData.hasActiveSession && !sessData.isHost) {
+                        const checkRes = await fetch(
+                            `/api/customer/table-session/active?restaurantId=${encodeURIComponent(targetRestaurantId)}&tableNumber=${encodeURIComponent(tableFromUrl)}&customerMobile=${encodeURIComponent(customerMobileNum)}`
+                        );
+                        if (checkRes.ok) {
+                            const checkData = await checkRes.json();
+                            if (checkData.approvalStatus !== 'approved' && checkData.approvalStatus !== 'host') {
+                                setJoinSessionData({
+                                    sessionId: sessData.sessionId,
+                                    hostName: sessData.hostName || 'Table Host',
+                                    participantCount: sessData.participantCount || 1,
+                                    initialStatus: checkData.approvalStatus || 'none',
+                                    initialRequestId: checkData.requestId || null,
+                                });
+                                setSubmitting(false);
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (sessErr) {
+                console.warn('[Table Session Init Notice]:', sessErr);
+            }
+        }
+
+        // Direct redirect to customer homepage
+        const restaurantDisplayName = profile?.name || 'Restaurant';
+        setRedirectingMessage(`Welcome, ${customerName}! Starting dining at ${restaurantDisplayName}...`);
+
+        setTimeout(() => {
+            if (tableToken) {
+                window.location.href = `/customer/t/${tableToken}/home`;
+            } else if (tableFromUrl) {
+                window.location.href = `/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`;
+            } else {
+                window.location.href = `/${restaurantCode}/customer/home`;
+            }
+        }, 500);
+    };
+
+    /**
+     * Step 1 & 2: Verify Mobile OTP
+     */
+    const handleVerifyMobileToken = async ({
         verifiedMobile,
         userJsonUrl,
         isPhoneEmail,
-        customerName,
-        customerDob,
         otpCode,
     }: {
         verifiedMobile: string;
         userJsonUrl?: string;
         isPhoneEmail: boolean;
-        customerName: string;
-        customerDob: string;
         otpCode?: string;
     }) => {
         setSubmitting(true);
@@ -310,190 +334,71 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    restaurantCode,
+                    restaurantCode: targetRestaurantId,
                     mobile: verifiedMobile,
                     otp: otpCode,
                     userJsonUrl,
                     phoneEmailVerified: isPhoneEmail,
-                    name: customerName,
-                    dob: customerDob,
                 }),
             });
 
             const verifyData = await verifyRes.json();
 
             if (!verifyRes.ok) {
-                setServerError(verifyData.error || 'Verification failed. Please try again.');
+                setServerError(verifyData.error || 'Verification failed. Please check the code and try again.');
                 setSubmitting(false);
                 return;
             }
 
-            // Clean old session if a different user logged in on this device
+            // Clean old session if a different user was logged in
             try {
-                const prevMobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`) || '';
+                const prevMobile = localStorage.getItem(`ros_customer_mobile_${targetRestaurantId}`) || '';
                 const cleanPrev = prevMobile.replace(/\D/g, '').slice(-10);
                 if (cleanPrev && cleanPrev !== verifiedMobile) {
-                    localStorage.removeItem(`ros_customer_${restaurantCode}`);
-                    localStorage.removeItem(`ros_customer_name_${restaurantCode}`);
-                    localStorage.removeItem(`ros_customer_email_${restaurantCode}`);
-                    localStorage.removeItem(`ros_customer_dob_${restaurantCode}`);
-                    localStorage.removeItem(`ros_last_order_${restaurantCode}`);
-                    if (tableFromUrl) {
-                        localStorage.removeItem(`ros_last_order_${restaurantCode}_${tableFromUrl}`);
-                    }
-                    localStorage.removeItem('customer_cart');
-                    localStorage.removeItem('customer_table_number');
+                    CustomerCache.clear(targetRestaurantId);
                     CustomerCache.clear(restaurantCode);
                 }
             } catch {}
 
-            // Persist verified customer info
-            try {
-                localStorage.setItem(`ros_customer_mobile_${restaurantCode}`, verifiedMobile);
-                localStorage.setItem(`ros_customer_name_${restaurantCode}`, customerName);
-                localStorage.setItem(`ros_customer_dob_${restaurantCode}`, customerDob);
-                localStorage.setItem(`ros_customer_verified_${restaurantCode}`, 'true');
-                localStorage.setItem(`ros_customer_skipped_${restaurantCode}`, 'true');
-                if (verifyData.customer?.id) {
-                    localStorage.setItem(`ros_customer_${restaurantCode}`, verifyData.customer.id);
-                }
-            } catch {}
+            // Check if customer was already registered previously with a name
+            const isReturningCustomer = Boolean(
+                verifyData.isReturning && 
+                verifyData.customer?.name && 
+                verifyData.customer.name.trim() !== 'Guest' &&
+                verifyData.customer.name.trim() !== ''
+            );
 
-            // If dining table was specified, claim host session or check active session
-            if (tableFromUrl) {
-                try {
-                    const sessionRes = await fetch('/api/customer/table-session/active', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            restaurantId: restaurantCode,
-                            tableId: tableFromUrl,
-                            tableNumber: tableFromUrl,
-                            tableToken: tableFromUrl.length >= 16 ? tableFromUrl : null,
-                            customerId: verifyData.customer?.id,
-                            customerName,
-                            customerMobile: verifiedMobile,
-                        }),
-                    });
-
-                    if (sessionRes.ok) {
-                        const sessData = await sessionRes.json();
-                        // If not the host and active session exists
-                        if (sessData.hasActiveSession && !sessData.isHost) {
-                            const checkRes = await fetch(
-                                `/api/customer/table-session/active?restaurantId=${encodeURIComponent(restaurantCode)}&tableNumber=${encodeURIComponent(tableFromUrl)}&customerMobile=${encodeURIComponent(verifiedMobile)}`
-                            );
-                            if (checkRes.ok) {
-                                const checkData = await checkRes.json();
-                                if (checkData.approvalStatus !== 'approved' && checkData.approvalStatus !== 'host') {
-                                    setJoinSessionData({
-                                        sessionId: sessData.sessionId,
-                                        hostName: sessData.hostName || 'Table Host',
-                                        initialStatus: checkData.approvalStatus || 'none',
-                                        initialRequestId: checkData.requestId || null,
-                                    });
-                                    setSubmitting(false);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                } catch (sessErr) {
-                    console.warn('[Table Session Init Notice]:', sessErr);
-                }
+            if (isReturningCustomer) {
+                const customerName = verifyData.customer.name.trim();
+                const customerDob = verifyData.customer.dateOfBirth || verifyData.customer.dob || '';
+                persistCustomerSession(verifiedMobile, customerName, customerDob, verifyData.customer.id);
+                toast.success(`Welcome back, ${customerName}!`);
+                await proceedToDiningOrJoinSession(customerName, verifiedMobile, verifyData.customer.id);
+            } else {
+                // Not registered before or without saved name -> proceed to Step 3: ask Name & DOB with Skip
+                setVerifiedCustomer({
+                    id: verifyData.customer?.id,
+                    mobile: verifiedMobile,
+                    userJsonUrl,
+                    isPhoneEmail,
+                });
+                setSubmitting(false);
+                setStep('details');
             }
-
-            // Direct redirect to customer homepage
-            const restaurantDisplayName = profile?.name || 'Restaurant';
-            setRedirectingMessage(`Welcome, ${customerName}! Starting dining at ${restaurantDisplayName}...`);
-            toast.success('Mobile verified! Starting your dining experience.');
-
-            setTimeout(() => {
-                if (tableFromUrl) {
-                    if (tableFromUrl.length >= 16) {
-                        window.location.href = `/customer/t/${tableFromUrl}/home`;
-                    } else {
-                        window.location.href = `/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`;
-                    }
-                } else {
-                    window.location.href = `/${restaurantCode}/customer/home`;
-                }
-            }, 500);
         } catch (err: any) {
-            console.error('[executeVerification Error]', err);
+            console.error('[Verification Error]', err);
             setServerError(err.message || 'Network error during verification. Please try again.');
             setSubmitting(false);
         }
     };
 
-    // Step 1 Submission: Validate Name & DOB, then move to Step 2
-    const handleContinueToPhone = (e: React.FormEvent) => {
-        e.preventDefault();
-        setServerError('');
-        setValidationError('');
-
-        const cleanName = name.trim();
-        if (!cleanName || cleanName.length < 2) {
-            setValidationError('Please enter your full name (at least 2 characters)');
-            return;
-        }
-
-        if (!dob) {
-            setValidationError('Please select your Date of Birth');
-            return;
-        }
-
-        // Advance to Step 2 (Phone verification)
-        setStep('phone');
-    };
-
-    // Launch Phone.Email verification window with prefilled phone number
-    const handleLaunchPhoneEmail = (e?: React.FormEvent) => {
+    /**
+     * Send OTP to customer mobile number
+     */
+    const handleSendOtp = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
-        setServerError('');
         setValidationError('');
-
-        const cleanPhone = mobile.replace(/\D/g, '').slice(-10);
-        if (cleanPhone.length !== 10) {
-            setValidationError('Please enter a valid 10-digit mobile number');
-            return;
-        }
-
-        if (!phoneEmailClientId) {
-            setServerError('Phone verification gateway is not configured.');
-            return;
-        }
-
-        const origin = window.location.origin;
-        const authUrl = `https://auth.phone.email/log-in?client_id=${phoneEmailClientId}&auth_type=8&origin=${encodeURIComponent(origin)}&user_phone_no=${cleanPhone}`;
-        setPhoneEmailPopupUrl(authUrl);
-        setIsAwaitingPhoneEmail(true);
-
-        const width = 500;
-        const height = 560;
-        const left = Math.max(0, (window.innerWidth - width) / 2 + (window.screenX || 0));
-        const top = Math.max(0, (window.innerHeight - height) / 2 + (window.screenY || 0));
-
-        try {
-            const popup = window.open(
-                authUrl,
-                'peLoginWindow',
-                `toolbar=0,scrollbars=1,location=0,statusbar=0,menubar=0,resizable=0,width=${width},height=${height},top=${top},left=${left}`
-            );
-
-            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-                window.location.href = authUrl;
-            }
-        } catch {
-            window.location.href = authUrl;
-        }
-    };
-
-    // Send fallback OTP
-    const handleSendFallbackOtp = async (e: React.FormEvent) => {
-        e.preventDefault();
         setServerError('');
-        setValidationError('');
 
         if (mobile.length !== 10) {
             setValidationError('Please enter a valid 10-digit mobile number');
@@ -506,10 +411,8 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    restaurantCode,
+                    restaurantCode: targetRestaurantId,
                     mobile,
-                    name: name.trim(),
-                    dob,
                 }),
             });
 
@@ -534,42 +437,82 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
         }
     };
 
-    // Verify fallback OTP
-    const handleVerifyFallbackOtp = async (e: React.FormEvent) => {
+    /**
+     * Verify manual 6-digit OTP code
+     */
+    const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (otp.length !== 6) {
             setValidationError('Please enter the 6-digit code');
             return;
         }
 
-        await executeVerification({
+        await handleVerifyMobileToken({
             verifiedMobile: mobile,
             isPhoneEmail: false,
-            customerName: name.trim(),
-            customerDob: dob,
             otpCode: otp,
         });
     };
 
+    /**
+     * Step 3: Save Name and DOB (or Skip for now)
+     */
+    const handleSaveCustomerDetails = async (isSkipped: boolean) => {
+        const finalName = isSkipped ? 'Guest' : (name.trim() || 'Guest');
+        const finalDob = isSkipped ? '' : dob.trim();
+        const activeMobile = verifiedCustomer?.mobile || mobile;
+        const customerId = verifiedCustomer?.id;
+
+        setSubmitting(true);
+
+        try {
+            // Update customer profile on server
+            await fetch('/api/customer/auth/verify-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    restaurantCode: targetRestaurantId,
+                    mobile: activeMobile,
+                    name: finalName,
+                    dob: finalDob,
+                    phoneEmailVerified: true,
+                    userJsonUrl: verifiedCustomer?.userJsonUrl,
+                }),
+            });
+        } catch (err) {
+            console.warn('[Profile Save Notice]:', err);
+        }
+
+        persistCustomerSession(activeMobile, finalName, finalDob, customerId);
+
+        if (!isSkipped && finalName !== 'Guest') {
+            toast.success(`Welcome, ${finalName}!`);
+        } else {
+            toast.success('Welcome to dining!');
+        }
+
+        await proceedToDiningOrJoinSession(finalName, activeMobile, customerId);
+    };
+
+    // If join session modal is active
     if (joinSessionData) {
         return (
             <CustomerJoinTableScreen
-                restaurantId={restaurantCode}
+                restaurantId={targetRestaurantId}
                 tableNumber={tableFromUrl}
-                customerName={name}
+                customerName={name || 'Guest'}
                 customerMobile={mobile}
                 sessionId={joinSessionData.sessionId}
                 hostName={joinSessionData.hostName}
+                participantCount={joinSessionData.participantCount || 1}
                 initialRequestId={joinSessionData.initialRequestId}
                 initialStatus={joinSessionData.initialStatus}
                 onApproved={() => {
                     setJoinSessionData(null);
-                    if (tableFromUrl) {
-                        if (tableFromUrl.length >= 16) {
-                            window.location.href = `/customer/t/${tableFromUrl}/home`;
-                        } else {
-                            window.location.href = `/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`;
-                        }
+                    if (tableToken) {
+                        window.location.href = `/customer/t/${tableToken}/home`;
+                    } else if (tableFromUrl) {
+                        window.location.href = `/${restaurantCode}/customer/home/${encodeURIComponent(tableFromUrl)}`;
                     } else {
                         window.location.href = `/${restaurantCode}/customer/home`;
                     }
@@ -580,7 +523,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
 
     return (
         <AuthBackground className="min-h-screen py-8 px-4 flex flex-col justify-center items-center">
-            {/* Dine In One Wave Animated Logo above login card */}
+            {/* Dine In One Wave Animated Logo */}
             <div className="mb-6 flex flex-col items-center">
                 <DineInOneWaveLogo size="lg" />
                 {profile?.name && (
@@ -607,10 +550,10 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                     )}
 
                     <AnimatePresence mode="wait">
-                        {step === 'details' ? (
-                            /* ── STEP 1: Ask Name and DOB First ───────── */
+                        {step === 'phone' ? (
+                            /* ── STEP 1: Ask Mobile Number First ───────── */
                             <motion.div
-                                key="step-details"
+                                key="step-phone"
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
@@ -619,155 +562,38 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                 <div className="mb-6">
                                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 text-[10px] font-black uppercase tracking-wider mb-2 border border-orange-200">
                                         <Sparkles size={11} />
-                                        <span>Step 1 of 2: Dining Details</span>
+                                        <span>Mobile Verification</span>
                                     </div>
                                     <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-                                        Welcome to Dining
+                                        Verify Your Mobile
                                     </h2>
                                     <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 leading-relaxed">
-                                        Please tell us your name and date of birth to personalize your contactless table experience.
+                                        Enter your mobile number to view the digital menu and place table orders.
                                     </p>
                                 </div>
 
-                                <form onSubmit={handleContinueToPhone} className="space-y-4">
-                                    {/* Full Name */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
-                                            Your Full Name <span className="text-rose-500">*</span>
-                                        </label>
-                                        <div className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all">
-                                            <div className="pl-3 pr-2 text-slate-400">
-                                                <User size={18} />
-                                            </div>
-                                            <input
-                                                type="text"
-                                                autoFocus
-                                                disabled={submitting}
-                                                placeholder="e.g. Rahul Sharma"
-                                                value={name}
-                                                onChange={(e) => {
-                                                    setName(e.target.value);
-                                                    setValidationError('');
-                                                    setServerError('');
-                                                }}
-                                                className="w-full px-2 py-2.5 bg-transparent text-slate-900 text-sm font-semibold placeholder:text-slate-400 focus:outline-none"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Date of Birth */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
-                                            Date of Birth <span className="text-rose-500">*</span>
-                                        </label>
-                                        <div 
-                                            onClick={() => {
-                                                try {
-                                                    dobInputRef.current?.showPicker?.();
-                                                } catch {
-                                                    dobInputRef.current?.focus();
-                                                }
-                                            }}
-                                            className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all cursor-pointer"
-                                        >
-                                            <div className="pl-3 pr-2 text-slate-400">
-                                                <Calendar size={18} />
-                                            </div>
-                                            <input
-                                                ref={dobInputRef}
-                                                type={dobFocused || dob ? 'date' : 'text'}
-                                                onFocus={() => setDobFocused(true)}
-                                                onBlur={() => setDobFocused(false)}
-                                                disabled={submitting}
-                                                placeholder="Select Date of Birth (DD/MM/YYYY)"
-                                                value={dob}
-                                                onChange={(e) => {
-                                                    setDob(e.target.value);
-                                                    setValidationError('');
-                                                    setServerError('');
-                                                }}
-                                                max={new Date().toISOString().split('T')[0]}
-                                                className="w-full px-2 py-2.5 bg-transparent text-slate-900 text-sm font-semibold placeholder:text-slate-400 focus:outline-none cursor-pointer"
-                                            />
-                                        </div>
-                                        <p className="text-[10px] text-slate-400 mt-1 ml-1">
-                                            Celebrate your special occasions with exclusive dining perks.
-                                        </p>
-                                    </div>
-
-                                    {validationError && (
-                                        <p className="text-xs text-rose-500 font-semibold mt-1 ml-1 flex items-center gap-1">
-                                            <AlertCircle size={13} className="shrink-0" />
-                                            <span>{validationError}</span>
-                                        </p>
-                                    )}
-
-                                    {/* Continue Button */}
-                                    <button
-                                        type="submit"
-                                        className="w-full mt-2 py-4 rounded-2xl font-black text-sm tracking-wide bg-gradient-to-r from-orange-500 via-orange-600 to-rose-500 text-white shadow-lg shadow-orange-500/25 hover:shadow-xl hover:shadow-orange-500/35 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer"
-                                    >
-                                        <span>Continue to Phone Verification</span>
-                                        <ArrowRight size={18} />
-                                    </button>
-                                </form>
-                            </motion.div>
-                        ) : step === 'phone' ? (
-                            /* ── STEP 2: Mobile OTP Verification via Phone.Email ───────── */
-                            <motion.div
-                                key="step-phone"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                transition={{ duration: 0.2 }}
-                            >
-                                <div className="mb-5">
-                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-wider mb-2 border border-emerald-200">
-                                        <ShieldCheck size={11} />
-                                        <span>Step 2 of 2: Phone Verification</span>
-                                    </div>
-                                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-                                        Verify Mobile Number
-                                    </h2>
-                                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 leading-relaxed">
-                                        Free SMS OTP via Phone.Email ensures quick, verified table dining.
-                                    </p>
-                                </div>
-
-                                {/* Guest Details Summary with Edit option */}
-                                <div className="p-3 rounded-2xl mb-5 bg-slate-50 border border-slate-200 flex items-center justify-between gap-3 text-xs">
-                                    <div className="min-w-0">
-                                        <p className="font-extrabold text-slate-900 truncate">{name}</p>
-                                        <p className="text-[11px] text-slate-500">🎂 DOB: {dob}</p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => setStep('details')}
-                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white text-orange-600 font-bold text-xs border border-slate-200 shadow-xs hover:bg-slate-50 cursor-pointer transition-all"
-                                    >
-                                        <Edit2 size={12} />
-                                        <span>Edit</span>
-                                    </button>
-                                </div>
-
-                                {/* Mobile Phone Form */}
-                                <form onSubmit={handleLaunchPhoneEmail} className="space-y-4">
+                                <form onSubmit={handleSendOtp} className="space-y-4">
+                                    {/* Mobile Number Input */}
                                     <div>
                                         <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
                                             Mobile Number <span className="text-rose-500">*</span>
                                         </label>
-                                        <div className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-[#02BD7E] focus-within:bg-white transition-all">
-                                            <div className="pl-3 pr-2 text-slate-500 font-bold text-sm">
-                                                +91
+                                        <div className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all">
+                                            <div className="flex items-center gap-1.5 pl-3 pr-2 border-r border-slate-200 text-slate-700 font-bold text-sm shrink-0">
+                                                <span className="text-base">🇮🇳</span>
+                                                <span>+91</span>
                                             </div>
                                             <input
                                                 type="tel"
-                                                disabled={submitting}
+                                                inputMode="numeric"
+                                                pattern="[0-9]*"
                                                 maxLength={10}
-                                                placeholder="9876543210"
+                                                autoFocus
+                                                disabled={submitting}
+                                                placeholder="98765 43210"
                                                 value={mobile}
                                                 onChange={handlePhoneChange}
-                                                className="pe_phone_number w-full px-2 py-2.5 bg-transparent text-slate-900 text-sm font-bold tracking-wide placeholder:tracking-normal placeholder:font-normal placeholder:text-slate-400 focus:outline-none"
+                                                className="w-full px-3 py-2 bg-transparent text-slate-900 font-bold text-base placeholder:text-slate-400 placeholder:font-normal focus:outline-none"
                                             />
                                         </div>
                                     </div>
@@ -786,13 +612,13 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         </div>
                                     )}
 
-                                    {/* Primary Phone.Email Verification Action */}
+                                    {/* Primary Button: Get OTP */}
                                     <button
                                         type="submit"
                                         disabled={submitting || mobile.length !== 10}
                                         className={`w-full py-4 rounded-2xl font-black text-sm tracking-wide transition-all flex items-center justify-center gap-2 cursor-pointer ${
                                             mobile.length === 10 && !submitting
-                                                ? 'bg-[#02BD7E] hover:bg-[#02a76f] text-white shadow-lg shadow-[#02BD7E]/30 hover:shadow-xl active:scale-[0.99]'
+                                                ? 'bg-gradient-to-r from-orange-500 to-rose-500 text-white shadow-lg shadow-orange-500/25 hover:shadow-xl active:scale-[0.99]'
                                                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                         }`}
                                     >
@@ -807,23 +633,27 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         )}
                                     </button>
 
-                                    {/* Dev Test Fallback (Non-production only) */}
-                                    {process.env.NODE_ENV !== 'production' && (
-                                        <div className="pt-3 text-center">
-                                            <button
-                                                type="button"
-                                                onClick={handleSendFallbackOtp}
-                                                disabled={submitting || mobile.length !== 10}
-                                                className="text-[11px] text-slate-400 hover:text-slate-600 underline font-semibold cursor-pointer"
-                                            >
-                                                Dev Mode: Test without SMS
-                                            </button>
+                                    {/* Phone.Email Instant Verification (If enabled) */}
+                                    {phoneEmailEnabled && (
+                                        <div className="pt-2">
+                                            <div className="relative flex py-2 items-center">
+                                                <div className="flex-grow border-t border-slate-200" />
+                                                <span className="flex-shrink mx-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">or verify instantly</span>
+                                                <div className="flex-grow border-t border-slate-200" />
+                                            </div>
+
+                                            <div className="flex justify-center pt-1">
+                                                <div
+                                                    className="pe_signin_button"
+                                                    data-client-id={phoneEmailClientId}
+                                                />
+                                            </div>
                                         </div>
                                     )}
                                 </form>
                             </motion.div>
-                        ) : (
-                            /* ── STEP 3: Fallback OTP Input Screen ───────── */
+                        ) : step === 'otp' ? (
+                            /* ── STEP 2: OTP Verification Screen ───────── */
                             <motion.div
                                 key="step-otp"
                                 initial={{ opacity: 0, y: 10 }}
@@ -857,7 +687,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                     </div>
                                 )}
 
-                                <form onSubmit={handleVerifyFallbackOtp} className="space-y-4">
+                                <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">
                                     <div>
                                         <div className="flex items-center rounded-2xl p-2 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all">
                                             <input
@@ -901,7 +731,7 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         {submitting ? (
                                             <Loader2 size={18} className="animate-spin" />
                                         ) : (
-                                            <span>Verify & Start Dining</span>
+                                            <span>Verify & Continue</span>
                                         )}
                                     </button>
 
@@ -916,10 +746,130 @@ export default function CustomerMobileEntry({ restaurantCode, initialTable }: Cu
                                         <button
                                             type="button"
                                             disabled={resendCooldown > 0 || submitting}
-                                            onClick={handleSendFallbackOtp}
+                                            onClick={handleSendOtp}
                                             className="text-orange-600 hover:text-orange-700 font-bold disabled:text-slate-400 cursor-pointer"
                                         >
                                             {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend Code'}
+                                        </button>
+                                    </div>
+                                </form>
+                            </motion.div>
+                        ) : (
+                            /* ── STEP 3: Details (Name & DOB with Skip Button) ───────── */
+                            <motion.div
+                                key="step-details"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.2 }}
+                            >
+                                <div className="mb-6">
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 text-[10px] font-black uppercase tracking-wider mb-2 border border-orange-200">
+                                        <Sparkles size={11} />
+                                        <span>Tell Us About You</span>
+                                    </div>
+                                    <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+                                        Welcome to Dining
+                                    </h2>
+                                    <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1 leading-relaxed">
+                                        Add your name and birthday to personalize your table orders and receive special perks.
+                                    </p>
+                                </div>
+
+                                <form
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        handleSaveCustomerDetails(false);
+                                    }}
+                                    className="space-y-4"
+                                >
+                                    {/* Full Name */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
+                                            Your Full Name
+                                        </label>
+                                        <div className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all">
+                                            <div className="pl-3 pr-2 text-slate-400">
+                                                <User size={18} />
+                                            </div>
+                                            <input
+                                                type="text"
+                                                autoFocus
+                                                disabled={submitting}
+                                                placeholder="e.g. Rahul Sharma"
+                                                value={name}
+                                                onChange={(e) => {
+                                                    setName(e.target.value);
+                                                    setValidationError('');
+                                                }}
+                                                className="w-full px-2 py-2 bg-transparent text-slate-900 font-bold text-base placeholder:text-slate-400 placeholder:font-normal focus:outline-none"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Date of Birth */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1 ml-1">
+                                            Date of Birth <span className="text-slate-400 font-normal">(Optional for birthday treats)</span>
+                                        </label>
+                                        <div
+                                            onClick={() => {
+                                                setDobFocused(true);
+                                                dobInputRef.current?.showPicker?.();
+                                            }}
+                                            className="flex items-center rounded-2xl p-1.5 bg-slate-50 border border-slate-200 focus-within:border-orange-500 focus-within:bg-white transition-all cursor-pointer"
+                                        >
+                                            <div className="pl-3 pr-2 text-slate-400">
+                                                <Calendar size={18} />
+                                            </div>
+                                            <input
+                                                ref={dobInputRef}
+                                                type="date"
+                                                disabled={submitting}
+                                                max={new Date().toISOString().split('T')[0]}
+                                                value={dob}
+                                                onFocus={() => setDobFocused(true)}
+                                                onChange={(e) => {
+                                                    setDob(e.target.value);
+                                                    setValidationError('');
+                                                }}
+                                                className="w-full px-2 py-2 bg-transparent text-slate-900 font-bold text-sm focus:outline-none"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {validationError && (
+                                        <p className="text-xs text-rose-500 font-semibold mt-1 ml-1 flex items-center gap-1">
+                                            <AlertCircle size={13} className="shrink-0" />
+                                            <span>{validationError}</span>
+                                        </p>
+                                    )}
+
+                                    {/* Continue Button */}
+                                    <button
+                                        type="submit"
+                                        disabled={submitting}
+                                        className="w-full py-4 rounded-2xl font-black text-sm tracking-wide bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 text-white shadow-lg shadow-orange-500/25 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+                                    >
+                                        {submitting ? (
+                                            <Loader2 size={18} className="animate-spin" />
+                                        ) : (
+                                            <>
+                                                <span>Continue to Dining</span>
+                                                <ArrowRight size={18} />
+                                            </>
+                                        )}
+                                    </button>
+
+                                    {/* Skip for Now Button */}
+                                    <div className="text-center pt-2">
+                                        <button
+                                            type="button"
+                                            disabled={submitting}
+                                            onClick={() => handleSaveCustomerDetails(true)}
+                                            className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors py-2 px-4 rounded-xl hover:bg-slate-50 cursor-pointer"
+                                        >
+                                            Skip for now
                                         </button>
                                     </div>
                                 </form>

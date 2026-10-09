@@ -59,6 +59,18 @@ export function SharedFloatingCart({ restaurantCode: propRestaurantCode, tableNu
                 transition={{ type: 'spring', stiffness: 420, damping: 26 }}
                 className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] left-1/2 -translate-x-1/2 w-full max-w-md flex justify-end px-4 pointer-events-none z-[150]"
             >
+                <style>{`
+                    @keyframes multiColorFlow {
+                        0% { background-position: 0% 50%; }
+                        50% { background-position: 100% 50%; }
+                        100% { background-position: 0% 50%; }
+                    }
+                    .animated-multicolor-cart {
+                        background: linear-gradient(135deg, #f97316, #ef4444, #ec4899, #8b5cf6, #3b82f6, #06b6d4, #10b981, #f59e0b, #f97316);
+                        background-size: 350% 350%;
+                        animation: multiColorFlow 7s ease infinite;
+                    }
+                `}</style>
                 <button 
                     type="button"
                     onClick={() => {
@@ -70,7 +82,7 @@ export function SharedFloatingCart({ restaurantCode: propRestaurantCode, tableNu
                             router.push(`/${restaurantCode}/customer/cart/${tableNumber}`);
                         }
                     }}
-                    className="group pointer-events-auto relative flex items-center gap-3 pl-2.5 pr-3.5 py-2 rounded-2xl bg-gradient-to-r from-orange-500 via-orange-600 to-rose-600 text-white shadow-[0_10px_25px_-3px_rgba(249,115,22,0.45),0_4px_12px_rgba(0,0,0,0.12)] border border-white/35 backdrop-blur-xl active:scale-[0.96] hover:brightness-105 transition-all duration-200 cursor-pointer select-none"
+                    className="group pointer-events-auto relative flex items-center gap-3 pl-2.5 pr-3.5 py-2 rounded-2xl animated-multicolor-cart text-white shadow-[0_10px_25px_-3px_rgba(236,72,153,0.35),0_4px_12px_rgba(0,0,0,0.12)] border border-white/40 backdrop-blur-xl active:scale-[0.96] hover:brightness-105 transition-all duration-200 cursor-pointer select-none"
                     aria-label={`View cart with ${cartContext.totalItems} items for ₹${formattedPrice}`}
                 >
                     {/* Beautiful Cart Icon with badge */}
@@ -89,7 +101,7 @@ export function SharedFloatingCart({ restaurantCode: propRestaurantCode, tableNu
 
                     {/* Item count & Price */}
                     <div className="flex flex-col items-start text-left leading-tight min-w-0">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-orange-100/90 truncate">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-white/90 truncate drop-shadow-xs">
                             {itemCountText}
                         </span>
                         <motion.span 
@@ -97,14 +109,14 @@ export function SharedFloatingCart({ restaurantCode: propRestaurantCode, tableNu
                             initial={{ scale: 1.15, color: '#FEF08A' }}
                             animate={{ scale: 1, color: '#FFFFFF' }}
                             transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-                            className="text-sm font-black text-white font-display tracking-tight"
+                            className="text-sm font-black text-white font-display tracking-tight drop-shadow-xs"
                         >
                             ₹{formattedPrice}
                         </motion.span>
                     </div>
 
                     {/* Subtle Right Chevron */}
-                    <div className="size-6 rounded-lg bg-white/15 border border-white/20 flex items-center justify-center text-white/90 group-hover:translate-x-0.5 transition-transform shrink-0">
+                    <div className="size-6 rounded-lg bg-white/20 border border-white/25 flex items-center justify-center text-white/95 group-hover:translate-x-0.5 transition-transform shrink-0">
                         <ChevronRight size={14} strokeWidth={2.6} />
                     </div>
                 </button>

@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
 
         const response = NextResponse.json({
             success: true,
+            isReturning: customerResult.isReturning && Boolean(customerResult.customer?.name && customerResult.customer.name.trim() !== 'Guest'),
             customer: {
                 id: customerResult.customerId,
                 name: finalName,
