@@ -101,8 +101,8 @@ export async function POST(req: NextRequest) {
             .from('table_join_requests')
             .insert({
                 session_id: sessionId,
-                restaurant_id: restaurantId,
-                table_number: tableNumber,
+                restaurant_id: session.restaurant_id,
+                table_number: session.table_number,
                 requester_customer_name: cleanName,
                 requester_customer_mobile: cleanMobile,
                 status: 'pending',

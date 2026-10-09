@@ -70,6 +70,18 @@ export default function SharedSpecialDetailModal({
     };
   }, [isModalOpen, onClose]);
 
+  // Hide bottom nav when modal is open
+  useEffect(() => {
+    if (isModalOpen) {
+      window.dispatchEvent(new CustomEvent('ros-detail-modal-change', { detail: { isOpen: true } }));
+      document.body.classList.add('ros-detail-modal-open');
+      return () => {
+        window.dispatchEvent(new CustomEvent('ros-detail-modal-change', { detail: { isOpen: false } }));
+        document.body.classList.remove('ros-detail-modal-open');
+      };
+    }
+  }, [isModalOpen]);
+
   // Parse included items if present
   const specialItems = displaySpecial?.items;
   const parsedItems = useMemo(() => {

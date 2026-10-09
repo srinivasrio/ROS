@@ -47,6 +47,21 @@ export function CustomerBottomNav({ restaurantCode: propRestaurantCode, tableNum
 
     const [isMinimized, setIsMinimized] = useState(false);
     const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
+    // Listen to detail modal open/close events to hide bottom nav
+    useEffect(() => {
+        const handleModalChange = (e: any) => {
+            setIsModalOpen(Boolean(e?.detail?.isOpen));
+        };
+        window.addEventListener('ros-detail-modal-change', handleModalChange);
+        if (typeof document !== 'undefined' && document.body.classList.contains('ros-detail-modal-open')) {
+            setIsModalOpen(true);
+        }
+        return () => {
+            window.removeEventListener('ros-detail-modal-change', handleModalChange);
+        };
+    }, []);
 
     // Detect user's reduced motion preference for accessibility
     useEffect(() => {
@@ -239,7 +254,7 @@ export function CustomerBottomNav({ restaurantCode: propRestaurantCode, tableNum
         }
     }, [navItems, router, restaurantCode, tableNumber]);
 
-    if (!restaurantCode || !tableNumber) return null;
+    if (!restaurantCode || !tableNumber || isModalOpen) return null;
 
     const springPhysics: Transition = prefersReducedMotion 
         ? { duration: 0.05 } 

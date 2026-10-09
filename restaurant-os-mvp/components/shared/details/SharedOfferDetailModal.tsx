@@ -55,8 +55,13 @@ export default function SharedOfferDetailModal({
     }
 
     window.addEventListener('keydown', handleKeyDown);
+    window.dispatchEvent(new CustomEvent('ros-detail-modal-change', { detail: { isOpen: true } }));
+    document.body.classList.add('ros-detail-modal-open');
+
     return () => {
       document.body.style.overflow = originalBodyOverflow;
+      window.dispatchEvent(new CustomEvent('ros-detail-modal-change', { detail: { isOpen: false } }));
+      document.body.classList.remove('ros-detail-modal-open');
       if (scrollContainer) {
         scrollContainer.style.overflow = originalContainerOverflow;
       }

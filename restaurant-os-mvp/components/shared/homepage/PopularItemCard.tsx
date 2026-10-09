@@ -182,7 +182,7 @@ export default function PopularItemCard({
 
           {quantity > 0 ? (
             <div 
-              className="inline-flex items-center gap-2 rounded-xl p-1 bg-white shadow-xs border border-white"
+              className="inline-flex items-center gap-2 rounded-xl px-1.5 h-8 bg-white shadow-xs border border-white"
             >
               <button
                 onClick={(e) => {
@@ -190,7 +190,7 @@ export default function PopularItemCard({
                   onDecrement(itemId);
                 }}
                 aria-label="Decrease quantity"
-                className="size-6 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer bg-orange-500 shadow-xs"
+                className="size-6 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer bg-orange-500 shadow-xs hover:bg-orange-600"
               >
                 <Minus className="size-3.5 stroke-[3]" />
               </button>
@@ -203,7 +203,7 @@ export default function PopularItemCard({
                   onIncrement(itemId);
                 }}
                 aria-label="Increase quantity"
-                className="size-6 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer bg-orange-500 shadow-xs"
+                className="size-6 rounded-lg flex items-center justify-center font-bold text-white transition-all active:scale-90 cursor-pointer bg-orange-500 shadow-xs hover:bg-orange-600"
               >
                 <Plus className="size-3.5 stroke-[3]" />
               </button>
@@ -215,7 +215,7 @@ export default function PopularItemCard({
                 onAdd(item);
               }}
               aria-label={`Add ${item.name} to order`}
-              className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl font-black text-xs text-orange-600 active:scale-95 transition-all cursor-pointer bg-white shadow-xs hover:bg-orange-50 border border-white"
+              className="inline-flex items-center justify-center gap-1 px-4 h-8 rounded-xl font-black text-xs text-orange-600 active:scale-95 transition-all cursor-pointer bg-white shadow-xs hover:bg-orange-50 border border-white shrink-0"
             >
               <Plus className="size-3.5 stroke-[3]" />
               <span>ADD</span>

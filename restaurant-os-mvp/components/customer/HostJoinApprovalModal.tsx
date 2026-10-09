@@ -32,10 +32,20 @@ export function HostJoinApprovalModal({
 
     const getHostMobile = useCallback(() => {
         try {
-            return (
-                localStorage.getItem(`ros_customer_mobile_${restaurantId}`) ||
-                ''
-            ).replace(/\D/g, '').slice(-10);
+            let m = localStorage.getItem(`ros_customer_mobile_${restaurantId}`) || '';
+            if (!m && typeof window !== 'undefined') {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && k.startsWith('ros_customer_mobile_')) {
+                        const val = localStorage.getItem(k);
+                        if (val) {
+                            m = val;
+                            break;
+                        }
+                    }
+                }
+            }
+            return m.replace(/\D/g, '').slice(-10);
         } catch {
             return '';
         }

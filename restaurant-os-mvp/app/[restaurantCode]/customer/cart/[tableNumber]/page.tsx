@@ -39,6 +39,53 @@ export default function CustomerCart({
     const currentToken = tokenMatch ? tokenMatch[1] : null;
     const urlRestaurantId = (propRestaurantCode || params.restaurantCode || params.restaurantId) as string;
     const tableNumber = (propTableNumber || params.tableNumber) as string;
+    const [placedOrderForAutoConfirm, setPlacedOrderForAutoConfirm] = useState<{
+        id: string;
+        total: number;
+        itemsCount: number;
+    } | null>(null);
+    const [autoConfirmSecondsLeft, setAutoConfirmSecondsLeft] = useState(30);
+    const [isConfirmingOrder, setIsConfirmingOrder] = useState(false);
+
+    // Auto-confirmation 30s countdown timer
+    useEffect(() => {
+        if (!placedOrderForAutoConfirm) return;
+        if (autoConfirmSecondsLeft <= 0) {
+            handleAutoConfirmComplete(placedOrderForAutoConfirm.id);
+            return;
+        }
+        const timer = setTimeout(() => {
+            setAutoConfirmSecondsLeft(prev => prev - 1);
+        }, 1000);
+        return () => clearTimeout(timer);
+    }, [placedOrderForAutoConfirm, autoConfirmSecondsLeft]);
+
+    const handleAutoConfirmComplete = async (orderId: string) => {
+        setIsConfirmingOrder(true);
+        try {
+            await OrderService.updateOrderStatus(orderId, urlRestaurantId, 'placed');
+        } catch {}
+        toast.success('Order confirmed and sent to kitchen!');
+        if (currentToken) {
+            router.push(`/customer/t/${currentToken}/myorders`);
+        } else {
+            router.push(`/${urlRestaurantId}/customer/status/${tableNumber}/${orderId}`);
+        }
+    };
+
+    const handleCancelQueuedOrder = async (orderId: string) => {
+        setIsConfirmingOrder(true);
+        try {
+            await OrderService.deleteOrder(orderId, urlRestaurantId);
+            toast.info('Order was cancelled.');
+        } catch (e) {
+            console.error('Cancel order error:', e);
+        } finally {
+            setPlacedOrderForAutoConfirm(null);
+            setIsConfirmingOrder(false);
+        }
+    };
+
     const { 
         cart, 
         addToCart,
@@ -551,13 +598,14 @@ export default function CustomerCart({
                         localStorage.setItem(`ros_last_order_${urlRestaurantId}_${tableNumber}`, order.id);
                     }
                 } catch {}
-                toast.success('Order placed successfully!');
+                toast.success('Order placed!');
                 clearCart();
-                if (currentToken) {
-                    router.push(`/customer/t/${currentToken}/myorders`);
-                } else {
-                    router.push(`/${urlRestaurantId}/customer/status/${tableNumber}/${order.id}`);
-                }
+                setAutoConfirmSecondsLeft(30);
+                setPlacedOrderForAutoConfirm({
+                    id: order.id,
+                    total: Math.round((total + (isDelivery ? Number(deliverySettings?.delivery_fee || 0) : 0)) * 100) / 100,
+                    itemsCount: orderItems.length,
+                });
             }
         } catch (error: any) {
             console.error(error);
@@ -810,13 +858,13 @@ export default function CustomerCart({
                 </div>
             </main>
 
-            {/* Footer */}
-            <div className="fixed bottom-[80px] inset-x-0 mx-auto w-full max-w-md p-4 bg-white border-t border-gray-100 z-30 flex items-center justify-between gap-3 shadow-[0_-8px_30px_rgb(0,0,0,0.04)]">
+            {/* Redesigned Footer (No white background) */}
+            <div className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] inset-x-0 mx-auto w-full max-w-md px-4 py-2 z-30 flex items-center justify-between gap-3 pointer-events-none">
                 {cartItems.length > 0 ? (
                     <button
                         type="button"
                         onClick={() => setIsClearAllPending(true)}
-                        className="flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-4 py-3.5 rounded-xl text-sm font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 active:scale-95 transition-all cursor-pointer"
+                        className="pointer-events-auto flex-shrink-0 inline-flex items-center justify-center gap-1.5 px-4 py-3.5 rounded-2xl text-sm font-black text-rose-600 hover:text-rose-700 bg-rose-500/15 hover:bg-rose-500/20 border border-rose-300/40 backdrop-blur-md active:scale-95 transition-all cursor-pointer shadow-sm"
                         title="Clear all items in cart"
                     >
                         <LucideTrash2 size={16} />
@@ -827,11 +875,11 @@ export default function CustomerCart({
                 <button
                     onClick={handlePlaceOrder}
                     disabled={submitting || (isDelivery && (!!deliveryLocationError || (deliverySettings?.minimum_order_amount && subtotal < deliverySettings.minimum_order_amount)))}
-                    className={`flex-1 py-3.5 ${
+                    className={`pointer-events-auto flex-1 py-3.5 ${
                         submitting || (isDelivery && (!!deliveryLocationError || (deliverySettings?.minimum_order_amount && subtotal < deliverySettings.minimum_order_amount)))
-                            ? 'bg-gray-400 opacity-60 cursor-not-allowed' 
-                            : 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer'
-                    } text-white font-black rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2 uppercase tracking-wide text-sm shadow-md shadow-emerald-600/20`}
+                            ? 'bg-slate-400 opacity-60 cursor-not-allowed' 
+                            : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 cursor-pointer shadow-lg shadow-emerald-600/30 active:scale-95'
+                    } text-white font-black rounded-2xl transition-all flex items-center justify-center gap-2 uppercase tracking-wide text-sm border border-white/20 backdrop-blur-md`}
                 >
                     {submitting ? (
                         <>
@@ -843,13 +891,68 @@ export default function CustomerCart({
                     ) : (
                         <>
                             Place Order
-                            <span className="bg-white/20 px-2 py-0.5 rounded text-xs shadow-xs">
+                            <span className="bg-white/25 px-2.5 py-0.5 rounded-lg text-xs font-black shadow-xs">
                                 ₹{Math.round((total + (isDelivery ? Number(deliverySettings?.delivery_fee || 0) : 0)) * 100) / 100}
                             </span>
                         </>
                     )}
                 </button>
             </div>
+
+            {/* 30-Second Auto Confirmation Modal */}
+            {placedOrderForAutoConfirm && (
+                <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4">
+                    <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center animate-in zoom-in-95 duration-200">
+                        {/* Animated pulsing countdown ring */}
+                        <div className="relative size-20 flex items-center justify-center mb-4">
+                            <div className="absolute inset-0 rounded-full border-4 border-emerald-100" />
+                            <div 
+                                className="absolute inset-0 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin" 
+                                style={{ animationDuration: '3s' }}
+                            />
+                            <span className="text-xl font-black text-emerald-600 font-display">
+                                {autoConfirmSecondsLeft}s
+                            </span>
+                        </div>
+
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-black uppercase tracking-wider mb-2">
+                            <span>Order Placed</span>
+                        </div>
+
+                        <h3 className="text-xl font-black text-slate-900 mb-1 tracking-tight">
+                            Auto-Confirming in {autoConfirmSecondsLeft}s
+                        </h3>
+                        
+                        <p className="text-xs text-slate-500 font-medium mb-5 leading-relaxed max-w-xs">
+                            Your order for <span className="font-bold text-slate-800">Table {tableNumber || 'Dining'}</span> ({placedOrderForAutoConfirm.itemsCount} items • ₹{placedOrderForAutoConfirm.total}) will automatically be sent to the kitchen.
+                        </p>
+
+                        <div className="flex flex-col gap-2.5 w-full">
+                            <button
+                                type="button"
+                                disabled={isConfirmingOrder}
+                                onClick={() => handleAutoConfirmComplete(placedOrderForAutoConfirm.id)}
+                                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                            >
+                                {isConfirmingOrder ? (
+                                    <span>Sending to Kitchen...</span>
+                                ) : (
+                                    <span>Confirm Now ({autoConfirmSecondsLeft}s)</span>
+                                )}
+                            </button>
+
+                            <button
+                                type="button"
+                                disabled={isConfirmingOrder}
+                                onClick={() => handleCancelQueuedOrder(placedOrderForAutoConfirm.id)}
+                                className="w-full py-2.5 px-4 rounded-xl text-rose-600 hover:bg-rose-50 font-bold text-xs transition-all cursor-pointer"
+                            >
+                                Cancel Order
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Modal for Confirming Removal of Items / Clearing Cart */}
             <ConfirmRemoveItemModal
