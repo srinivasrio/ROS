@@ -56,11 +56,13 @@ function OwnerLoginInner() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    email: cleanId,
+                    email: cleanId.includes('@') ? cleanId : undefined,
+                    mobile: !cleanId.includes('@') ? cleanId : undefined,
                     identifier: cleanId,
                     password,
-                    role: 'owner',
-                    portal: 'owner'
+                    panel: 'owner',
+                    portal: 'owner',
+                    role: 'owner'
                 })
             });
 
@@ -79,7 +81,7 @@ function OwnerLoginInner() {
             }
 
             toast.success('Welcome back, Owner!');
-            const targetUrl = searchParams.get('redirect') || '/owner/branches';
+            const targetUrl = searchParams.get('redirect') || data.redirectUrl || '/owner/branches';
             window.location.href = targetUrl;
         } catch (err: any) {
             showWarningPopup({

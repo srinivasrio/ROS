@@ -8,7 +8,7 @@ if (!cmd) {
 }
 
 const expectScript = `
-set timeout 120
+set timeout 600
 spawn ssh -o StrictHostKeyChecking=no root@72.61.250.231 ${JSON.stringify(cmd)}
 expect {
     "*assword:*" {
