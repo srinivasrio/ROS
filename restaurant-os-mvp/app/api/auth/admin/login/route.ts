@@ -20,14 +20,23 @@ import crypto from 'crypto';
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const isOwnerPanel = body?.panel === 'owner';
+        const host = req.headers.get('host') || '';
+        const referer = req.headers.get('referer') || '';
+        const isOwnerPanel = 
+            body?.panel === 'owner' || 
+            body?.portal === 'owner' || 
+            body?.role === 'owner' ||
+            host.toLowerCase().startsWith('owner.') ||
+            referer.includes('/login/owner');
+
         const rawIdentifier = String(body?.email || body?.identifier || body?.mobile || '').trim();
         const rawPassword = String(body?.password || '');
         const rawPin = String(body?.pin || '').trim();
 
         if (isOwnerPanel) {
+            // Owner Login: Only Email/Identifier and Password are required. Security PIN is NEVER required.
             if (!rawIdentifier || !rawPassword) {
-                return NextResponse.json({ error: 'Please enter both your email and password' }, { status: 400 });
+                return NextResponse.json({ error: 'Please enter both your email/username and password' }, { status: 400 });
             }
         } else {
             // Restaurant Admin Login: Mobile/Email, Password, AND Security PIN are all COMPULSORY
@@ -38,6 +47,21 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ error: 'Password is compulsory to login' }, { status: 400 });
             }
             if (!rawPin) {
+                // If no PIN provided, check if this user is a Restaurant Owner who accidentally logged in via Admin panel
+                const cleanCheck = rawIdentifier.toLowerCase();
+                const { data: ownerCandidate } = await supabaseAdmin
+                    .from('employees')
+                    .select('id, role')
+                    .or(`email.eq.${cleanCheck},mobile.eq.${cleanCheck.replace(/\D/g, '').slice(-10)}`)
+                    .eq('is_deleted', false)
+                    .maybeSingle();
+
+                if (ownerCandidate && ['owner', 'restaurant_owner'].includes(String(ownerCandidate.role || '').toLowerCase())) {
+                    return NextResponse.json({
+                        error: 'This account is registered as a Restaurant Owner (no Security PIN required). Please sign in via the Owner Portal at https://owner.dineinone.com/login or /login/owner.'
+                    }, { status: 403 });
+                }
+
                 return NextResponse.json({ error: 'Security PIN (4-6 digits) is compulsory to login' }, { status: 400 });
             }
         }
