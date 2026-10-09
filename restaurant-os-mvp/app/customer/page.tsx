@@ -118,10 +118,13 @@ function CustomerPortalContent() {
 
             const parsed = parseTableQrCode(decodedText);
             if (parsed.restaurantCode) {
-                const query = parsed.table ? `?table=${encodeURIComponent(parsed.table)}` : '';
-                router.push(`/${parsed.restaurantCode}/customer${query}`);
-            } else if (decodedText.startsWith('http')) {
-                // If direct URL, navigate directly
+                if (parsed.table) {
+                    router.push(`/${parsed.restaurantCode}/customer/home/${encodeURIComponent(parsed.table)}`);
+                } else {
+                    router.push(`/${parsed.restaurantCode}/customer`);
+                }
+            } else if (decodedText.startsWith('http') || decodedText.startsWith('/')) {
+                // If direct URL (like /customer/t/... or full URL), navigate directly
                 window.location.href = decodedText;
             } else {
                 setScanError('QR code detected, but not recognized as a restaurant table QR. Please scan the QR code located on your table.');
