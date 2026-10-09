@@ -353,6 +353,30 @@ export default function CustomerMobileEntry({
         }, 500);
     };
 
+    // Auto-proceed if customer is already verified on this browser
+    useEffect(() => {
+        if (!restaurantCode) return;
+        try {
+            const isExplicitlyLoggedOut = typeof window !== 'undefined' && (
+                sessionStorage.getItem('ros_logged_out') === 'true' ||
+                sessionStorage.getItem('ros_logging_out') === 'true'
+            );
+            if (isExplicitlyLoggedOut) return;
+
+            const savedMobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`) ||
+                                localStorage.getItem(`ros_customer_mobile_${targetRestaurantId}`) || '';
+            const isVerified = localStorage.getItem(`ros_customer_verified_${restaurantCode}`) ||
+                               localStorage.getItem(`ros_customer_verified_${targetRestaurantId}`);
+
+            if (savedMobile && isVerified === 'true') {
+                const savedName = localStorage.getItem(`ros_customer_name_${restaurantCode}`) || 'Customer';
+                const savedId = localStorage.getItem(`ros_customer_${restaurantCode}`) ||
+                                localStorage.getItem(`ros_customer_${targetRestaurantId}`) || '';
+                proceedToDiningOrJoinSession(savedName, savedMobile, savedId);
+            }
+        } catch {}
+    }, [restaurantCode, targetRestaurantId, tableFromUrl]);
+
     /**
      * Step 1 & 2: Verify Mobile OTP
      */

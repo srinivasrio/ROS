@@ -10,6 +10,6 @@ export default async function TableRedirectPage({ params }: { params: Promise<{ 
         redirect(`/customer/t/${token}/home`);
     }
 
-    redirect(`/${restaurantCode}/customer?table=${encodeURIComponent(tableNumber)}`);
+    redirect(`/${restaurantCode}/customer/home/${encodeURIComponent(tableNumber)}`);
 }
 

@@ -71,20 +71,59 @@ async function verifyTableForRestaurant(
         }
     }
 
-    // 3. Table Lookup within the Visited Restaurant
+    // 3. Table Lookup within the Visited Restaurant (by table_number, table_token, or ID)
     let { data: tableData, error } = await supabaseAdmin
         .from('tables')
-        .select('id, table_number, status, restaurant_id')
+        .select('id, table_number, status, restaurant_id, table_token')
         .eq('restaurant_id', visitedId)
-        .eq('table_number', tableStr)
+        .or(`table_number.eq.${tableStr},table_token.eq.${tableStr}`)
         .maybeSingle();
+
+    // Check by table_token across all restaurants if token was scanned without explicit restaurant code
+    if (!tableData && tableStr.length >= 16) {
+        const { data: byToken } = await supabaseAdmin
+            .from('tables')
+            .select('id, table_number, status, restaurant_id, table_token')
+            .eq('table_token', tableStr)
+            .maybeSingle();
+        if (byToken) {
+            if (byToken.restaurant_id && visitedId && byToken.restaurant_id.toLowerCase() !== visitedId.toLowerCase()) {
+                const { data: scannedRest } = await supabaseAdmin
+                    .from('restaurants')
+                    .select('id, name')
+                    .eq('id', byToken.restaurant_id)
+                    .maybeSingle();
+                const scannedName = scannedRest?.name || byToken.restaurant_id;
+                return {
+                    status: 200,
+                    body: {
+                        valid: false,
+                        reason: 'different_restaurant',
+                        message: `This table QR belongs to ${scannedName}, not ${visitedName}.`,
+                        visitedRestaurant: {
+                            id: visitedId,
+                            code: rawRestaurantId,
+                            name: visitedName,
+                        },
+                        scannedRestaurant: {
+                            id: byToken.restaurant_id,
+                            code: byToken.restaurant_id,
+                            name: scannedName,
+                        },
+                        scannedTable: byToken.table_number || tableStr,
+                    },
+                };
+            }
+            tableData = byToken;
+        }
+    }
 
     // Try numeric id match if table_number not matched directly
     const num = parseInt(tableStr, 10);
     if (!tableData && !isNaN(num)) {
         const { data: byId } = await supabaseAdmin
             .from('tables')
-            .select('id, table_number, status, restaurant_id')
+            .select('id, table_number, status, restaurant_id, table_token')
             .eq('restaurant_id', visitedId)
             .eq('id', num)
             .maybeSingle();
@@ -97,7 +136,7 @@ async function verifyTableForRestaurant(
         if (cleanStr) {
             const { data: byClean } = await supabaseAdmin
                 .from('tables')
-                .select('id, table_number, status, restaurant_id')
+                .select('id, table_number, status, restaurant_id, table_token')
                 .eq('restaurant_id', visitedId)
                 .eq('table_number', cleanStr)
                 .maybeSingle();

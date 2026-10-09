@@ -1,6 +1,6 @@
 'use client';
 
-import { QrCode as LucideQrCode, Download as LucideDownload, Plus as LucidePlus, Edit as LucideEdit, Edit2 as LucideEdit2, Printer as LucidePrinter, Trash2 as LucideTrash2, CreditCard as LucideCreditCard, X as LucideX, CheckCircle as LucideCheckCircle, AlertCircle as LucideAlertCircle, ChefHat as LucideChefHat, Utensils as LucideUtensils, Users as LucideUsers, Table as LucideTable, Link2 as LucideLink2, Unlink as LucideUnlink, ChevronDown as LucideChevronDown, Sparkles as LucideSparkles, Layers as LucideLayers, Box as LucideBox } from 'lucide-react';
+import { QrCode as LucideQrCode, Download as LucideDownload, Plus as LucidePlus, Edit as LucideEdit, Edit2 as LucideEdit2, Printer as LucidePrinter, Trash2 as LucideTrash2, CreditCard as LucideCreditCard, X as LucideX, CheckCircle as LucideCheckCircle, AlertCircle as LucideAlertCircle, ChefHat as LucideChefHat, Utensils as LucideUtensils, Users as LucideUsers, Table as LucideTable, Link2 as LucideLink2, Unlink as LucideUnlink, ChevronDown as LucideChevronDown, Sparkles as LucideSparkles, Layers as LucideLayers, Box as LucideBox, Copy as LucideCopy, ExternalLink as LucideExternalLink, Check as LucideCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { OrderService, Order, TableMergeGroup, RestaurantArea } from '@/services/orders.service';
@@ -37,6 +37,7 @@ export default function TableManagement() {
 
     // Modals State
     const [selectedQrTable, setSelectedQrTable] = useState<any | null>(null);
+    const [copiedLink, setCopiedLink] = useState(false);
     const [selectedTable, setSelectedTable] = useState<any | null>(null);
     const [expandedCombos, setExpandedCombos] = useState<Record<string, boolean>>({});
 
@@ -1763,33 +1764,81 @@ export default function TableManagement() {
                                     <LucideX size={20} />
                                 </button>
                             </div>
-                            <div className="p-10 flex flex-col items-center justify-center bg-neutral-50">
-                                <div className="bg-white p-4 rounded-xl shadow-lg border border-neutral-100 transform hover:scale-105 transition-transform duration-300">
-                                    <QRCode
-                                        id="table-qr-code-svg"
-                                        value={(() => {
-                                            const host = typeof window !== 'undefined' ? window.location.host : '';
-                                            const protocol = typeof window !== 'undefined' ? window.location.protocol : 'https:';
-                                            const cleanHost = host.replace(/^(admin|waiter|kds|delivery|employee|owner|superadmin)\./i, '');
-                                            
-                                            if (selectedQrTable.table_token) {
-                                                return `${protocol}//${cleanHost}/customer/t/${selectedQrTable.table_token}/home`;
-                                            }
+                            <div className="p-8 flex flex-col items-center justify-center bg-neutral-50 max-h-[80vh] overflow-y-auto">
+                                {(() => {
+                                    const host = typeof window !== 'undefined' ? window.location.host : '';
+                                    const protocol = typeof window !== 'undefined' ? window.location.protocol : 'https:';
+                                    const cleanHost = host.replace(/^(admin|waiter|kds|delivery|employee|owner|superadmin)\./i, '');
+                                    const targetResCode = urlRestaurantCode || restaurantId || '';
+                                    const isLocalhost = cleanHost.includes('localhost') || cleanHost.includes('127.0.0.1');
 
-                                            const tableId = selectedQrTable.is_group ? selectedQrTable.display_name : (selectedQrTable.table_number || selectedQrTable.id);
-                                            return `${protocol}//${cleanHost}/${restaurantId}/customer/table/${encodeURIComponent(tableId)}`;
-                                        })()}
-                                        size={200}
-                                        className="h-auto w-full max-w-[200px]"
-                                    />
-                                </div>
-                                <p className="mt-6 text-sm text-black text-center">
-                                    Scan to access menu for <span className="font-bold text-black">Table {selectedQrTable.is_group ? selectedQrTable.display_name : selectedQrTable.table_number}</span>.
-                                    <br />
-                                    <span className="text-[10px] font-mono bg-neutral-100 text-black px-2 py-1 rounded mt-3 inline-block">
-                                        Scan Link ID: {selectedQrTable.id}
-                                    </span>
-                                </p>
+                                    let qrUrl = '';
+                                    if (selectedQrTable.table_token) {
+                                        qrUrl = `${protocol}//${cleanHost}/customer/t/${selectedQrTable.table_token}/home`;
+                                    } else {
+                                        const tableId = selectedQrTable.is_group ? selectedQrTable.display_name : (selectedQrTable.table_number || selectedQrTable.id);
+                                        qrUrl = `${protocol}//${cleanHost}/${targetResCode}/customer/table/${encodeURIComponent(tableId)}`;
+                                    }
+
+                                    return (
+                                        <>
+                                            <div className="bg-white p-4 rounded-xl shadow-lg border border-neutral-100 transform hover:scale-105 transition-transform duration-300">
+                                                <QRCode
+                                                    id="table-qr-code-svg"
+                                                    value={qrUrl}
+                                                    size={190}
+                                                    className="h-auto w-full max-w-[190px]"
+                                                />
+                                            </div>
+
+                                            <p className="mt-4 text-sm text-black text-center font-medium">
+                                                Scan to access live menu for <span className="font-bold text-black">Table {selectedQrTable.is_group ? selectedQrTable.display_name : selectedQrTable.table_number}</span>
+                                            </p>
+
+                                            {/* Scannable Customer URL Box */}
+                                            <div className="w-full mt-4 bg-white rounded-2xl p-3.5 border border-neutral-200/80 shadow-xs">
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Scannable Customer URL</span>
+                                                    <button
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText(qrUrl);
+                                                            setCopiedLink(true);
+                                                            toast.success('Table QR URL copied to clipboard!');
+                                                            setTimeout(() => setCopiedLink(false), 2000);
+                                                        }}
+                                                        className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer"
+                                                    >
+                                                        {copiedLink ? <LucideCheck size={13} className="text-emerald-600" /> : <LucideCopy size={13} />}
+                                                        <span>{copiedLink ? 'Copied' : 'Copy URL'}</span>
+                                                    </button>
+                                                </div>
+                                                <div className="font-mono text-[11px] text-neutral-800 break-all select-all bg-neutral-50 p-2 rounded-xl border border-neutral-200">
+                                                    {qrUrl}
+                                                </div>
+                                                <div className="mt-2.5 flex items-center justify-between">
+                                                    <a
+                                                        href={qrUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                                                    >
+                                                        <LucideExternalLink size={13} />
+                                                        Test link in new tab
+                                                    </a>
+                                                    <span className="text-[10px] text-neutral-400 font-mono">
+                                                        Table ID: {selectedQrTable.id}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {isLocalhost && (
+                                                <div className="mt-3 text-[11px] text-amber-800 bg-amber-50 border border-amber-200/80 rounded-xl p-2.5 text-left w-full">
+                                                    💡 <strong>Mobile Phone Testing:</strong> Phones cannot resolve &quot;localhost&quot;. To scan with a physical mobile camera on the same Wi-Fi, access this admin panel using your computer&apos;s LAN IP (e.g. <code>http://192.168.x.x:3000</code>) or test on production.
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()}
                             </div>
                             <div className="p-6 border-t border-neutral-100 flex gap-4">
                                 <button

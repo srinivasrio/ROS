@@ -1311,7 +1311,8 @@ export const OrderService = {
                 is_merged: false,
                 restaurant_id: actualRestaurantId,
                 branch_id: (finalBranchId && finalBranchId !== 'all') ? finalBranchId : null,
-                area_id: finalAreaId || null
+                area_id: finalAreaId || null,
+                table_token: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : Math.random().toString(36).substring(2) + Date.now().toString(36)
             })
             .select()
             .single();
@@ -1460,6 +1461,7 @@ export const OrderService = {
                     last_activity_at,
                     transferred_from_waiter_id,
                     transferred_to_waiter_id,
+                    table_token,
                     created_at,
                     restaurant_areas(name),
                     assigned_waiter:employees!tables_assigned_waiter_id_fkey(id, name, avatar_url)

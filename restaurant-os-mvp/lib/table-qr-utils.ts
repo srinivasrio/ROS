@@ -70,10 +70,14 @@ export function parseTableQrCode(qrString: string): ParsedTableQr {
         }
     }
 
-    // 2. URL Format
-    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('//')) {
+    // 2. URL Format (Absolute or Relative)
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('//') || raw.startsWith('/')) {
         try {
-            const fullUrl = raw.startsWith('//') ? `https:${raw}` : raw;
+            const fullUrl = raw.startsWith('//')
+                ? `https:${raw}`
+                : raw.startsWith('/')
+                    ? `https://dineinone.com${raw}`
+                    : raw;
             const url = new URL(fullUrl);
 
             // Extract table from search parameters
@@ -102,6 +106,12 @@ export function parseTableQrCode(qrString: string): ParsedTableQr {
             // Extract from pathname segments
             const segments = url.pathname.split('/').filter(Boolean);
             if (segments.length > 0) {
+                // Check if path is token URL: /customer/t/[token] or /customer/t/[token]/home
+                const tIdx = segments.findIndex(s => s.toLowerCase() === 't');
+                if (tIdx !== -1 && segments.length > tIdx + 1 && !table) {
+                    table = segments[tIdx + 1];
+                }
+
                 const first = segments[0];
                 const ignoredFirstSegments = ['customer', 'api', 'login', 'admin', 'waiter', 'kds', 'delivery', 'employee', 'super-admin'];
                 if (!ignoredFirstSegments.includes(first.toLowerCase()) && !restaurantCode) {
