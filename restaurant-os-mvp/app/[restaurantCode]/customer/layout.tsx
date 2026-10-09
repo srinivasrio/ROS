@@ -289,7 +289,13 @@ export default function CustomerLayout({
                     {!isWelcomePage && Boolean(tableNumber) && <CustomerBottomNav restaurantCode={restaurantCode} tableNumber={tableNumber} />}
                 </div>
             </div>
-            {tableNumber && <HostJoinApprovalModal restaurantId={restaurantCode} tableNumber={tableNumber} />}
+            {tableNumber && (
+                <HostJoinApprovalModal
+                    restaurantId={restaurantId || restaurantCode}
+                    restaurantSlug={restaurantCode}
+                    tableNumber={tableNumber}
+                />
+            )}
             <Toaster position="top-center" />
         </CartProvider>
     );

@@ -61,7 +61,27 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ hasActiveSession: false });
         }
 
-        const cleanCustomer = cleanPhone(customerMobile || '');
+        let resolvedCustomerPhone = customerMobile || '';
+        if (!resolvedCustomerPhone) {
+            const authHeader = req.headers.get('authorization');
+            let token: string | null = null;
+            if (authHeader && authHeader.startsWith('Bearer ')) {
+                token = authHeader.substring(7).trim();
+            }
+            if (!token) {
+                token = extractCustomerTokenForRestaurant(req.cookies, canonicalRestaurantId || restaurantId);
+            }
+            if (token) {
+                try {
+                    const payload: any = await verifyJwt(token);
+                    if (payload?.mobile) {
+                        resolvedCustomerPhone = payload.mobile;
+                    }
+                } catch {}
+            }
+        }
+
+        const cleanCustomer = cleanPhone(resolvedCustomerPhone);
         const cleanHost = cleanPhone(session.host_customer_mobile);
         const isHost = Boolean(cleanCustomer && cleanCustomer === cleanHost);
 
@@ -84,13 +104,25 @@ export async function GET(req: NextRequest) {
             }
         }
 
+        const { count: approvedCount } = await supabaseAdmin
+            .from('table_join_requests')
+            .select('id', { count: 'exact', head: true })
+            .eq('session_id', session.id)
+            .eq('status', 'approved');
+
+        const participantCount = 1 + (approvedCount || 0);
+        const isAuthorized = Boolean(isHost || approvalStatus === 'approved');
+
         return NextResponse.json({
             hasActiveSession: true,
+            isAuthorized,
             sessionId: session.id,
+            tableNumber: session.table_number,
             hostName: session.host_customer_name || 'Table Host',
             hostMobileMasked: maskPhone(session.host_customer_mobile),
             isHost,
             approvalStatus,
+            participantCount,
             requestId,
         });
     } catch (err: any) {
@@ -139,6 +171,8 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        const cleanCustomer = cleanPhone(customerMobile);
+
         // Check for existing active session on table
         const { data: existingSession } = await supabaseAdmin
             .from('table_active_sessions')
@@ -154,12 +188,45 @@ export async function POST(req: NextRequest) {
             const cleanHost = cleanPhone(existingSession.host_customer_mobile);
             const isHost = cleanCustomer === cleanHost;
 
+            let approvalStatus: 'host' | 'approved' | 'pending' | 'rejected' | 'none' = isHost ? 'host' : 'none';
+            let requestId: string | null = null;
+
+            if (!isHost && cleanCustomer) {
+                const { data: joinReq } = await supabaseAdmin
+                    .from('table_join_requests')
+                    .select('id, status')
+                    .eq('session_id', existingSession.id)
+                    .eq('requester_customer_mobile', cleanCustomer)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (joinReq) {
+                    approvalStatus = joinReq.status as any;
+                    requestId = joinReq.id;
+                }
+            }
+
+            const { count: approvedCount } = await supabaseAdmin
+                .from('table_join_requests')
+                .select('id', { count: 'exact', head: true })
+                .eq('session_id', existingSession.id)
+                .eq('status', 'approved');
+
+            const participantCount = 1 + (approvedCount || 0);
+            const isAuthorized = Boolean(isHost || approvalStatus === 'approved');
+
             return NextResponse.json({
                 hasActiveSession: true,
                 sessionId: existingSession.id,
+                tableNumber: existingSession.table_number,
                 isHost,
+                isAuthorized,
+                approvalStatus,
                 hostName: existingSession.host_customer_name,
                 hostMobileMasked: maskPhone(existingSession.host_customer_mobile),
+                participantCount,
+                requestId,
             });
         }
 
@@ -181,35 +248,20 @@ export async function POST(req: NextRequest) {
 
         if (insertErr) {
             console.error('[table-session/active] Insert Error:', insertErr);
-            // Possible race condition where another host claimed table simultaneously
-            const { data: raceSession } = await supabaseAdmin
-                .from('table_active_sessions')
-                .select('*')
-                .eq('restaurant_id', restaurantId)
-                .eq('table_number', tableNumber)
-                .eq('is_active', true)
-                .maybeSingle();
-
-            if (raceSession) {
-                const isHost = cleanCustomer === cleanPhone(raceSession.host_customer_mobile);
-                return NextResponse.json({
-                    hasActiveSession: true,
-                    sessionId: raceSession.id,
-                    isHost,
-                    hostName: raceSession.host_customer_name,
-                    hostMobileMasked: maskPhone(raceSession.host_customer_mobile),
-                });
-            }
-
-            return NextResponse.json({ error: 'Failed to claim table session' }, { status: 500 });
+            return NextResponse.json({ error: 'Failed to create table session' }, { status: 500 });
         }
 
         return NextResponse.json({
             hasActiveSession: true,
             sessionId: newSession.id,
+            tableNumber: newSession.table_number,
             isHost: true,
+            isAuthorized: true,
+            approvalStatus: 'host',
             hostName: newSession.host_customer_name,
             hostMobileMasked: maskPhone(newSession.host_customer_mobile),
+            participantCount: 1,
+            requestId: null,
         });
     } catch (err: any) {
         console.error('[table-session/active] POST Exception:', err);

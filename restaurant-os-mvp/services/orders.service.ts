@@ -3084,6 +3084,78 @@ export const OrderService = {
                 throw new Error(`Table ${physicalTable.table_number || physicalTable.id} is currently being cleaned and not ready for new orders. Please wait for staff to clear the table.`);
             }
 
+            // SERVER-SIDE TABLE SESSION MEMBERSHIP AUTHORIZATION:
+            // For customer self-orders on dine-in physical tables:
+            // Verify if the table has an active session. If it does, the ordering customer
+            // MUST be either the session host or an approved member in table_join_requests.
+            let isApprovedMember = false;
+            let isSessionHost = false;
+
+            if (!waiterId && physicalTable) {
+                const customerPhone = orderOptions?.customerPhone || orderOptions?.deliveryPhone || null;
+                const cleanCustPhone = customerPhone ? String(customerPhone).replace(/\D/g, '').slice(-10) : '';
+
+                // Look up active session for this table
+                const { data: activeSession } = await supabase
+                    .from('table_active_sessions')
+                    .select('*')
+                    .in('restaurant_id', [actualRestaurantId, restaurantCode])
+                    .or(`table_number.eq.${physicalTable.table_number},table_id.eq.${physicalTable.id}`)
+                    .eq('is_active', true)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (activeSession) {
+                    const cleanHostPhone = String(activeSession.host_customer_mobile || '').replace(/\D/g, '').slice(-10);
+                    isSessionHost = Boolean(
+                        (cleanCustPhone && cleanHostPhone && cleanCustPhone === cleanHostPhone) ||
+                        (customerId && activeSession.host_customer_id && customerId === activeSession.host_customer_id)
+                    );
+
+                    if (!isSessionHost && cleanCustPhone) {
+                        const { data: memberReq } = await supabase
+                            .from('table_join_requests')
+                            .select('id, status')
+                            .eq('session_id', activeSession.id)
+                            .eq('requester_customer_mobile', cleanCustPhone)
+                            .eq('status', 'approved')
+                            .order('created_at', { ascending: false })
+                            .limit(1)
+                            .maybeSingle();
+
+                        if (memberReq) {
+                            isApprovedMember = true;
+                        }
+                    }
+
+                    if (!isSessionHost && !isApprovedMember) {
+                        console.error(`[createOrder] Unauthorized customer order attempt on Table ${physicalTable.table_number}. Phone: ${cleanCustPhone}, Session: ${activeSession.id}`);
+                        throw new Error(`Unauthorized: Table ${physicalTable.table_number} is currently occupied by an active dining session. Only the host or approved table members can place orders.`);
+                    }
+                } else if (cleanCustPhone) {
+                    // No active session exists yet on this physical table:
+                    // Auto-claim table session with this customer as host so subsequent guests must be approved!
+                    try {
+                        const hostName = (orderOptions?.customerName || 'Table Host').trim();
+                        await supabase
+                            .from('table_active_sessions')
+                            .insert({
+                                restaurant_id: actualRestaurantId,
+                                table_id: String(physicalTable.id),
+                                table_number: String(physicalTable.table_number),
+                                table_token: physicalTable.table_token || null,
+                                host_customer_id: customerId || null,
+                                host_customer_name: hostName,
+                                host_customer_mobile: cleanCustPhone,
+                                is_active: true,
+                            });
+                    } catch (sessInitErr) {
+                        console.warn('[createOrder] Auto-claim table session warning:', sessInitErr);
+                    }
+                }
+            }
+
             // Check for existing active (non-completed) order on this table
             const { data: exOrder } = await supabase
                 .from('orders')
@@ -3101,7 +3173,8 @@ export const OrderService = {
                 // If it's a customer self-order, ONLY reuse exOrder if:
                 // 1) explicitly passed as activeOrderId, OR
                 // 2) customerId matches exOrder.customer_id, OR
-                // 3) customerPhone matches exOrder.customer_phone
+                // 3) customerPhone matches exOrder.customer_phone, OR
+                // 4) customer is an approved session member or host
                 const phoneMatches = Boolean(
                     orderOptions?.customerPhone && 
                     exOrder.customer_phone && 
@@ -3110,7 +3183,7 @@ export const OrderService = {
                 const idMatches = Boolean(customerId && exOrder.customer_id && customerId === exOrder.customer_id);
                 const explicitActiveMatch = Boolean(orderOptions?.activeOrderId && orderOptions.activeOrderId === exOrder.id);
 
-                if (waiterId || explicitActiveMatch || idMatches || phoneMatches) {
+                if (waiterId || explicitActiveMatch || idMatches || phoneMatches || isApprovedMember || isSessionHost) {
                     existingOrder = exOrder;
                 } else {
                     // Different customer or unverified party: do NOT merge into previous customer's order!

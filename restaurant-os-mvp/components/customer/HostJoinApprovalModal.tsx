@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 interface HostJoinApprovalModalProps {
     restaurantId: string;
+    restaurantSlug?: string;
     tableNumber: string;
 }
 
@@ -22,17 +23,18 @@ interface PendingJoinRequest {
 
 export function HostJoinApprovalModal({
     restaurantId,
+    restaurantSlug,
     tableNumber,
 }: HostJoinApprovalModalProps) {
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [isHost, setIsHost] = useState(false);
     const [pendingRequests, setPendingRequests] = useState<PendingJoinRequest[]>([]);
     const [respondingId, setRespondingId] = useState<string | null>(null);
-    const activeRequestIdRef = useRef<string | null>(null);
 
     const getHostMobile = useCallback(() => {
         try {
-            let m = localStorage.getItem(`ros_customer_mobile_${restaurantId}`) || '';
+            let m = localStorage.getItem(`ros_customer_mobile_${restaurantId}`) || 
+                    (restaurantSlug ? localStorage.getItem(`ros_customer_mobile_${restaurantSlug}`) : '') || '';
             if (!m && typeof window !== 'undefined') {
                 for (let i = 0; i < localStorage.length; i++) {
                     const k = localStorage.key(i);
@@ -49,7 +51,7 @@ export function HostJoinApprovalModal({
         } catch {
             return '';
         }
-    }, [restaurantId]);
+    }, [restaurantId, restaurantSlug]);
 
     // Check active session and if this device is the host
     const checkHostStatus = useCallback(async () => {
@@ -137,10 +139,10 @@ export function HostJoinApprovalModal({
             )
             .subscribe();
 
-        // 4-second polling fallback
+        // 2.5-second polling fallback
         const pollTimer = setInterval(() => {
             fetchPendingRequests(sessionId);
-        }, 4000);
+        }, 2500);
 
         return () => {
             supabase.removeChannel(channel);

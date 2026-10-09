@@ -38,7 +38,9 @@ export function CustomerJoinTableScreen({
     const [submitting, setSubmitting] = useState(false);
 
     // Sanitize display table number: if it's a long cryptographic token, don't show the 32-char string as title
-    const displayTableNumber = (tableNumber && tableNumber.length < 16) ? tableNumber : 'Dining';
+    const isTableNumberClean = Boolean(tableNumber && tableNumber.length < 16 && tableNumber !== 'Dining');
+    const headingTitle = isTableNumberClean ? `Table ${tableNumber} is Occupied` : 'This Table is Occupied';
+    const benefitTableText = isTableNumberClean ? `Table ${tableNumber}` : 'your table';
 
     // Request to join
     const handleRequestJoin = async () => {
@@ -160,7 +162,7 @@ export function CustomerJoinTableScreen({
 
                         {/* Main Heading */}
                         <h2 className="text-2xl font-black text-slate-900 mb-1.5 tracking-tight">
-                            Table {displayTableNumber} is Occupied
+                            {headingTitle}
                         </h2>
 
                         {/* Host & Participant info */}
@@ -181,7 +183,7 @@ export function CustomerJoinTableScreen({
                                 </li>
                                 <li className="flex items-center gap-2">
                                     <span className="size-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-[10px] font-black shrink-0">2</span>
-                                    <span>Place shared or individual dishes on Table {displayTableNumber}</span>
+                                    <span>Place shared or individual dishes on {benefitTableText}</span>
                                 </li>
                                 <li className="flex items-center gap-2">
                                     <span className="size-5 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-[10px] font-black shrink-0">3</span>
@@ -214,6 +216,14 @@ export function CustomerJoinTableScreen({
                                 </>
                             )}
                         </button>
+
+                        {/* Secondary table reference info */}
+                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                            <span>Table:</span>
+                            <span className="font-semibold text-slate-600">
+                                {isTableNumberClean ? tableNumber : `QR Session (#${tableNumber?.slice(0, 8)})`}
+                            </span>
+                        </div>
                     </motion.div>
                 )}
 
@@ -249,10 +259,10 @@ export function CustomerJoinTableScreen({
                         <button
                             type="button"
                             disabled={true}
-                            className="w-full py-3.5 px-5 rounded-2xl font-black text-sm tracking-wide bg-slate-100 text-slate-400 border border-slate-200 flex items-center justify-center gap-2 cursor-not-allowed opacity-80"
+                            className="w-full py-3.5 px-5 rounded-2xl font-black text-sm tracking-wide bg-slate-100 text-slate-500 border border-slate-200 flex items-center justify-center gap-2 cursor-not-allowed opacity-90"
                         >
-                            <Loader2 size={16} className="animate-spin" />
-                            <span>Request Sent • Waiting for Approval</span>
+                            <Loader2 size={16} className="animate-spin text-orange-500" />
+                            <span>Request Sent</span>
                         </button>
                     </motion.div>
                 )}

@@ -135,18 +135,79 @@ export async function GET(req: NextRequest) {
             `)
             .eq('restaurant_id', actualRestaurantId);
 
+        // Table Active Session Membership Check:
+        // If the table currently has an active session, only authorized members or host can view table orders.
+        let isSessionMemberOrHost = false;
+        let tableHasActiveSession = false;
+
+        if (physicalTableId) {
+            const { data: actSess } = await supabaseAdmin
+                .from('table_active_sessions')
+                .select('*')
+                .in('restaurant_id', [actualRestaurantId, restaurantCode])
+                .or(`table_id.eq.${physicalTableId},table_number.eq.${tableNumber}`)
+                .eq('is_active', true)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (actSess) {
+                tableHasActiveSession = true;
+                let callerPhone = (payload as any)?.mobile || '';
+                if (!callerPhone && authenticatedCustomerId) {
+                    const { data: cRec } = await supabaseAdmin
+                        .from('customers')
+                        .select('mobile')
+                        .eq('id', authenticatedCustomerId)
+                        .maybeSingle();
+                    if (cRec?.mobile) callerPhone = cRec.mobile;
+                }
+
+                const cleanCaller = callerPhone ? callerPhone.replace(/\D/g, '').slice(-10) : '';
+                const cleanHost = String(actSess.host_customer_mobile || '').replace(/\D/g, '').slice(-10);
+
+                if ((cleanCaller && cleanHost && cleanCaller === cleanHost) || 
+                    (authenticatedCustomerId && actSess.host_customer_id === authenticatedCustomerId)) {
+                    isSessionMemberOrHost = true;
+                } else if (cleanCaller) {
+                    const { data: approvedReq } = await supabaseAdmin
+                        .from('table_join_requests')
+                        .select('id')
+                        .eq('session_id', actSess.id)
+                        .eq('requester_customer_mobile', cleanCaller)
+                        .eq('status', 'approved')
+                        .limit(1)
+                        .maybeSingle();
+                    if (approvedReq) {
+                        isSessionMemberOrHost = true;
+                    }
+                }
+            }
+        }
+
         if (authenticatedCustomerId && physicalTableId) {
-            // Authenticated customer sitting at a table:
-            // Fetch their full order history OR active orders for this table
-            ordersQuery = ordersQuery.or(
-                `customer_id.eq.${authenticatedCustomerId},and(table_id.eq.${physicalTableId},is_completed.eq.false)`
-            );
+            if (tableHasActiveSession && !isSessionMemberOrHost) {
+                // Not authorized for this table session: only view caller's own orders, hide table's private orders
+                ordersQuery = ordersQuery.eq('customer_id', authenticatedCustomerId);
+            } else {
+                ordersQuery = ordersQuery.or(
+                    `customer_id.eq.${authenticatedCustomerId},and(table_id.eq.${physicalTableId},is_completed.eq.false)`
+                );
+            }
         } else if (authenticatedCustomerId) {
             // Authenticated customer outside of a table:
             ordersQuery = ordersQuery.eq('customer_id', authenticatedCustomerId);
         } else if (physicalTableId) {
-            // Guest sitting at a physical table:
-            // Fetch all active orders for this table. If they also have clientLastOrderId on this table, include it.
+            if (tableHasActiveSession && !isSessionMemberOrHost) {
+                // Unauthorized guest browsing table URL: do not expose active session orders
+                return NextResponse.json({
+                    success: true,
+                    activeOrders: [],
+                    previousOrders: [],
+                });
+            }
+
+            // Authorized guest sitting at a physical table:
             if (clientLastOrderId && isValidUuid(clientLastOrderId)) {
                 ordersQuery = ordersQuery.or(
                     `and(table_id.eq.${physicalTableId},is_completed.eq.false),and(id.eq.${clientLastOrderId},table_id.eq.${physicalTableId})`
