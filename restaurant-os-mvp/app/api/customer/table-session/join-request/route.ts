@@ -88,6 +88,26 @@ export async function POST(req: NextRequest) {
             .maybeSingle();
 
         if (existing) {
+            if (existing.status === 'rejected') {
+                // Re-open request as pending
+                const { data: reopened } = await supabaseAdmin
+                    .from('table_join_requests')
+                    .update({
+                        status: 'pending',
+                        requester_customer_name: cleanName,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', existing.id)
+                    .select()
+                    .single();
+
+                return NextResponse.json({
+                    requestId: reopened?.id || existing.id,
+                    status: 'pending',
+                    hostName: session.host_customer_name,
+                });
+            }
+
             // If already pending or approved, return it
             return NextResponse.json({
                 requestId: existing.id,

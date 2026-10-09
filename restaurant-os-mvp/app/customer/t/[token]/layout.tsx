@@ -248,6 +248,17 @@ export default function CustomerTokenLayout({
             />
         );
     }
+ 
+    if (isCustomerVerified === true && approvalStatus === null) {
+        return (
+            <div className="fixed inset-0 h-[100dvh] bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
+                <div className="flex flex-col items-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500 mb-4" />
+                    <p className="text-sm font-semibold text-slate-600">Checking table dining session...</p>
+                </div>
+            </div>
+        );
+    }
 
     // Secondary guest waiting for host approval
     if (approvalStatus && approvalStatus !== 'host' && approvalStatus !== 'approved' && hostInfo) {
@@ -260,6 +271,7 @@ export default function CustomerTokenLayout({
                 customerMobile={customerMobile}
                 sessionId={hostInfo.sessionId}
                 hostName={hostInfo.hostName}
+                participantCount={(hostInfo as any).participantCount || 1}
                 initialRequestId={hostInfo.requestId}
                 initialStatus={approvalStatus}
                 onApproved={() => setApprovalStatus('approved')}
@@ -295,7 +307,7 @@ export default function CustomerTokenLayout({
             </div>
 
             {/* Realtime join request approval for table host */}
-            <HostJoinApprovalModal restaurantId={restaurant_id} tableNumber={table_number} />
+            <HostJoinApprovalModal restaurantId={restaurant_id} restaurantSlug={restaurant_slug} tableNumber={table_number} />
 
             <Toaster position="top-center" />
         </CartProvider>
