@@ -9,6 +9,7 @@ import { CustomerService } from './customers.service';
 import { OfferService } from './offers.service';
 import { getCategoryMenuItemImage, normalizeTableNumber } from '@/lib/utils';
 import { isComboItem } from '@/lib/combo-utils';
+import { TableSessionLifecycleService } from './table-session-lifecycle.service';
 
 export type OrderStatus = 'queued' | 'placed' | 'preparing' | 'ready' | 'served' | 'paid' | 'cancelled';
 
@@ -3109,6 +3110,17 @@ export const OrderService = {
                     .maybeSingle();
 
                 if (activeSession) {
+                    if (activeSession.status === 'CLOSED' || activeSession.status === 'EXPIRED') {
+                        throw new Error('This dining session has ended. Please scan the table QR code to start a fresh dining session.');
+                    }
+
+                    // Touch last_activity_at to prevent premature expiration
+                    supabase
+                        .from('table_active_sessions')
+                        .update({ last_activity_at: new Date().toISOString() })
+                        .eq('id', activeSession.id)
+                        .then(() => {}, () => {});
+
                     const cleanHostPhone = String(activeSession.host_customer_mobile || '').replace(/\D/g, '').slice(-10);
                     isSessionHost = Boolean(
                         (cleanCustPhone && cleanHostPhone && cleanCustPhone === cleanHostPhone) ||
@@ -3118,7 +3130,7 @@ export const OrderService = {
                     if (!isSessionHost && cleanCustPhone) {
                         const { data: memberReq } = await supabase
                             .from('table_join_requests')
-                            .select('id, status')
+                            .select('id, status, membership_status')
                             .eq('session_id', activeSession.id)
                             .eq('requester_customer_mobile', cleanCustPhone)
                             .eq('status', 'approved')
@@ -3126,7 +3138,7 @@ export const OrderService = {
                             .limit(1)
                             .maybeSingle();
 
-                        if (memberReq) {
+                        if (memberReq && memberReq.membership_status !== 'EXPIRED') {
                             isApprovedMember = true;
                         }
                     }
@@ -3136,31 +3148,16 @@ export const OrderService = {
                         throw new Error(`Unauthorized: Table ${physicalTable.table_number} is currently occupied by an active dining session. Only the host or approved table members can place orders.`);
                     }
                 } else if (cleanCustPhone) {
-                    // Enforce: customer cannot place order or claim session if already active on another table
-                    const { data: otherHostSess } = await supabase
-                        .from('table_active_sessions')
-                        .select('id, table_number')
-                        .in('restaurant_id', Array.from(new Set([actualRestaurantId, restaurantId].filter(Boolean))))
-                        .eq('host_customer_mobile', cleanCustPhone)
-                        .eq('is_active', true)
-                        .maybeSingle();
+                    // Check if customer has an active session on another table; release if empty/abandoned
+                    const releaseCheck = await TableSessionLifecycleService.checkAndReleasePreviousSession(
+                        actualRestaurantId,
+                        cleanCustPhone,
+                        physicalTable.table_number
+                    );
 
-                    if (otherHostSess && normalizeTableNumber(otherHostSess.table_number) !== normalizeTableNumber(physicalTable.table_number)) {
-                        throw new Error(`Unauthorized: You are already active at Table ${otherHostSess.table_number}. Please return to your table or resolve that session before placing orders at Table ${physicalTable.table_number}.`);
-                    }
-
-                    const { data: otherMemberSess } = await supabase
-                        .from('table_join_requests')
-                        .select('id, table_number, table_active_sessions!inner(id, table_number, is_active)')
-                        .in('table_active_sessions.restaurant_id', Array.from(new Set([actualRestaurantId, restaurantId].filter(Boolean))))
-                        .eq('table_active_sessions.is_active', true)
-                        .eq('requester_customer_mobile', cleanCustPhone)
-                        .eq('status', 'approved')
-                        .maybeSingle();
-
-                    if (otherMemberSess && normalizeTableNumber((otherMemberSess as any).table_active_sessions?.table_number) !== normalizeTableNumber(physicalTable.table_number)) {
-                        const oTbl = (otherMemberSess as any).table_active_sessions?.table_number;
-                        throw new Error(`Unauthorized: You are already an approved member at Table ${oTbl}. Please return to your table or resolve that session before placing orders at Table ${physicalTable.table_number}.`);
+                    if (!releaseCheck.released && releaseCheck.previousSession) {
+                        const oTbl = releaseCheck.previousSession.table_number;
+                        throw new Error(`Unauthorized: You already have an active dining session at Table ${oTbl}. Please return to your table or resolve that session before placing orders at Table ${physicalTable.table_number}.`);
                     }
 
                     // No active session exists yet on this physical table:
@@ -3178,6 +3175,8 @@ export const OrderService = {
                                 host_customer_name: hostName,
                                 host_customer_mobile: cleanCustPhone,
                                 is_active: true,
+                                status: 'ACTIVE',
+                                last_activity_at: new Date().toISOString(),
                             });
                     } catch (sessInitErr) {
                         console.warn('[createOrder] Auto-claim table session warning:', sessInitErr);
@@ -3615,6 +3614,29 @@ export const OrderService = {
         const createdOrderId = (rpcRes as any)?.id;
         if (!createdOrderId) {
             throw new Error('create_order_v2 returned no order ID');
+        }
+
+        if (identifierColumn === 'table_id' || physicalTable) {
+            try {
+                const tableNum = physicalTable?.table_number;
+                const tId = physicalTable?.id;
+                let sUp = supabase
+                    .from('table_active_sessions')
+                    .update({ 
+                        cart_data: {}, 
+                        cart_updated_at: null, 
+                        last_activity_at: new Date().toISOString() 
+                    })
+                    .eq('restaurant_id', actualRestaurantId)
+                    .eq('is_active', true);
+
+                if (tableNum && tId) {
+                    sUp = sUp.or(`table_number.eq.${tableNum},table_id.eq.${tId}`);
+                } else if (tableNum) {
+                    sUp = sUp.eq('table_number', String(tableNum));
+                }
+                sUp.then(() => {}, () => {});
+            } catch (_) {}
         }
 
         return { id: createdOrderId };
@@ -4810,13 +4832,21 @@ export const OrderService = {
             } catch (_) {}
         }
 
-        // Deactivate active table session so subsequent diners can start a fresh session
+        // Deactivate and close active table session so subsequent diners can start a fresh session
         try {
             const tableNum = String(physicalTable.table_number || '');
             const tId = String(physicalTable.id || '');
+            const closureReason = requestingStaffId ? `STAFF_CLEARED_${requestingStaffId}` : 'STAFF_CLEARED';
+
             let sessQuery = supabase
                 .from('table_active_sessions')
-                .update({ is_active: false })
+                .update({ 
+                    is_active: false,
+                    status: 'CLOSED',
+                    closed_at: new Date().toISOString(),
+                    closure_reason: closureReason,
+                    updated_at: new Date().toISOString()
+                })
                 .eq('restaurant_id', actualRestaurantId)
                 .eq('is_active', true);
 
@@ -4828,6 +4858,19 @@ export const OrderService = {
                 sessQuery = sessQuery.eq('table_id', tId);
             }
             await sessQuery;
+
+            // Expire member join requests for this table
+            if (tableNum) {
+                await supabase
+                    .from('table_join_requests')
+                    .update({
+                        membership_status: 'EXPIRED',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('restaurant_id', actualRestaurantId)
+                    .eq('table_number', tableNum)
+                    .eq('membership_status', 'ACTIVE');
+            }
         } catch (sessErr) {
             console.warn('[clearTable] Deactivating active session error:', sessErr);
         }

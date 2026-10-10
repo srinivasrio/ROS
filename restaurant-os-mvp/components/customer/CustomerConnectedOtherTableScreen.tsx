@@ -16,6 +16,7 @@ export interface CustomerConnectedOtherTableScreenProps {
     activeHomeUrl?: string;
     isHost?: boolean;
     customerMobile?: string;
+    reasons?: string[];
     onSwitched?: () => void;
 }
 
@@ -28,6 +29,7 @@ export function CustomerConnectedOtherTableScreen({
     activeHomeUrl,
     isHost = false,
     customerMobile,
+    reasons = [],
 }: CustomerConnectedOtherTableScreenProps) {
     const [restoring, setRestoring] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
@@ -162,6 +164,17 @@ export function CustomerConnectedOtherTableScreen({
                 <p className="text-slate-500 text-xs sm:text-sm mb-6 leading-relaxed max-w-xs">
                     You scanned <strong className="text-slate-800 font-bold">Table {displayCurrentTable}</strong>, but your account is already connected to <strong className="text-slate-800 font-bold">Table {displayActiveTable}</strong>. Your cart, orders, and dining session are active and preserved.
                 </p>
+
+                {reasons && reasons.length > 0 && (
+                    <div className="w-full mb-5 p-3 rounded-2xl bg-amber-50/80 border border-amber-200/60 text-amber-900 text-xs text-left">
+                        <span className="font-bold block mb-1">Active Session Context:</span>
+                        <ul className="list-disc list-inside space-y-0.5 text-slate-700">
+                            {reasons.map((r, idx) => (
+                                <li key={idx}>{r}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
 
                 {errorMsg && (
                     <div className="w-full mb-5 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs text-left flex items-start gap-2">

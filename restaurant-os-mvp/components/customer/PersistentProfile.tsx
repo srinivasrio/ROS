@@ -636,10 +636,16 @@ export function PersistentProfile({ restaurantId, tableNumber }: { restaurantId:
                                             sessionStorage.setItem('ros_logged_out', 'true');
                                             sessionStorage.setItem('ros_logging_out', 'true');
                                         }
+                                        let currentCart = {};
+                                        try {
+                                            const raw = localStorage.getItem('customer_cart');
+                                            if (raw) currentCart = JSON.parse(raw);
+                                        } catch {}
+
                                         await fetch('/api/customer/auth/logout', { 
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ restaurantId }),
+                                            body: JSON.stringify({ restaurantId, cart: currentCart }),
                                         });
                                     } catch (err) {
                                         console.warn('Backend logout failed:', err);

@@ -1,6 +1,7 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import { getCategoryMenuItemImage } from '@/lib/utils';
 
 export interface CartItem {
@@ -82,34 +83,75 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const [isLoaded, setIsLoaded] = useState(false);
     const [tableNumber, setTableNumberState] = useState<string | null>(null);
 
+    const pathname = usePathname();
+    const restCode = (pathname?.split('/').filter(Boolean)[0] || '').trim();
+
     const setTableNumber = useCallback((newTable: string | null) => {
         setTableNumberState(newTable);
     }, []);
 
-    // Load cart from localStorage on mount
+    // Load cart from localStorage on mount & try server recovery if empty
     useEffect(() => {
+        let loadedCart: Record<string, CartItem> = {};
+        let loadedTable = '';
         try {
             const savedTable = localStorage.getItem('customer_table_number');
             if (savedTable) {
+                loadedTable = savedTable;
                 setTableNumberState(savedTable);
             }
             const savedCart = localStorage.getItem('customer_cart');
             if (savedCart) {
-                setCart(JSON.parse(savedCart));
+                loadedCart = JSON.parse(savedCart);
+                setCart(loadedCart);
             }
         } catch (e) {
             console.error('Failed to parse cart from localStorage:', e);
         } finally {
             setIsLoaded(true);
         }
-    }, []);
 
-    // Sync to localStorage
+        // If local cart is empty and we have a table & restaurant, try recovering active session cart
+        if (Object.keys(loadedCart).length === 0 && (loadedTable || tableNumber) && restCode && !['admin', 'waiter', 'owner'].includes(restCode)) {
+            const tbl = loadedTable || tableNumber;
+            fetch(`/api/customer/table-session/cart?restaurantId=${encodeURIComponent(restCode)}&tableNumber=${encodeURIComponent(tbl!)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data?.hasRecoverableCart && data?.cart && Object.keys(data.cart).length > 0) {
+                        setCart(data.cart);
+                    }
+                })
+                .catch(() => {});
+        }
+    }, [restCode]);
+
+    // Sync to localStorage and debounced sync to backend
+    const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     useEffect(() => {
         if (!isLoaded) return;
         localStorage.setItem('customer_cart', JSON.stringify(cart));
         if (tableNumber) localStorage.setItem('customer_table_number', tableNumber);
-    }, [cart, tableNumber, isLoaded]);
+
+        // Debounced sync to session
+        if (tableNumber && restCode && !['admin', 'waiter', 'owner'].includes(restCode)) {
+            if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+            syncTimeoutRef.current = setTimeout(() => {
+                fetch('/api/customer/table-session/cart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        restaurantId: restCode,
+                        tableNumber: tableNumber,
+                        cart: cart,
+                    }),
+                }).catch(() => {});
+            }, 1200);
+        }
+
+        return () => {
+            if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        };
+    }, [cart, tableNumber, isLoaded, restCode]);
 
     const addToCart = (item: any, qty: number, notes?: string) => {
         const key = String(item.id);
@@ -288,7 +330,20 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         });
     };
 
-    const clearCart = () => setCart({});
+    const clearCart = () => {
+        setCart({});
+        if (tableNumber && restCode && !['admin', 'waiter', 'owner'].includes(restCode)) {
+            fetch('/api/customer/table-session/cart', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    restaurantId: restCode,
+                    tableNumber: tableNumber,
+                    cart: {},
+                }),
+            }).catch(() => {});
+        }
+    };
 
     const getItemQtyInCart = (itemId: number | string) => {
         if (!itemId && itemId !== 0) return 0;

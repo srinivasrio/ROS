@@ -56,6 +56,7 @@ export default function CustomerTokenLayout({
         homeUrl?: string | null;
         restaurantCode?: string | null;
         isHost?: boolean;
+        reasons?: string[];
     } | null>(null);
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
     const [isTableCleared, setIsTableCleared] = useState(false);
@@ -161,7 +162,7 @@ export default function CustomerTokenLayout({
                             if (sessRes.ok && isMounted) {
                                 const sessData = await sessRes.json();
                                 if (sessData.customerHasOtherActiveSession && sessData.otherSession) {
-                                    setOtherActiveSession(sessData.otherSession);
+                                    setOtherActiveSession({ ...sessData.otherSession, reasons: sessData.reasons || [] });
                                     setApprovalStatus('none');
                                 } else if (!sessData.hasActiveSession) {
                                     // Claim session as host
@@ -183,7 +184,7 @@ export default function CustomerTokenLayout({
                                     if (claimRes.status === 409) {
                                         const claimData = await claimRes.json();
                                         if (claimData.customerHasOtherActiveSession && claimData.otherSession) {
-                                            setOtherActiveSession(claimData.otherSession);
+                                            setOtherActiveSession({ ...claimData.otherSession, reasons: claimData.reasons || [] });
                                             setApprovalStatus('none');
                                         } else {
                                             setApprovalStatus('host');
@@ -429,6 +430,7 @@ export default function CustomerTokenLayout({
                 activeHomeUrl={otherActiveSession.homeUrl || undefined}
                 isHost={otherActiveSession.isHost}
                 customerMobile={customerMobile}
+                reasons={otherActiveSession.reasons}
             />
         );
     }
