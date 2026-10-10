@@ -50,6 +50,10 @@ export default function CustomerTokenLayout({
     } | null>(null);
     const [otherActiveSession, setOtherActiveSession] = useState<{
         tableNumber: string;
+        tableToken?: string | null;
+        sessionId?: string;
+        homeUrl?: string | null;
+        restaurantCode?: string | null;
         isHost?: boolean;
     } | null>(null);
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -361,15 +365,14 @@ export default function CustomerTokenLayout({
     if (otherActiveSession) {
         return (
             <CustomerConnectedOtherTableScreen
-                restaurantCode={restaurant_slug || restaurant_id}
+                restaurantCode={otherActiveSession.restaurantCode || restaurant_slug || restaurant_id}
                 currentTableNumber={table_number}
                 activeTableNumber={otherActiveSession.tableNumber}
+                activeTableToken={otherActiveSession.tableToken || undefined}
+                activeSessionId={otherActiveSession.sessionId}
+                activeHomeUrl={otherActiveSession.homeUrl || undefined}
                 isHost={otherActiveSession.isHost}
                 customerMobile={customerMobile}
-                onSwitched={() => {
-                    setOtherActiveSession(null);
-                    window.location.reload();
-                }}
             />
         );
     }
