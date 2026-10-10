@@ -259,7 +259,10 @@ export default function CustomerLayout({
                      (restaurantId ? localStorage.getItem(`ros_customer_mobile_${restaurantId}`) : '') || '';
         } catch {}
 
-        if (!mobile) return;
+        if (!mobile) {
+            setApprovalStatus('approved');
+            return;
+        }
         setCustomerMobile(mobile);
 
         let isMounted = true;
@@ -268,12 +271,16 @@ export default function CustomerLayout({
                 const res = await fetch(
                     `/api/customer/table-session/active?restaurantId=${encodeURIComponent(effectiveRestId)}&tableNumber=${encodeURIComponent(tableNumber)}&customerMobile=${encodeURIComponent(mobile)}`
                 );
-                if (!res.ok) return;
+                if (!res.ok) {
+                    if (isMounted) setApprovalStatus('approved');
+                    return;
+                }
                 const data = await res.json();
                 if (!isMounted) return;
 
                 if (data.customerHasOtherActiveSession && data.otherSession) {
                     setOtherActiveSession(data.otherSession);
+                    setApprovalStatus('none');
                     return;
                 }
 
@@ -305,6 +312,7 @@ export default function CustomerLayout({
                         const claimData = await claimRes.json();
                         if (claimData.customerHasOtherActiveSession && claimData.otherSession) {
                             setOtherActiveSession(claimData.otherSession);
+                            setApprovalStatus('none');
                             return;
                         }
                     } else if (claimRes.ok) {
@@ -333,6 +341,7 @@ export default function CustomerLayout({
                 }
             } catch (err) {
                 console.warn('[CustomerLayout Table Session Warning]', err);
+                if (isMounted) setApprovalStatus('approved');
             }
         };
 
@@ -342,6 +351,16 @@ export default function CustomerLayout({
             isMounted = false;
         };
     }, [isCleanTable, isVirtualMode, tableStatus, restaurantCode, restaurantId, tableNumber, isCustomerEntryPage, isWelcomePage, isTableRedirectPage, isOrderStatusPage, isOrderTypePage]);
+
+    // Safety fallback: Never keep customer stuck on checking table session indefinitely
+    useEffect(() => {
+        if (approvalStatus === null && tableStatus === 'valid' && !needsCustomerInfo && !otherActiveSession) {
+            const timer = setTimeout(() => {
+                setApprovalStatus('approved');
+            }, 3500);
+            return () => clearTimeout(timer);
+        }
+    }, [approvalStatus, tableStatus, needsCustomerInfo, otherActiveSession]);
 
     // Real-time listener: Auto-logout and session termination when waiter or admin clears the table
     useEffect(() => {

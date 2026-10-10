@@ -161,6 +161,7 @@ export default function CustomerTokenLayout({
                                 const sessData = await sessRes.json();
                                 if (sessData.customerHasOtherActiveSession && sessData.otherSession) {
                                     setOtherActiveSession(sessData.otherSession);
+                                    setApprovalStatus('none');
                                 } else if (!sessData.hasActiveSession) {
                                     // Claim session as host
                                     const custName = localStorage.getItem(`ros_customer_name_${targetRes}`) || 'Table Host';
@@ -178,13 +179,23 @@ export default function CustomerTokenLayout({
                                             customerMobile: mobile,
                                         }),
                                     });
-                                    if (claimRes.ok) {
+                                    if (claimRes.status === 409) {
+                                        const claimData = await claimRes.json();
+                                        if (claimData.customerHasOtherActiveSession && claimData.otherSession) {
+                                            setOtherActiveSession(claimData.otherSession);
+                                            setApprovalStatus('none');
+                                        } else {
+                                            setApprovalStatus('host');
+                                        }
+                                    } else if (claimRes.ok) {
                                         const claimData = await claimRes.json();
                                         if (claimData.sessionId && isMounted) {
                                             setCurrentSessionId(claimData.sessionId);
                                         }
+                                        setApprovalStatus('host');
+                                    } else {
+                                        setApprovalStatus('host');
                                     }
-                                    setApprovalStatus('host');
                                 } else if (sessData.isHost || sessData.approvalStatus === 'approved') {
                                     if (sessData.sessionId && isMounted) {
                                         setCurrentSessionId(sessData.sessionId);
@@ -201,10 +212,15 @@ export default function CustomerTokenLayout({
                                         requestId: sessData.requestId,
                                     });
                                 }
+                            } else if (isMounted) {
+                                setApprovalStatus('approved');
                             }
                         } catch (e) {
                             console.warn('[Table Session Check Warning]', e);
+                            if (isMounted) setApprovalStatus('approved');
                         }
+                    } else if (isMounted) {
+                        setApprovalStatus('approved');
                     }
 
                     setStatus('valid');
@@ -289,6 +305,16 @@ export default function CustomerTokenLayout({
         };
     }, [sessionInfo, token, currentSessionId]);
 
+    // Safety fallback: Never keep customer stuck on checking table session indefinitely
+    useEffect(() => {
+        if (isCustomerVerified === true && approvalStatus === null && !otherActiveSession) {
+            const timer = setTimeout(() => {
+                setApprovalStatus('approved');
+            }, 3500);
+            return () => clearTimeout(timer);
+        }
+    }, [isCustomerVerified, approvalStatus, otherActiveSession]);
+
     if (status === 'validating') {
         return (
             <div className="fixed inset-0 h-[100dvh] bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
@@ -349,17 +375,6 @@ export default function CustomerTokenLayout({
             />
         );
     }
- 
-    if (isCustomerVerified === true && approvalStatus === null) {
-        return (
-            <div className="fixed inset-0 h-[100dvh] bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
-                <div className="flex flex-col items-center">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500 mb-4" />
-                    <p className="text-sm font-semibold text-slate-600">Checking table dining session...</p>
-                </div>
-            </div>
-        );
-    }
 
     // Customer is already connected to another table in this restaurant
     if (otherActiveSession) {
@@ -374,6 +389,17 @@ export default function CustomerTokenLayout({
                 isHost={otherActiveSession.isHost}
                 customerMobile={customerMobile}
             />
+        );
+    }
+ 
+    if (isCustomerVerified === true && approvalStatus === null) {
+        return (
+            <div className="fixed inset-0 h-[100dvh] bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-800">
+                <div className="flex flex-col items-center">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500 mb-4" />
+                    <p className="text-sm font-semibold text-slate-600">Connecting to table dining session...</p>
+                </div>
+            </div>
         );
     }
 
