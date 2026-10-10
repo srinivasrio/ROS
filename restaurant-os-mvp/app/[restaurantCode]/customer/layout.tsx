@@ -234,6 +234,7 @@ export default function CustomerLayout({
         homeUrl?: string | null;
         restaurantCode?: string | null;
         isHost?: boolean;
+        reasons?: string[];
     } | null>(null);
     const [customerMobile, setCustomerMobile] = useState('');
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -280,7 +281,7 @@ export default function CustomerLayout({
                 if (!isMounted) return;
 
                 if (data.customerHasOtherActiveSession && data.otherSession) {
-                    setOtherActiveSession(data.otherSession);
+                    setOtherActiveSession({ ...data.otherSession, reasons: data.reasons || [] });
                     setApprovalStatus('none');
                     return;
                 }
@@ -312,7 +313,7 @@ export default function CustomerLayout({
                     if (claimRes.status === 409) {
                         const claimData = await claimRes.json();
                         if (claimData.customerHasOtherActiveSession && claimData.otherSession) {
-                            setOtherActiveSession(claimData.otherSession);
+                            setOtherActiveSession({ ...claimData.otherSession, reasons: claimData.reasons || [] });
                             setApprovalStatus('none');
                             return;
                         }
@@ -553,6 +554,7 @@ export default function CustomerLayout({
                 activeHomeUrl={otherActiveSession.homeUrl || undefined}
                 isHost={otherActiveSession.isHost}
                 customerMobile={customerMobile}
+                reasons={otherActiveSession.reasons}
             />
         );
     }

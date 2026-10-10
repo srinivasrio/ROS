@@ -4,6 +4,7 @@ import { resolveRestaurantId } from '@/services/utils.service';
 import { extractCustomerTokenForRestaurant, verifyJwt } from '@/lib/jwt-utils';
 import { normalizeTableNumber } from '@/lib/utils';
 import { createCustomerTableSessionToken, setCustomerTableSessionCookie } from '@/lib/customer-table-session';
+import { TableSessionLifecycleService } from '@/services/table-session-lifecycle.service';
 
 function cleanPhone(raw: string): string {
     return String(raw || '').replace(/\D/g, '').slice(-10);
@@ -120,61 +121,36 @@ export async function GET(req: NextRequest) {
         const cleanCustomer = cleanPhone(resolvedCustomerPhone);
         const normReqTable = normalizeTableNumber(resolvedTableNumber);
 
-        // Check if customer already belongs to an active session at ANOTHER table in this restaurant
+        // Check if customer belongs to a protected active session at ANOTHER table in this restaurant
+        // If their previous session was empty/abandoned, it is safely expired so they can dine here.
         if (cleanCustomer) {
-            const { data: otherHostSession } = await supabaseAdmin
-                .from('table_active_sessions')
-                .select('*')
-                .in('restaurant_id', [restaurantId, canonicalRestaurantId])
-                .eq('host_customer_mobile', cleanCustomer)
-                .eq('is_active', true)
-                .maybeSingle();
+            const releaseCheck = await TableSessionLifecycleService.checkAndReleasePreviousSession(
+                canonicalRestaurantId,
+                cleanCustomer,
+                resolvedTableNumber
+            );
 
-            if (otherHostSession && normalizeTableNumber(otherHostSession.table_number) !== normReqTable) {
+            if (!releaseCheck.released && releaseCheck.previousSession) {
+                const prev = releaseCheck.previousSession;
+                const isHost = cleanPhone(prev.host_customer_mobile) === cleanCustomer;
                 const otherPayload = await buildOtherSessionPayload(
-                    otherHostSession,
+                    prev,
                     restaurantId,
                     canonicalRestaurantId,
-                    true,
-                    otherHostSession.host_customer_name
+                    isHost,
+                    prev.host_customer_name
                 );
                 return NextResponse.json({
                     hasActiveSession: true,
                     customerHasOtherActiveSession: true,
                     otherSession: otherPayload,
+                    reasons: releaseCheck.eligibility?.reasons || [],
                     isAuthorized: false,
                     isHost: false,
                     tableNumber: resolvedTableNumber,
-                    message: `You are already seated at Table ${otherHostSession.table_number}`,
-                });
-            }
-
-            const { data: otherMemberReq } = await supabaseAdmin
-                .from('table_join_requests')
-                .select('*, table_active_sessions!inner(*)')
-                .in('table_active_sessions.restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
-                .eq('table_active_sessions.is_active', true)
-                .eq('requester_customer_mobile', cleanCustomer)
-                .eq('status', 'approved')
-                .maybeSingle();
-
-            if (otherMemberReq && normalizeTableNumber(otherMemberReq.table_active_sessions?.table_number) !== normReqTable) {
-                const otherTbl = otherMemberReq.table_active_sessions?.table_number;
-                const otherPayload = await buildOtherSessionPayload(
-                    otherMemberReq.table_active_sessions,
-                    restaurantId,
-                    canonicalRestaurantId,
-                    false,
-                    otherMemberReq.table_active_sessions?.host_customer_name
-                );
-                return NextResponse.json({
-                    hasActiveSession: true,
-                    customerHasOtherActiveSession: true,
-                    otherSession: otherPayload,
-                    isAuthorized: false,
-                    isHost: false,
-                    tableNumber: resolvedTableNumber,
-                    message: `You are already a member of Table ${otherTbl}`,
+                    message: isHost
+                        ? `You are already seated at Table ${prev.table_number}`
+                        : `You are already a member of Table ${prev.table_number}`,
                 });
             }
         }
@@ -327,53 +303,34 @@ export async function POST(req: NextRequest) {
         const cleanCustomer = cleanPhone(customerMobile);
         const normReqTable = normalizeTableNumber(resolvedTableNumber);
 
-        // 1. Enforce: Customer cannot create a session if already active on another table
-        const { data: otherHostSession } = await supabaseAdmin
-            .from('table_active_sessions')
-            .select('*')
-            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
-            .eq('host_customer_mobile', cleanCustomer)
-            .eq('is_active', true)
-            .maybeSingle();
-
-        if (otherHostSession && normalizeTableNumber(otherHostSession.table_number) !== normReqTable) {
-            const otherPayload = await buildOtherSessionPayload(
-                otherHostSession,
-                restaurantId,
+        // 1. Enforce: Customer cannot create a session if already active on another table with protected activity.
+        // If their previous session was empty/abandoned, it is safely released & expired here.
+        if (cleanCustomer) {
+            const releaseCheck = await TableSessionLifecycleService.checkAndReleasePreviousSession(
                 canonicalRestaurantId,
-                true,
-                otherHostSession.host_customer_name
+                cleanCustomer,
+                resolvedTableNumber
             );
-            return NextResponse.json({
-                error: `You already have an active session at Table ${otherHostSession.table_number}`,
-                customerHasOtherActiveSession: true,
-                otherSession: otherPayload,
-            }, { status: 409 });
-        }
 
-        const { data: otherMemberReq } = await supabaseAdmin
-            .from('table_join_requests')
-            .select('*, table_active_sessions!inner(*)')
-            .in('table_active_sessions.restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
-            .eq('table_active_sessions.is_active', true)
-            .eq('requester_customer_mobile', cleanCustomer)
-            .eq('status', 'approved')
-            .maybeSingle();
-
-        if (otherMemberReq && normalizeTableNumber(otherMemberReq.table_active_sessions?.table_number) !== normReqTable) {
-            const otherTbl = otherMemberReq.table_active_sessions?.table_number;
-            const otherPayload = await buildOtherSessionPayload(
-                otherMemberReq.table_active_sessions,
-                restaurantId,
-                canonicalRestaurantId,
-                false,
-                otherMemberReq.table_active_sessions?.host_customer_name
-            );
-            return NextResponse.json({
-                error: `You are already an approved member of Table ${otherTbl}`,
-                customerHasOtherActiveSession: true,
-                otherSession: otherPayload,
-            }, { status: 409 });
+            if (!releaseCheck.released && releaseCheck.previousSession) {
+                const prev = releaseCheck.previousSession;
+                const isHost = cleanPhone(prev.host_customer_mobile) === cleanCustomer;
+                const otherPayload = await buildOtherSessionPayload(
+                    prev,
+                    restaurantId,
+                    canonicalRestaurantId,
+                    isHost,
+                    prev.host_customer_name
+                );
+                return NextResponse.json({
+                    error: isHost
+                        ? `You already have an active session at Table ${prev.table_number}`
+                        : `You are already an approved member of Table ${prev.table_number}`,
+                    customerHasOtherActiveSession: true,
+                    otherSession: otherPayload,
+                    reasons: releaseCheck.eligibility?.reasons || [],
+                }, { status: 409 });
+            }
         }
 
         // Check for existing active session on table
@@ -462,6 +419,8 @@ export async function POST(req: NextRequest) {
                 host_customer_name: (customerName || 'Table Host').trim(),
                 host_customer_mobile: cleanCustomer,
                 is_active: true,
+                status: 'ACTIVE',
+                last_activity_at: new Date().toISOString(),
             })
             .select()
             .single();
