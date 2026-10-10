@@ -18,6 +18,7 @@ import { HostJoinApprovalModal } from '@/components/customer/HostJoinApprovalMod
 import { CustomerConnectedOtherTableScreen } from '@/components/customer/CustomerConnectedOtherTableScreen';
 import { CustomerDiningEndedScreen } from '@/components/customer/CustomerDiningEndedScreen';
 import { supabase } from '@/lib/supabase';
+import { normalizeTableNumber } from '@/lib/utils';
 
 interface TableSessionInfo {
     table_token: string;
@@ -247,16 +248,41 @@ export default function CustomerTokenLayout({
         const tableNum = sessionInfo.table_number;
         const restId = sessionInfo.restaurant_id;
 
+        let isSubscribed = true;
+
         const handleTableCleared = () => {
-            try {
-                if (typeof window !== 'undefined') {
-                    sessionStorage.setItem('ros_logged_out', 'true');
-                    sessionStorage.removeItem(`ros_session_${token}`);
-                    localStorage.removeItem('customer_cart');
-                    localStorage.removeItem('customer_table_number');
-                }
-            } catch {}
             setIsTableCleared(true);
+        };
+
+        const verifyAndHandleTableCleared = async () => {
+            try {
+                let mobile = '';
+                try {
+                    mobile = customerMobile || (typeof window !== 'undefined' ? (
+                        localStorage.getItem(`ros_customer_mobile_${sessionInfo.restaurant_slug}`) ||
+                        localStorage.getItem(`ros_customer_mobile_${restId}`) || ''
+                    ) : '');
+                } catch {}
+
+                const res = await fetch(
+                    `/api/customer/table-session/active?restaurantId=${encodeURIComponent(restId)}&tableNumber=${encodeURIComponent(tableNum)}&customerMobile=${encodeURIComponent(mobile)}`
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!isSubscribed) return;
+                    // If backend authoritatively confirms active session for this customer, do NOT clear table!
+                    if (data.hasActiveSession && (data.isHost || data.isAuthorized || data.approvalStatus === 'approved')) {
+                        console.log('[TokenTableCleared Realtime] Server confirms session still active. Ignoring false table cleared event.');
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn('[TokenTableCleared Realtime] Server verification warning:', err);
+                return; // Do not clear session on network glitch
+            }
+
+            if (!isSubscribed) return;
+            handleTableCleared();
         };
 
         const channelName = `token-table-cleared-${tableNum}-${Date.now()}`;
@@ -273,11 +299,19 @@ export default function CustomerTokenLayout({
                     const row = payload.new;
                     if (!row) return;
 
-                    const matchesSession = currentSessionId && row.id === currentSessionId;
-                    const matchesTable = String(row.table_number) === String(tableNum);
+                    // Multi-tenant isolation: strictly ignore events from other restaurants
+                    const rowRest = row.restaurant_id || row.restaurantId;
+                    if (rowRest && rowRest !== restId && rowRest !== sessionInfo.restaurant_slug) {
+                        return;
+                    }
 
-                    if ((matchesSession || matchesTable) && row.is_active === false) {
-                        handleTableCleared();
+                    // Only react if event is for the CURRENT active session or table
+                    const matchesSession = currentSessionId && row.id === currentSessionId;
+                    const matchesTable = normalizeTableNumber(row.table_number) === normalizeTableNumber(tableNum);
+                    const isTarget = currentSessionId ? matchesSession : matchesTable;
+
+                    if (isTarget && row.is_active === false) {
+                        verifyAndHandleTableCleared();
                     }
                 }
             )
@@ -292,18 +326,25 @@ export default function CustomerTokenLayout({
                     const row = payload.new;
                     if (!row) return;
 
-                    const matchesTable = String(row.table_number) === String(tableNum) || String(row.id) === String(tableNum);
+                    // Multi-tenant isolation: strictly ignore events from other restaurants
+                    const rowRest = row.restaurant_id || row.restaurantId;
+                    if (rowRest && rowRest !== restId && rowRest !== sessionInfo.restaurant_slug) {
+                        return;
+                    }
+
+                    const matchesTable = normalizeTableNumber(row.table_number) === normalizeTableNumber(tableNum) || String(row.id) === String(tableNum);
                     if (matchesTable && row.status === 'available') {
-                        handleTableCleared();
+                        verifyAndHandleTableCleared();
                     }
                 }
             )
             .subscribe();
 
         return () => {
+            isSubscribed = false;
             supabase.removeChannel(channel);
         };
-    }, [sessionInfo, token, currentSessionId]);
+    }, [sessionInfo, token, currentSessionId, customerMobile]);
 
     // Safety fallback: Never keep customer stuck on checking table session indefinitely
     useEffect(() => {
@@ -429,6 +470,14 @@ export default function CustomerTokenLayout({
                 restaurantCode={restaurant_slug || restaurant_id}
                 tableNumber={table_number}
                 onAcknowledge={() => {
+                    try {
+                        if (typeof window !== 'undefined') {
+                            sessionStorage.setItem('ros_logged_out', 'true');
+                            sessionStorage.removeItem(`ros_session_${token}`);
+                            localStorage.removeItem('customer_cart');
+                            localStorage.removeItem('customer_table_number');
+                        }
+                    } catch {}
                     setIsTableCleared(false);
                     router.push(`/${restaurant_slug || restaurant_id}/customer`);
                 }}

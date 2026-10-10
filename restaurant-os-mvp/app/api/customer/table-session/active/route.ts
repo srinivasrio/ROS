@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { resolveRestaurantId } from '@/services/utils.service';
 import { extractCustomerTokenForRestaurant, verifyJwt } from '@/lib/jwt-utils';
+import { normalizeTableNumber } from '@/lib/utils';
+import { createCustomerTableSessionToken, setCustomerTableSessionCookie } from '@/lib/customer-table-session';
 
 function cleanPhone(raw: string): string {
     return String(raw || '').replace(/\D/g, '').slice(-10);
@@ -116,6 +118,7 @@ export async function GET(req: NextRequest) {
         }
 
         const cleanCustomer = cleanPhone(resolvedCustomerPhone);
+        const normReqTable = normalizeTableNumber(resolvedTableNumber);
 
         // Check if customer already belongs to an active session at ANOTHER table in this restaurant
         if (cleanCustomer) {
@@ -127,7 +130,7 @@ export async function GET(req: NextRequest) {
                 .eq('is_active', true)
                 .maybeSingle();
 
-            if (otherHostSession && String(otherHostSession.table_number) !== String(resolvedTableNumber)) {
+            if (otherHostSession && normalizeTableNumber(otherHostSession.table_number) !== normReqTable) {
                 const otherPayload = await buildOtherSessionPayload(
                     otherHostSession,
                     restaurantId,
@@ -155,7 +158,7 @@ export async function GET(req: NextRequest) {
                 .eq('status', 'approved')
                 .maybeSingle();
 
-            if (otherMemberReq && String(otherMemberReq.table_active_sessions?.table_number) !== String(resolvedTableNumber)) {
+            if (otherMemberReq && normalizeTableNumber(otherMemberReq.table_active_sessions?.table_number) !== normReqTable) {
                 const otherTbl = otherMemberReq.table_active_sessions?.table_number;
                 const otherPayload = await buildOtherSessionPayload(
                     otherMemberReq.table_active_sessions,
@@ -184,7 +187,13 @@ export async function GET(req: NextRequest) {
             .eq('is_active', true);
 
         const orConditions: string[] = [];
-        if (resolvedTableNumber) orConditions.push(`table_number.eq.${resolvedTableNumber}`);
+        if (resolvedTableNumber) {
+            orConditions.push(`table_number.eq.${resolvedTableNumber}`);
+            if (normReqTable && normReqTable !== resolvedTableNumber) {
+                orConditions.push(`table_number.eq.${normReqTable}`);
+            }
+            orConditions.push(`table_number.ilike.Table ${normReqTable}`);
+        }
         if (tableNumber && tableNumber !== resolvedTableNumber) {
             orConditions.push(`table_token.eq.${tableNumber}`);
             orConditions.push(`table_number.eq.${tableNumber}`);
@@ -238,7 +247,7 @@ export async function GET(req: NextRequest) {
         const participantCount = 1 + (approvedCount || 0);
         const isAuthorized = Boolean(isHost || approvalStatus === 'approved');
 
-        return NextResponse.json({
+        const response = NextResponse.json({
             hasActiveSession: true,
             customerHasOtherActiveSession: false,
             isAuthorized,
@@ -251,6 +260,24 @@ export async function GET(req: NextRequest) {
             participantCount,
             requestId,
         });
+
+        // If customer is authorized member or host, bind or refresh customer table session cookie
+        if (isAuthorized) {
+            try {
+                const sessionJwt = await createCustomerTableSessionToken({
+                    restaurant_id: canonicalRestaurantId,
+                    table_id: session.table_id || session.table_number,
+                    table_number: String(session.table_number),
+                    table_token: session.table_token || '',
+                    session_id: session.id,
+                });
+                setCustomerTableSessionCookie(response, sessionJwt);
+            } catch (jwtErr) {
+                console.warn('[table-session/active] Cookie refresh notice:', jwtErr);
+            }
+        }
+
+        return response;
     } catch (err: any) {
         console.error('[table-session/active] Handler Exception:', err);
         return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
@@ -298,6 +325,7 @@ export async function POST(req: NextRequest) {
         }
 
         const cleanCustomer = cleanPhone(customerMobile);
+        const normReqTable = normalizeTableNumber(resolvedTableNumber);
 
         // 1. Enforce: Customer cannot create a session if already active on another table
         const { data: otherHostSession } = await supabaseAdmin
@@ -308,7 +336,7 @@ export async function POST(req: NextRequest) {
             .eq('is_active', true)
             .maybeSingle();
 
-        if (otherHostSession && String(otherHostSession.table_number) !== String(resolvedTableNumber)) {
+        if (otherHostSession && normalizeTableNumber(otherHostSession.table_number) !== normReqTable) {
             const otherPayload = await buildOtherSessionPayload(
                 otherHostSession,
                 restaurantId,
@@ -332,7 +360,7 @@ export async function POST(req: NextRequest) {
             .eq('status', 'approved')
             .maybeSingle();
 
-        if (otherMemberReq && String(otherMemberReq.table_active_sessions?.table_number) !== String(resolvedTableNumber)) {
+        if (otherMemberReq && normalizeTableNumber(otherMemberReq.table_active_sessions?.table_number) !== normReqTable) {
             const otherTbl = otherMemberReq.table_active_sessions?.table_number;
             const otherPayload = await buildOtherSessionPayload(
                 otherMemberReq.table_active_sessions,
@@ -353,7 +381,7 @@ export async function POST(req: NextRequest) {
             .from('table_active_sessions')
             .select('*')
             .in('restaurant_id', [restaurantId, canonicalRestaurantId])
-            .or(`table_number.eq.${resolvedTableNumber},table_token.eq.${tableNumber},table_number.eq.${tableNumber}`)
+            .or(`table_number.eq.${resolvedTableNumber},table_token.eq.${tableNumber},table_number.eq.${tableNumber},table_number.ilike.Table ${normReqTable}`)
             .eq('is_active', true)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -391,7 +419,7 @@ export async function POST(req: NextRequest) {
             const participantCount = 1 + (approvedCount || 0);
             const isAuthorized = Boolean(isHost || approvalStatus === 'approved');
 
-            return NextResponse.json({
+            const response = NextResponse.json({
                 hasActiveSession: true,
                 sessionId: existingSession.id,
                 tableNumber: existingSession.table_number,
@@ -403,6 +431,23 @@ export async function POST(req: NextRequest) {
                 participantCount,
                 requestId,
             });
+
+            if (isAuthorized) {
+                try {
+                    const sessionJwt = await createCustomerTableSessionToken({
+                        restaurant_id: canonicalRestaurantId,
+                        table_id: existingSession.table_id || existingSession.table_number,
+                        table_number: String(existingSession.table_number),
+                        table_token: existingSession.table_token || '',
+                        session_id: existingSession.id,
+                    });
+                    setCustomerTableSessionCookie(response, sessionJwt);
+                } catch (jwtErr) {
+                    console.warn('[table-session/active] Cookie refresh warning:', jwtErr);
+                }
+            }
+
+            return response;
         }
 
         // Create new host session
@@ -426,7 +471,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Failed to create table session' }, { status: 500 });
         }
 
-        return NextResponse.json({
+        const response = NextResponse.json({
             hasActiveSession: true,
             sessionId: newSession.id,
             tableNumber: newSession.table_number,
@@ -438,6 +483,21 @@ export async function POST(req: NextRequest) {
             participantCount: 1,
             requestId: null,
         });
+
+        try {
+            const sessionJwt = await createCustomerTableSessionToken({
+                restaurant_id: canonicalRestaurantId,
+                table_id: newSession.table_id || newSession.table_number,
+                table_number: String(newSession.table_number),
+                table_token: newSession.table_token || '',
+                session_id: newSession.id,
+            });
+            setCustomerTableSessionCookie(response, sessionJwt);
+        } catch (jwtErr) {
+            console.warn('[table-session/active] Cookie refresh warning:', jwtErr);
+        }
+
+        return response;
     } catch (err: any) {
         console.error('[table-session/active] POST Exception:', err);
         return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });

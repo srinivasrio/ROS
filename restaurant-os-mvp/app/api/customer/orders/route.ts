@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifyJwt, extractCustomerTokenForRestaurant } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
-import { getCategoryMenuItemImage } from '@/lib/utils';
+import { getCategoryMenuItemImage, normalizeTableNumber } from '@/lib/utils';
 import { getCustomerTableSession } from '@/lib/customer-table-session';
 
 type CustomerJwtPayload = {
@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
         }
 
         const tableNumber = searchParams.get('tableNumber');
+        const normTableNumber = normalizeTableNumber(tableNumber);
         const clientCustomerId = searchParams.get('customerId') || '';
         const clientLastOrderId = searchParams.get('lastOrderId') || '';
         const isValidUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -44,8 +45,32 @@ export async function GET(req: NextRequest) {
                 return NextResponse.json({ error: 'Forbidden: Restaurant session mismatch' }, { status: 403 });
             }
             if (tableNumber && String(tableNumber).toLowerCase() !== 'takeaway' && String(tableNumber).toLowerCase() !== 'delivery') {
-                if (String(tableSession.table_number) !== String(tableNumber) && String(tableSession.table_id) !== String(tableNumber)) {
-                    return NextResponse.json({ error: 'Forbidden: Table session mismatch' }, { status: 403 });
+                const normSessTable = normalizeTableNumber(tableSession.table_number);
+                if (normSessTable !== normTableNumber && String(tableSession.table_id) !== String(tableNumber)) {
+                    // Check if customer is actually authorized on requested table (e.g. returned after scanning another table)
+                    let isPermitted = false;
+                    const custCookie = extractCustomerTokenForRestaurant(req.cookies, actualRestaurantId || restaurantCode);
+                    if (custCookie) {
+                        try {
+                            const p: any = await verifyJwt(custCookie);
+                            if (p?.mobile) {
+                                const cleanCust = String(p.mobile).replace(/\D/g, '').slice(-10);
+                                const { data: activeHost } = await supabaseAdmin
+                                    .from('table_active_sessions')
+                                    .select('id, table_number')
+                                    .eq('restaurant_id', actualRestaurantId)
+                                    .eq('host_customer_mobile', cleanCust)
+                                    .eq('is_active', true)
+                                    .maybeSingle();
+                                if (activeHost && normalizeTableNumber(activeHost.table_number) === normTableNumber) {
+                                    isPermitted = true;
+                                }
+                            }
+                        } catch {}
+                    }
+                    if (!isPermitted) {
+                        return NextResponse.json({ error: 'Forbidden: Table session mismatch' }, { status: 403 });
+                    }
                 }
             }
         }
@@ -54,9 +79,9 @@ export async function GET(req: NextRequest) {
         if (tableNumber) {
             const { data: pTable } = await supabaseAdmin
                 .from('tables')
-                .select('id')
+                .select('id, table_number')
                 .eq('restaurant_id', actualRestaurantId)
-                .eq('table_number', tableNumber)
+                .or(`table_number.eq.${tableNumber},table_number.eq.${normTableNumber},table_number.ilike.Table ${normTableNumber}`)
                 .maybeSingle();
             if (pTable?.id) {
                 physicalTableId = pTable.id;

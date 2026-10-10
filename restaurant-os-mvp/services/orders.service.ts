@@ -7,7 +7,7 @@ import { coalesceRequest, adminCacheManager } from '@/lib/data-cache';
 import { CustomerCache } from './homepage-cache.service';
 import { CustomerService } from './customers.service';
 import { OfferService } from './offers.service';
-import { getCategoryMenuItemImage } from '@/lib/utils';
+import { getCategoryMenuItemImage, normalizeTableNumber } from '@/lib/utils';
 import { isComboItem } from '@/lib/combo-utils';
 
 export type OrderStatus = 'queued' | 'placed' | 'preparing' | 'ready' | 'served' | 'paid' | 'cancelled';
@@ -3145,7 +3145,7 @@ export const OrderService = {
                         .eq('is_active', true)
                         .maybeSingle();
 
-                    if (otherHostSess && String(otherHostSess.table_number) !== String(physicalTable.table_number)) {
+                    if (otherHostSess && normalizeTableNumber(otherHostSess.table_number) !== normalizeTableNumber(physicalTable.table_number)) {
                         throw new Error(`Unauthorized: You are already active at Table ${otherHostSess.table_number}. Please return to your table or resolve that session before placing orders at Table ${physicalTable.table_number}.`);
                     }
 
@@ -3158,7 +3158,7 @@ export const OrderService = {
                         .eq('status', 'approved')
                         .maybeSingle();
 
-                    if (otherMemberSess && String((otherMemberSess as any).table_active_sessions?.table_number) !== String(physicalTable.table_number)) {
+                    if (otherMemberSess && normalizeTableNumber((otherMemberSess as any).table_active_sessions?.table_number) !== normalizeTableNumber(physicalTable.table_number)) {
                         const oTbl = (otherMemberSess as any).table_active_sessions?.table_number;
                         throw new Error(`Unauthorized: You are already an approved member at Table ${oTbl}. Please return to your table or resolve that session before placing orders at Table ${physicalTable.table_number}.`);
                     }

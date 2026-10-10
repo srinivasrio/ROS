@@ -21,6 +21,7 @@ import { useParams, useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { OrderService } from '@/services/orders.service';
 import { Utensils as LucideUtensils, AlertCircle as LucideAlertCircle } from 'lucide-react';
+import { normalizeTableNumber } from '@/lib/utils';
 
 // In-memory cache for validated tables: key = `${restaurantCode}:${tableNumber}` => boolean
 const tableValidityCache = new Map<string, boolean>();
@@ -370,15 +371,39 @@ export default function CustomerLayout({
         const effectiveRestId = restaurantId || restaurantCode;
         if (!effectiveRestId) return;
 
+        let isSubscribed = true;
+
         const handleTableCleared = () => {
-            try {
-                if (typeof window !== 'undefined') {
-                    sessionStorage.setItem('ros_logged_out', 'true');
-                    localStorage.removeItem('customer_cart');
-                    localStorage.removeItem('customer_table_number');
-                }
-            } catch {}
             setIsTableCleared(true);
+        };
+
+        const verifyAndHandleTableCleared = async () => {
+            try {
+                let mobile = '';
+                try {
+                    mobile = localStorage.getItem(`ros_customer_mobile_${restaurantCode}`) ||
+                             (restaurantId ? localStorage.getItem(`ros_customer_mobile_${restaurantId}`) : '') || '';
+                } catch {}
+
+                const res = await fetch(
+                    `/api/customer/table-session/active?restaurantId=${encodeURIComponent(effectiveRestId)}&tableNumber=${encodeURIComponent(tableNumber)}&customerMobile=${encodeURIComponent(mobile)}`
+                );
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!isSubscribed) return;
+                    // If backend authoritatively confirms active session for this customer, do NOT clear table!
+                    if (data.hasActiveSession && (data.isHost || data.isAuthorized || data.approvalStatus === 'approved')) {
+                        console.log('[TableCleared Realtime] Server confirms session still active. Ignoring false table cleared event.');
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn('[TableCleared Realtime] Server verification warning:', err);
+                return; // Do not clear session on network glitch
+            }
+
+            if (!isSubscribed) return;
+            handleTableCleared();
         };
 
         const channelName = `customer-table-cleared-${effectiveRestId}-${tableNumber}-${Date.now()}`;
@@ -395,11 +420,19 @@ export default function CustomerLayout({
                     const row = payload.new;
                     if (!row) return;
 
-                    const matchesSession = currentSessionId && row.id === currentSessionId;
-                    const matchesTable = String(row.table_number) === String(tableNumber);
+                    // Multi-tenant isolation: strictly ignore events from other restaurants
+                    const rowRest = row.restaurant_id || row.restaurantId;
+                    if (rowRest && rowRest !== effectiveRestId && rowRest !== restaurantId && rowRest !== restaurantCode) {
+                        return;
+                    }
 
-                    if ((matchesSession || matchesTable) && row.is_active === false) {
-                        handleTableCleared();
+                    // Only react if event is for the CURRENT active session or table
+                    const matchesSession = currentSessionId && row.id === currentSessionId;
+                    const matchesTable = normalizeTableNumber(row.table_number) === normalizeTableNumber(tableNumber);
+                    const isTarget = currentSessionId ? matchesSession : matchesTable;
+
+                    if (isTarget && row.is_active === false) {
+                        verifyAndHandleTableCleared();
                     }
                 }
             )
@@ -414,15 +447,22 @@ export default function CustomerLayout({
                     const row = payload.new;
                     if (!row) return;
 
-                    const matchesTable = String(row.table_number) === String(tableNumber) || String(row.id) === String(tableNumber);
+                    // Multi-tenant isolation: strictly ignore events from other restaurants
+                    const rowRest = row.restaurant_id || row.restaurantId;
+                    if (rowRest && rowRest !== effectiveRestId && rowRest !== restaurantId && rowRest !== restaurantCode) {
+                        return;
+                    }
+
+                    const matchesTable = normalizeTableNumber(row.table_number) === normalizeTableNumber(tableNumber) || String(row.id) === String(tableNumber);
                     if (matchesTable && row.status === 'available') {
-                        handleTableCleared();
+                        verifyAndHandleTableCleared();
                     }
                 }
             )
             .subscribe();
 
         return () => {
+            isSubscribed = false;
             supabase.removeChannel(channel);
         };
     }, [isCleanTable, isVirtualMode, tableNumber, restaurantId, restaurantCode, currentSessionId, isCustomerEntryPage, isWelcomePage, isTableRedirectPage, isOrderStatusPage, isOrderTypePage]);
@@ -434,6 +474,13 @@ export default function CustomerLayout({
                 restaurantCode={restaurantCode}
                 tableNumber={tableNumber}
                 onAcknowledge={() => {
+                    try {
+                        if (typeof window !== 'undefined') {
+                            sessionStorage.setItem('ros_logged_out', 'true');
+                            localStorage.removeItem('customer_cart');
+                            localStorage.removeItem('customer_table_number');
+                        }
+                    } catch {}
                     setIsTableCleared(false);
                     window.location.href = `/${restaurantCode}/customer`;
                 }}

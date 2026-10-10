@@ -106,13 +106,30 @@ export function CustomerConnectedOtherTableScreen({
             }
 
             // 5. Ensure customer table in localStorage reflects activeTableNumber and keep cart safe
-            if (typeof window !== 'undefined' && displayActiveTable && displayActiveTable !== 'Your Table') {
+            if (typeof window !== 'undefined') {
                 try {
-                    localStorage.setItem('customer_table_number', displayActiveTable);
+                    sessionStorage.removeItem('ros_logged_out');
+                    sessionStorage.removeItem('ros_logging_out');
+                    if (displayActiveTable && displayActiveTable !== 'Your Table') {
+                        localStorage.setItem('customer_table_number', displayActiveTable);
+                    }
                 } catch {}
             }
 
-            // 6. Navigate safely to active table home
+            // 6. If table token exists for active table, ensure table session cookie is bound
+            if (activeTableToken) {
+                try {
+                    await fetch('/api/customer/table-session/validate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: activeTableToken }),
+                    });
+                } catch (tokErr) {
+                    console.warn('[Session Token Rebind Notice]:', tokErr);
+                }
+            }
+
+            // 7. Navigate safely to active table home
             window.location.replace(targetUrl);
         } catch (err: any) {
             console.error('[ReturnToActiveTable Error]:', err);
