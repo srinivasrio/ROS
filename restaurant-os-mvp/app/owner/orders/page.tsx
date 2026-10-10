@@ -10,6 +10,8 @@ import {
     RefreshCw, Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
+import { calculateOrderPricing } from '@/lib/pricing';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
     queued: { label: 'Queued', color: 'bg-orange-50 text-orange-600 border-orange-200/60', icon: Clock },
@@ -75,6 +77,34 @@ export default function OrdersPage() {
     useEffect(() => {
         loadOrders();
     }, [loadOrders]);
+
+    // Live realtime updates for owner orders
+    useEffect(() => {
+        if (isHistoryView) return;
+        const channel = supabase
+            .channel('owner-live-orders-channel')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'orders' },
+                () => {
+                    loadOrders();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [isHistoryView, loadOrders]);
+
+    // Keep selectedOrder in sync with live updates
+    useEffect(() => {
+        if (!selectedOrder) return;
+        const updated = orders.find(o => o.id === selectedOrder.id);
+        if (updated) {
+            setSelectedOrder(updated);
+        }
+    }, [orders]);
 
     const filtered = orders.filter(o => {
         const query = search.toLowerCase();
@@ -333,12 +363,24 @@ export default function OrdersPage() {
                                             </td>
 
                                             <td className="px-6 py-4 text-right">
-                                                <p className="font-mono font-black text-sm text-neutral-900 dark:text-white">
-                                                    ₹{parseFloat(order.total_amount || order.total || 0).toFixed(2)}
-                                                </p>
-                                                <span className="text-[10px] text-neutral-400 uppercase font-bold">
-                                                    {order.payment_method || 'Cash / Counter'}
-                                                </span>
+                                                {(() => {
+                                                    const rowPricing = calculateOrderPricing(order);
+                                                    return (
+                                                        <>
+                                                            <p className="font-mono font-black text-sm text-neutral-900 dark:text-white">
+                                                                ₹{rowPricing.finalTotal.toFixed(2)}
+                                                            </p>
+                                                            {rowPricing.discountAmount > 0 && (
+                                                                <span className="block text-[10px] font-bold text-emerald-600">
+                                                                    Coupon {rowPricing.couponCode ? `(${rowPricing.couponCode})` : ''} -₹{rowPricing.discountAmount.toFixed(2)}
+                                                                </span>
+                                                            )}
+                                                            <span className="text-[10px] text-neutral-400 uppercase font-bold">
+                                                                {order.payment_method || 'Cash / Counter'}
+                                                            </span>
+                                                        </>
+                                                    );
+                                                })()}
                                             </td>
 
                                             <td className="px-6 py-4 text-right text-xs text-neutral-400 whitespace-nowrap">
@@ -464,30 +506,53 @@ export default function OrdersPage() {
                                 </div>
 
                                 {/* Financial Summary */}
-                                <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-zinc-800/40 border border-neutral-200/60 dark:border-zinc-700/40 space-y-1.5 text-xs">
-                                    <div className="flex justify-between text-neutral-500">
-                                        <span>Subtotal:</span>
-                                        <span className="font-mono">₹{parseFloat(selectedOrder.total_amount || 0).toFixed(2)}</span>
-                                    </div>
-                                    {selectedOrder.gst_amount > 0 && (
-                                        <div className="flex justify-between text-neutral-500">
-                                            <span>GST Tax:</span>
-                                            <span className="font-mono">₹{parseFloat(selectedOrder.gst_amount).toFixed(2)}</span>
+                                {(() => {
+                                    const modalPricing = calculateOrderPricing(selectedOrder);
+                                    return (
+                                        <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-zinc-800/40 border border-neutral-200/60 dark:border-zinc-700/40 space-y-1.5 text-xs">
+                                            <div className="flex justify-between text-neutral-500">
+                                                <span>Items Subtotal:</span>
+                                                <span className="font-mono">₹{modalPricing.itemsSubtotal.toFixed(2)}</span>
+                                            </div>
+                                            {modalPricing.cgstAmount > 0 && (
+                                                <div className="flex justify-between text-neutral-500">
+                                                    <span>CGST:</span>
+                                                    <span className="font-mono">₹{modalPricing.cgstAmount.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            {modalPricing.sgstAmount > 0 && (
+                                                <div className="flex justify-between text-neutral-500">
+                                                    <span>SGST:</span>
+                                                    <span className="font-mono">₹{modalPricing.sgstAmount.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            {modalPricing.gstAmount > 0 && (
+                                                <div className="flex justify-between text-neutral-600 font-medium">
+                                                    <span>Total GST:</span>
+                                                    <span className="font-mono">₹{modalPricing.gstAmount.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            {modalPricing.deliveryFee > 0 && (
+                                                <div className="flex justify-between text-blue-600 font-medium">
+                                                    <span>Delivery Fee:</span>
+                                                    <span className="font-mono">₹{modalPricing.deliveryFee.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            {modalPricing.discountAmount > 0 && (
+                                                <div className="flex justify-between text-emerald-600 font-semibold">
+                                                    <span>Coupon Discount {modalPricing.couponCode ? `(${modalPricing.couponCode})` : ''}:</span>
+                                                    <span className="font-mono">-₹{modalPricing.discountAmount.toFixed(2)}</span>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between pt-2 border-t border-neutral-200/60 dark:border-zinc-700/40 text-sm font-black text-neutral-900 dark:text-white">
+                                                <span>Total Payable:</span>
+                                                <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                                                    ₹{modalPricing.finalTotal.toFixed(2)}
+                                                </span>
+                                            </div>
                                         </div>
-                                    )}
-                                    {selectedOrder.discount_amount > 0 && (
-                                        <div className="flex justify-between text-emerald-600 font-semibold">
-                                            <span>Discount:</span>
-                                            <span className="font-mono">-₹{parseFloat(selectedOrder.discount_amount).toFixed(2)}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between pt-2 border-t border-neutral-200/60 dark:border-zinc-700/40 text-sm font-black text-neutral-900 dark:text-white">
-                                        <span>Total Amount:</span>
-                                        <span className="font-mono text-indigo-600 dark:text-indigo-400">
-                                            ₹{parseFloat(selectedOrder.total_amount || 0).toFixed(2)}
-                                        </span>
-                                    </div>
-                                </div>
+                                    );
+                                })()}
                             </div>
 
                             {/* Modal Footer */}

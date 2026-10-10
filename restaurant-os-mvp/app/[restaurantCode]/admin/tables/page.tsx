@@ -7,6 +7,7 @@ import { OrderService, Order, TableMergeGroup, RestaurantArea } from '@/services
 import QRCode from 'react-qr-code';
 import { formatCurrency, getCategoryMenuItemImage } from '@/lib/utils';
 import { isComboItem, parseComboSubItems } from '@/lib/combo-utils';
+import { calculateOrderPricing } from '@/lib/pricing';
 import { toast } from 'sonner';
 import { showWarningPopup } from '@/components/shared/WarningPopupCard';
 
@@ -995,7 +996,7 @@ export default function TableManagement() {
                                                 <div className="flex items-center justify-between">
                                                     <span className={`text-[10px] font-bold ${subTextColor} uppercase tracking-wide`}>Bill</span>
                                                     <span className={`text-sm font-black ${textColor} tracking-tight`}>
-                                                        {formatCurrency((activeOrder.total_amount || 0) - (activeOrder.discount_amount || 0))}
+                                                        {formatCurrency(calculateOrderPricing(activeOrder).finalTotal)}
                                                     </span>
                                                 </div>
                                             )}
@@ -1541,45 +1542,68 @@ export default function TableManagement() {
                                     </div>
 
                                     {/* Actions Footer */}
-                                    <div className="p-5 border-t border-neutral-100 bg-neutral-50 space-y-4">
-                                        {/* Coupon Discount */}
-                                        {(selectedTable.order?.discount_amount || 0) > 0 && (
-                                            <div className="flex items-center justify-between bg-green-50 rounded-xl px-4 py-2.5 border border-green-100">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-green-600 text-xs font-bold">🎫 Coupon: {selectedTable.order?.coupon_code}</span>
+                                    {(() => {
+                                        const pricing = calculateOrderPricing(selectedTable.order);
+                                        return (
+                                            <div className="p-5 border-t border-neutral-100 bg-neutral-50 space-y-3">
+                                                {/* Financial Breakdown: Original Subtotal, Coupon Discount, GST, Total */}
+                                                <div className="space-y-1.5 text-xs">
+                                                    <div className="flex justify-between items-center text-neutral-600 font-medium">
+                                                        <span>Items Subtotal</span>
+                                                        <span className="font-bold text-black">{formatCurrency(pricing.itemsSubtotal)}</span>
+                                                    </div>
+                                                    {pricing.discountAmount > 0 && (
+                                                        <div className="flex items-center justify-between bg-green-50 rounded-xl px-3 py-2 border border-green-100 text-green-700">
+                                                            <span className="flex items-center gap-1.5 font-bold">
+                                                                <span>🎫 Coupon Discount</span>
+                                                                {pricing.couponCode && (
+                                                                    <span className="px-1.5 py-0.5 rounded-md bg-green-100 text-[10px] font-black uppercase text-green-800">
+                                                                        {pricing.couponCode}
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                            <span className="font-extrabold text-sm">-{formatCurrency(pricing.discountAmount)}</span>
+                                                        </div>
+                                                    )}
+                                                    {pricing.gstAmount > 0 && (
+                                                        <div className="flex justify-between items-center text-neutral-600 font-medium">
+                                                            <div>
+                                                                <span>GST (Taxes)</span>
+                                                                <span className="text-[10px] text-neutral-400 block">CGST ({formatCurrency(pricing.cgstAmount)}) + SGST ({formatCurrency(pricing.sgstAmount)})</span>
+                                                            </div>
+                                                            <span className="font-bold text-black">+{formatCurrency(pricing.gstAmount)}</span>
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <span className="text-green-700 font-bold text-sm">-{formatCurrency(selectedTable.order?.discount_amount)}</span>
-                                            </div>
-                                        )}
 
-                                        <div className="flex justify-between items-center px-1">
-                                            <div className="flex flex-col">
-                                                <span className="text-black font-medium text-sm">Total Amount</span>
-                                                {(selectedTable.order?.amount_paid || 0) > 0 && (
+                                                <div className="flex justify-between items-center px-1 pt-2 border-t border-neutral-200">
                                                     <div className="flex flex-col">
-                                                        <span className="text-green-600 font-bold text-xs">Paid: {formatCurrency(selectedTable.order?.amount_paid)}</span>
-                                                        {selectedTable.order?.paid_by && (
-                                                            <span className="text-[10px] text-black font-medium">via {selectedTable.order?.paid_by}</span>
+                                                        <span className="text-black font-extrabold text-sm uppercase tracking-wider">Total Amount</span>
+                                                        {pricing.amountPaid > 0 && (
+                                                            <div className="flex flex-col mt-0.5">
+                                                                <span className="text-green-600 font-bold text-xs">Paid: {formatCurrency(pricing.amountPaid)}</span>
+                                                                {selectedTable.order?.paid_by && (
+                                                                    <span className="text-[10px] text-black font-medium">via {selectedTable.order?.paid_by}</span>
+                                                                )}
+                                                            </div>
                                                         )}
                                                     </div>
-                                                )}
-                                            </div>
-                                            <div className="text-right">
-                                                <span className="text-3xl font-black text-black tracking-tight">
-                                                    {formatCurrency((selectedTable.order?.total_amount || 0) - (selectedTable.order?.discount_amount || 0))}
-                                                </span>
-                                                {(selectedTable.order?.discount_amount || 0) > 0 && (
-                                                    <p className="text-black text-xs line-through">
-                                                        {formatCurrency(selectedTable.order?.total_amount || 0)}
-                                                    </p>
-                                                )}
-                                                {(selectedTable.order?.amount_paid || 0) > 0 && (
-                                                    <p className="text-orange-600 font-bold text-sm">
-                                                        Due: {formatCurrency((selectedTable.order?.total_amount || 0) - (selectedTable.order?.discount_amount || 0) - (selectedTable.order?.amount_paid || 0))}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
+                                                    <div className="text-right">
+                                                        <span className="text-3xl font-black text-black tracking-tight">
+                                                            {formatCurrency(pricing.finalTotal)}
+                                                        </span>
+                                                        {pricing.discountAmount > 0 && (
+                                                            <p className="text-neutral-400 text-xs line-through">
+                                                                {formatCurrency(pricing.itemsSubtotal + pricing.gstAmount)}
+                                                            </p>
+                                                        )}
+                                                        {pricing.amountPaid > 0 && pricing.balanceDue > 0 && (
+                                                            <p className="text-orange-600 font-bold text-sm">
+                                                                Due: {formatCurrency(pricing.balanceDue)}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </div>
 
                                         <div className="grid grid-cols-2 gap-3">
                                             <button
@@ -1590,7 +1614,7 @@ export default function TableManagement() {
                                                 Print Bill
                                             </button>
 
-                                            {selectedTable.order?.status === 'paid' && (selectedTable.order?.amount_paid || 0) >= ((selectedTable.order?.total_amount || 0) - (selectedTable.order?.discount_amount || 0)) ? (
+                                            {selectedTable.order?.status === 'paid' && (pricing.amountPaid >= pricing.finalTotal || (selectedTable.order?.amount_paid || 0) >= pricing.finalTotal) ? (
                                                 <button
                                                     onClick={requestClearTable}
                                                     className="flex items-center justify-center gap-2 py-3.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-all shadow-lg shadow-red-600/20 active:scale-95"
@@ -1604,7 +1628,7 @@ export default function TableManagement() {
                                                     className="flex items-center justify-center gap-2 py-3.5 bg-neutral-900 text-white font-bold rounded-xl hover:bg-black transition-all shadow-lg shadow-neutral-900/20 active:scale-95"
                                                 >
                                                     <LucideCreditCard size={18} />
-                                                    {(selectedTable.order?.amount_paid || 0) > 0 ? 'Settle Balance' : 'Settle Bill'}
+                                                    {(pricing.amountPaid > 0) ? 'Settle Balance' : 'Settle Bill'}
                                                 </button>
                                             )}
                                         </div>
@@ -1626,6 +1650,8 @@ export default function TableManagement() {
                                             Close
                                         </button>
                                     </div>
+                                    );
+                                })()}
                                 </>
                             ) : selectedTable.phase === 'CLEANING' || ['cleaning', 'dirty', 'to_clean'].includes((selectedTable.status || '').toLowerCase()) ? (
                                 <div className="p-8 flex flex-col items-center justify-center text-center space-y-5 my-auto">

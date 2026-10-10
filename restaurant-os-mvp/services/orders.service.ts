@@ -3645,78 +3645,139 @@ export const OrderService = {
     /**
      * Updates an existing order with a coupon code and discount amount.
      */
-    async updateOrderCoupon(orderId: string, restaurantId: string, couponCode: string, discountAmount?: number) {
+    async updateOrderCoupon(orderId: string, restaurantId: string, couponCode: string, _discountAmount?: number) {
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
-        // Verify order exists
-        const { data: ord } = await supabase
-            .from('orders')
-            .select('id, total_amount, discount_amount, gst_amount, delivery_fee, order_type')
-            .eq('id', orderId)
-            .eq('restaurant_id', actualRestaurantId)
-            .maybeSingle();
-
-        if (!ord) throw new Error('Order not found');
-
-        let authoritativeDiscount = 0;
-        if (couponCode && String(couponCode).trim()) {
-            const cleanCode = String(couponCode).trim().toUpperCase();
-            const { data: offerData } = await supabase
-                .from('offers')
-                .select('id, code, discount_type, discount_value, max_discount, status, end_datetime, applicable_order_type')
-                .eq('restaurant_id', actualRestaurantId)
-                .eq('code', cleanCode)
-                .eq('status', 'active')
-                .maybeSingle();
-
-            if (offerData) {
-                const notExpired = !offerData.end_datetime || new Date(offerData.end_datetime) > new Date();
-                if (!notExpired) {
-                    throw new Error('This coupon has expired');
-                }
-                if (offerData.applicable_order_type && offerData.applicable_order_type !== 'all') {
-                    const normOrderType = String(ord.order_type || 'DINE_IN').toUpperCase();
-                    const applicable = offerData.applicable_order_type.toUpperCase();
-                    if (normOrderType !== applicable) {
-                        const labelMap: Record<string, string> = {
-                            DINE_IN: 'Dine-In',
-                            TAKEAWAY: 'Takeaway',
-                            DELIVERY: 'Delivery',
-                        };
-                        const friendlyLabel = labelMap[applicable] || applicable;
-                        throw new Error(`This coupon is only valid for ${friendlyLabel} orders.`);
-                    }
-                }
-                const currentTotal = Number(ord.total_amount || 0);
-                const prevDisc = Number(ord.discount_amount || 0);
-                const grossAmount = currentTotal + prevDisc;
-                if (offerData.discount_type === 'percentage') {
-                    let disc = (grossAmount * Number(offerData.discount_value)) / 100;
-                    if (offerData.max_discount != null) {
-                        disc = Math.min(disc, Number(offerData.max_discount));
-                    }
-                    authoritativeDiscount = disc;
-                } else {
-                    authoritativeDiscount = Number(offerData.discount_value || 0);
-                }
-                authoritativeDiscount = Math.min(authoritativeDiscount, grossAmount);
-            }
-        }
-
-        const currentTotal = Number(ord.total_amount || 0);
-        const prevDisc = Number(ord.discount_amount || 0);
-        const newTotal = Math.max(0, currentTotal + prevDisc - authoritativeDiscount);
         const ceil2 = (num: number) => {
             const n = Number(num || 0);
             const clean = Math.round(n * 1e8) / 1e8;
             return Math.ceil(clean * 100) / 100;
         };
 
+        // 1. Verify order exists
+        const { data: ord } = await supabase
+            .from('orders')
+            .select('id, total_amount, discount_amount, gst_amount, cgst_amount, sgst_amount, delivery_fee, order_type, coupon_code')
+            .eq('id', orderId)
+            .eq('restaurant_id', actualRestaurantId)
+            .maybeSingle();
+
+        if (!ord) throw new Error('Order not found');
+
+        // 2. Fetch order items to get authoritative subtotal and tax
+        const { data: orderItems } = await supabase
+            .from('order_items')
+            .select('price_at_time, quantity, tax_percent, cgst_percent, sgst_percent')
+            .eq('order_id', orderId);
+
+        // 3. Fetch restaurant tax settings
+        const { data: restTax } = await supabase
+            .from('restaurants')
+            .select('gst_percentage, cgst_percentage, sgst_percentage')
+            .eq('id', actualRestaurantId)
+            .maybeSingle();
+
+        const defaultGst = restTax?.gst_percentage != null ? Number(restTax.gst_percentage) : 5;
+        const defaultCgst = restTax?.cgst_percentage != null ? Number(restTax.cgst_percentage) : (defaultGst / 2);
+        const defaultSgst = restTax?.sgst_percentage != null ? Number(restTax.sgst_percentage) : (defaultGst / 2);
+
+        let rawSubtotal = 0;
+        let computedCgst = 0;
+        let computedSgst = 0;
+
+        if (orderItems && orderItems.length > 0) {
+            for (const item of orderItems) {
+                const price = Number(item.price_at_time || 0);
+                const qty = Number(item.quantity || 1);
+                const lineTotal = price * qty;
+                rawSubtotal += lineTotal;
+
+                const itemGst = item.tax_percent != null && !isNaN(Number(item.tax_percent))
+                    ? Number(item.tax_percent)
+                    : defaultGst;
+                const itemCgst = item.cgst_percent != null && !isNaN(Number(item.cgst_percent))
+                    ? Number(item.cgst_percent)
+                    : (itemGst / 2);
+                const itemSgst = item.sgst_percent != null && !isNaN(Number(item.sgst_percent))
+                    ? Number(item.sgst_percent)
+                    : (itemGst / 2);
+
+                computedCgst += (lineTotal * itemCgst) / 100;
+                computedSgst += (lineTotal * itemSgst) / 100;
+            }
+        } else {
+            rawSubtotal = Math.max(0, Number(ord.total_amount || 0) + Number(ord.discount_amount || 0) - Number(ord.gst_amount || 0) - Number(ord.delivery_fee || 0));
+            computedCgst = (rawSubtotal * defaultCgst) / 100;
+            computedSgst = (rawSubtotal * defaultSgst) / 100;
+        }
+
+        const subtotal = ceil2(rawSubtotal);
+        const cgstAmount = ceil2(computedCgst);
+        const sgstAmount = ceil2(computedSgst);
+        const gstAmount = ceil2(cgstAmount + sgstAmount);
+        const deliveryFee = ceil2(Number(ord.delivery_fee || 0));
+
+        let authoritativeDiscount = 0;
+        let cleanCode: string | null = null;
+
+        if (couponCode && String(couponCode).trim()) {
+            cleanCode = String(couponCode).trim().toUpperCase();
+            const { data: offerData } = await supabase
+                .from('offers')
+                .select('id, code, discount_type, discount_value, max_discount, status, start_datetime, end_datetime, applicable_order_type')
+                .eq('restaurant_id', actualRestaurantId)
+                .eq('code', cleanCode)
+                .eq('status', 'active')
+                .maybeSingle();
+
+            if (!offerData) {
+                throw new Error(`Coupon code "${cleanCode}" is invalid or inactive.`);
+            }
+
+            const now = new Date();
+            if (offerData.start_datetime && new Date(offerData.start_datetime) > now) {
+                throw new Error(`Coupon "${cleanCode}" is not active yet.`);
+            }
+            if (offerData.end_datetime && new Date(offerData.end_datetime) < now) {
+                throw new Error(`Coupon "${cleanCode}" has expired.`);
+            }
+
+            if (offerData.applicable_order_type && offerData.applicable_order_type !== 'all') {
+                const normOrderType = String(ord.order_type || 'DINE_IN').toUpperCase();
+                const applicable = offerData.applicable_order_type.toUpperCase();
+                if (normOrderType !== applicable) {
+                    const labelMap: Record<string, string> = {
+                        DINE_IN: 'Dine-In',
+                        TAKEAWAY: 'Takeaway',
+                        DELIVERY: 'Delivery',
+                    };
+                    const friendlyLabel = labelMap[applicable] || applicable;
+                    throw new Error(`Coupon "${cleanCode}" is only valid for ${friendlyLabel} orders.`);
+                }
+            }
+
+            if (offerData.discount_type === 'percentage') {
+                let disc = (subtotal * Number(offerData.discount_value)) / 100;
+                if (offerData.max_discount != null) {
+                    disc = Math.min(disc, Number(offerData.max_discount));
+                }
+                authoritativeDiscount = disc;
+            } else {
+                authoritativeDiscount = Number(offerData.discount_value || 0);
+            }
+            authoritativeDiscount = ceil2(Math.min(authoritativeDiscount, subtotal));
+        }
+
+        const finalTotal = ceil2(Math.max(0, subtotal + gstAmount + deliveryFee - authoritativeDiscount));
+
         const { error } = await supabase
             .from('orders')
             .update({
-                coupon_code: couponCode,
-                discount_amount: ceil2(authoritativeDiscount),
-                total_amount: ceil2(newTotal)
+                coupon_code: cleanCode,
+                discount_amount: authoritativeDiscount,
+                gst_amount: gstAmount,
+                cgst_amount: cgstAmount,
+                sgst_amount: sgstAmount,
+                total_amount: finalTotal,
             })
             .eq('id', orderId)
             .eq('restaurant_id', actualRestaurantId);
@@ -3725,7 +3786,17 @@ export const OrderService = {
             console.error('Error updating order coupon:', error);
             throw error;
         }
-        return true;
+
+        return {
+            id: orderId,
+            coupon_code: cleanCode,
+            discount_amount: authoritativeDiscount,
+            gst_amount: gstAmount,
+            cgst_amount: cgstAmount,
+            sgst_amount: sgstAmount,
+            subtotal,
+            total_amount: finalTotal,
+        };
     },
 
     /**

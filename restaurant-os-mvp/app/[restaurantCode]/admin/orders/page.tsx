@@ -23,6 +23,7 @@ import { useEntitlements } from '@/hooks/useEntitlements';
 import { useAdminUpgradeModal } from '@/context/AdminUpgradeModalContext';
 import { OrderService, Order, OrderStatus } from '@/services/orders.service';
 import OrderDetailsModal from '@/components/admin/OrderDetailsModal';
+import { calculateOrderPricing } from '@/lib/pricing';
 import TakeawayHandoverModal from '@/components/admin/TakeawayHandoverModal';
 import SharedComboCard from '@/components/shared/SharedComboCard';
 import { isComboItem, parseComboSubItems } from '@/lib/combo-utils';
@@ -379,17 +380,7 @@ export default function LiveOrders() {
     const round2 = ceil2;
 
     const calculateOrderTotal = (order: Order) => {
-        if (order.total_amount != null && Number(order.total_amount) > 0) {
-            return round2(Number(order.total_amount));
-        }
-        const itemsTotal = (order.items || []).reduce(
-            (sum, it) => sum + ((Number(it.price) || Number((it as any).price_at_time) || 0) * (Number(it.quantity) || 1)), 
-            0
-        );
-        const tax = Number(order.gst_amount || (Number(order.cgst_amount || 0) + Number(order.sgst_amount || 0)) || 0);
-        const delivery = Number((order as any).delivery_fee || 0);
-        const discount = Number(order.discount_amount || 0);
-        return round2(Math.max(0, itemsTotal + tax + delivery - discount));
+        return calculateOrderPricing(order).finalTotal;
     };
 
     // Channel Counts
@@ -756,7 +747,7 @@ export default function LiveOrders() {
                                                 </div>
                                                 {item.discount_amount != null && Number(item.discount_amount) > 0 && (
                                                     <span className="text-[10px] text-emerald-600 block font-semibold">
-                                                        (-{formatCurrency(item.discount_amount)} off)
+                                                        (-{formatCurrency(item.discount_amount)} off{item.coupon_code ? ` • ${item.coupon_code}` : ''})
                                                     </span>
                                                 )}
                                             </td>
@@ -1046,7 +1037,7 @@ export default function LiveOrders() {
                                                 )}
                                                 {item.discount_amount != null && Number(item.discount_amount) > 0 && (
                                                     <span className="text-[10px] text-emerald-600 block font-semibold">
-                                                        (-{formatCurrency(item.discount_amount)} off)
+                                                        (-{formatCurrency(item.discount_amount)} off{item.coupon_code ? ` • ${item.coupon_code}` : ''})
                                                     </span>
                                                 )}
                                             </td>
