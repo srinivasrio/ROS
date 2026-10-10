@@ -83,20 +83,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const [tableNumber, setTableNumberState] = useState<string | null>(null);
 
     const setTableNumber = useCallback((newTable: string | null) => {
-        setTableNumberState(prev => {
-            if (prev && newTable) {
-                const normPrev = String(prev).replace(/^table\s*/i, '').trim().toLowerCase();
-                const normNext = String(newTable).replace(/^table\s*/i, '').trim().toLowerCase();
-                if (normPrev && normNext && normPrev !== normNext) {
-                    // Table switched to an entirely different table! Wipe previous table's cart.
-                    setCart({});
-                    try {
-                        localStorage.removeItem('customer_cart');
-                    } catch {}
-                }
-            }
-            return newTable;
-        });
+        setTableNumberState(newTable);
     }, []);
 
     // Load cart from localStorage on mount

@@ -96,6 +96,10 @@ export default function CustomerMobileEntry({
     } | null>(null);
     const [otherActiveSession, setOtherActiveSession] = useState<{
         tableNumber: string;
+        tableToken?: string | null;
+        sessionId?: string;
+        homeUrl?: string | null;
+        restaurantCode?: string | null;
         isHost?: boolean;
     } | null>(null);
 
@@ -619,17 +623,17 @@ export default function CustomerMobileEntry({
 
     // Customer is already connected to another table in this restaurant
     if (otherActiveSession) {
+        const effectiveRest = otherActiveSession.restaurantCode || restaurantCode || targetRestaurantId;
         return (
             <CustomerConnectedOtherTableScreen
-                restaurantCode={restaurantCode}
+                restaurantCode={effectiveRest}
                 currentTableNumber={tableFromUrl}
                 activeTableNumber={otherActiveSession.tableNumber}
+                activeTableToken={otherActiveSession.tableToken || undefined}
+                activeSessionId={otherActiveSession.sessionId}
+                activeHomeUrl={otherActiveSession.homeUrl || undefined}
                 isHost={otherActiveSession.isHost}
                 customerMobile={verifiedCustomer?.mobile || mobile}
-                onSwitched={() => {
-                    setOtherActiveSession(null);
-                    window.location.reload();
-                }}
             />
         );
     }

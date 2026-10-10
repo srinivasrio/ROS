@@ -13,6 +13,59 @@ function maskPhone(phone: string): string {
     return `+91 ******${c.slice(-4)}`;
 }
 
+async function buildOtherSessionPayload(
+    session: any,
+    restaurantId: string,
+    canonicalRestaurantId: string,
+    isHost: boolean,
+    hostName: string
+) {
+    const tableNum = String(session.table_number || '');
+    let tableToken: string | null = session.table_token || null;
+
+    if (!tableToken && tableNum) {
+        const { data: tRow } = await supabaseAdmin
+            .from('tables')
+            .select('table_token')
+            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
+            .eq('table_number', tableNum)
+            .maybeSingle();
+        if (tRow?.table_token) {
+            tableToken = tRow.table_token;
+        }
+    }
+
+    let restaurantSlug: string | null = null;
+    const { data: prof } = await supabaseAdmin
+        .from('restaurant_profile')
+        .select('slug')
+        .in('restaurant_id', [restaurantId, canonicalRestaurantId])
+        .maybeSingle();
+    if (prof?.slug) {
+        restaurantSlug = prof.slug;
+    }
+
+    const restCode = restaurantSlug || canonicalRestaurantId || restaurantId;
+    let homeUrl = '';
+    if (tableToken) {
+        homeUrl = `/customer/t/${tableToken}/home`;
+    } else if (restCode && tableNum) {
+        homeUrl = `/${restCode}/customer/home/${encodeURIComponent(tableNum)}`;
+    }
+
+    return {
+        sessionId: session.id,
+        tableNumber: tableNum,
+        tableToken: tableToken,
+        restaurantId: canonicalRestaurantId,
+        restaurantSlug: restaurantSlug,
+        restaurantCode: restCode,
+        homeUrl: homeUrl,
+        isHost: isHost,
+        hostName: hostName || 'Table Host',
+    };
+}
+
 /**
  * GET /api/customer/table-session/active
  * Check if an active dining session exists for this table.
@@ -75,15 +128,17 @@ export async function GET(req: NextRequest) {
                 .maybeSingle();
 
             if (otherHostSession && String(otherHostSession.table_number) !== String(resolvedTableNumber)) {
+                const otherPayload = await buildOtherSessionPayload(
+                    otherHostSession,
+                    restaurantId,
+                    canonicalRestaurantId,
+                    true,
+                    otherHostSession.host_customer_name
+                );
                 return NextResponse.json({
                     hasActiveSession: true,
                     customerHasOtherActiveSession: true,
-                    otherSession: {
-                        sessionId: otherHostSession.id,
-                        tableNumber: otherHostSession.table_number,
-                        isHost: true,
-                        hostName: otherHostSession.host_customer_name,
-                    },
+                    otherSession: otherPayload,
                     isAuthorized: false,
                     isHost: false,
                     tableNumber: resolvedTableNumber,
@@ -102,15 +157,17 @@ export async function GET(req: NextRequest) {
 
             if (otherMemberReq && String(otherMemberReq.table_active_sessions?.table_number) !== String(resolvedTableNumber)) {
                 const otherTbl = otherMemberReq.table_active_sessions?.table_number;
+                const otherPayload = await buildOtherSessionPayload(
+                    otherMemberReq.table_active_sessions,
+                    restaurantId,
+                    canonicalRestaurantId,
+                    false,
+                    otherMemberReq.table_active_sessions?.host_customer_name
+                );
                 return NextResponse.json({
                     hasActiveSession: true,
                     customerHasOtherActiveSession: true,
-                    otherSession: {
-                        sessionId: otherMemberReq.table_active_sessions?.id,
-                        tableNumber: otherTbl,
-                        isHost: false,
-                        hostName: otherMemberReq.table_active_sessions?.host_customer_name,
-                    },
+                    otherSession: otherPayload,
                     isAuthorized: false,
                     isHost: false,
                     tableNumber: resolvedTableNumber,
@@ -120,12 +177,23 @@ export async function GET(req: NextRequest) {
         }
 
         // Query by canonical ID or slug, and by table_number or table_token
-        let { data: session, error } = await supabaseAdmin
+        let sessionQuery = supabaseAdmin
             .from('table_active_sessions')
             .select('*')
-            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
-            .or(`table_number.eq.${resolvedTableNumber},table_token.eq.${tableNumber},table_number.eq.${tableNumber}`)
-            .eq('is_active', true)
+            .in('restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
+            .eq('is_active', true);
+
+        const orConditions: string[] = [];
+        if (resolvedTableNumber) orConditions.push(`table_number.eq.${resolvedTableNumber}`);
+        if (tableNumber && tableNumber !== resolvedTableNumber) {
+            orConditions.push(`table_token.eq.${tableNumber}`);
+            orConditions.push(`table_number.eq.${tableNumber}`);
+        }
+        if (orConditions.length > 0) {
+            sessionQuery = sessionQuery.or(orConditions.join(','));
+        }
+
+        let { data: session, error } = await sessionQuery
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -241,15 +309,17 @@ export async function POST(req: NextRequest) {
             .maybeSingle();
 
         if (otherHostSession && String(otherHostSession.table_number) !== String(resolvedTableNumber)) {
+            const otherPayload = await buildOtherSessionPayload(
+                otherHostSession,
+                restaurantId,
+                canonicalRestaurantId,
+                true,
+                otherHostSession.host_customer_name
+            );
             return NextResponse.json({
                 error: `You already have an active session at Table ${otherHostSession.table_number}`,
                 customerHasOtherActiveSession: true,
-                otherSession: {
-                    sessionId: otherHostSession.id,
-                    tableNumber: otherHostSession.table_number,
-                    isHost: true,
-                    hostName: otherHostSession.host_customer_name,
-                },
+                otherSession: otherPayload,
             }, { status: 409 });
         }
 
@@ -264,15 +334,17 @@ export async function POST(req: NextRequest) {
 
         if (otherMemberReq && String(otherMemberReq.table_active_sessions?.table_number) !== String(resolvedTableNumber)) {
             const otherTbl = otherMemberReq.table_active_sessions?.table_number;
+            const otherPayload = await buildOtherSessionPayload(
+                otherMemberReq.table_active_sessions,
+                restaurantId,
+                canonicalRestaurantId,
+                false,
+                otherMemberReq.table_active_sessions?.host_customer_name
+            );
             return NextResponse.json({
                 error: `You are already an approved member of Table ${otherTbl}`,
                 customerHasOtherActiveSession: true,
-                otherSession: {
-                    sessionId: otherMemberReq.table_active_sessions?.id,
-                    tableNumber: otherTbl,
-                    isHost: false,
-                    hostName: otherMemberReq.table_active_sessions?.host_customer_name,
-                },
+                otherSession: otherPayload,
             }, { status: 409 });
         }
 
