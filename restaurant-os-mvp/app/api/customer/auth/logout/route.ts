@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Apply lifecycle rules: release membership, expire empty session if eligible, preserve if protected
-        let lifecycleResult = { membershipReleased: false, sessionExpired: false, sessionPreserved: false, reasons: [] as string[] };
+        let lifecycleResult: { membershipReleased: boolean; sessionExpired: boolean; sessionPreserved: boolean; reasons?: string[] } = { membershipReleased: false, sessionExpired: false, sessionPreserved: false, reasons: [] };
         if (customerMobile && (resolvedId || restaurantId)) {
             try {
                 lifecycleResult = await TableSessionLifecycleService.handleCustomerLogout(

@@ -76,20 +76,16 @@ const flowNodes: FlowNode[] = [
 ];
 
 const SolutionSection = () => (
-  <section id="solution" className="relative py-16 md:py-28 overflow-hidden bg-background">
-    {/* Subtle gradient background glow */}
-    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-purple-500/5 rounded-full blur-[200px] pointer-events-none" />
+  <section id="solution" className="relative py-16 md:py-28 overflow-hidden bg-transparent">
+    {/* Atmospheric radial glow */}
+    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-[#8278FF]/10 rounded-full blur-[200px] pointer-events-none" />
 
     <div className="relative z-10 max-w-6xl mx-auto px-4 md:px-6">
       <RevealMotion className="text-center mb-14 md:mb-20">
-        <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-500/10 text-purple-600 border border-purple-500/20 mb-3">
-          <Sparkles className="w-3.5 h-3.5" />
-          The Unified Architecture
-        </span>
-        <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight mt-2 text-foreground">
+        <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight text-slate-900">
           Working of Dine in one
         </h2>
-        <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto mt-3">
+        <p className="text-sm md:text-base text-slate-600 max-w-2xl mx-auto mt-3 font-medium">
           One continuous data pipeline connecting customers, dining floor, kitchen stations, delivery fleets, and management in real time.
         </p>
       </RevealMotion>
@@ -105,14 +101,17 @@ const SolutionSection = () => (
               viewport={{ once: true }}
               transition={{ duration: 0.4, delay: i * 0.08 }}
               whileHover={{ y: -6, scale: 1.03 }}
-              className="relative p-4 rounded-2xl bg-white/90 dark:bg-neutral-900/90 border border-border/70 shadow-sm hover:shadow-md transition-all flex flex-col justify-between text-left group"
+              className="relative p-4 rounded-3xl liquid-glass-surface liquid-glass-interactive flex flex-col justify-between text-left group overflow-hidden border border-slate-200/80 shadow-xs"
             >
+              {/* Subtle ambient corner glow reflecting node color */}
+              <div className={`absolute -top-10 -right-10 w-24 h-24 bg-gradient-to-tr ${node.color} opacity-15 rounded-full blur-xl group-hover:opacity-30 transition-opacity`} />
+
               <div>
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block mb-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
                   {node.badge}
                 </span>
 
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-tr ${node.color} flex items-center justify-center p-2 mb-3 shadow-md group-hover:scale-105 transition-transform`}>
+                <div className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${node.color} flex items-center justify-center p-2 mb-3 shadow-md group-hover:scale-110 transition-all`}>
                   {node.iconSrc ? (
                     <img src={node.iconSrc} alt={node.role} loading="lazy" decoding="async" className="w-7 h-7 object-contain" />
                   ) : (
@@ -120,16 +119,16 @@ const SolutionSection = () => (
                   )}
                 </div>
 
-                <h3 className="text-sm font-bold text-foreground">
+                <h3 className="text-sm font-bold text-slate-900 group-hover:text-[#FF6B6B] transition-colors">
                   {node.role}
                 </h3>
-                <p className="text-[11px] text-muted-foreground font-medium mt-0.5">
+                <p className="text-[11px] text-slate-600 font-medium mt-0.5">
                   {node.subtitle}
                 </p>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-border/40">
-                <p className="text-[10px] text-muted-foreground line-clamp-2">
+              <div className="mt-4 pt-3 border-t border-slate-200/80">
+                <p className="text-[10px] text-slate-500 line-clamp-2">
                   {node.action}
                 </p>
               </div>

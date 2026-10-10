@@ -839,8 +839,8 @@ export default function OrderStatusPage() {
                 {(() => {
                     const pricing = calculateOrderPricing(order);
                     const formatAmount = (num: number) => num.toFixed(2);
-                    const amountPaid = pricing.ceil2(Number(order.amount_paid || 0));
-                    const balanceDue = pricing.ceil2(Math.max(0, pricing.finalTotal - amountPaid));
+                    const amountPaid = pricing.amountPaid;
+                    const balanceDue = pricing.balanceDue;
 
                     const { itemsSubtotal, gstAmount, cgstAmount, sgstAmount, deliveryFee, discountAmount, couponCode, finalTotal } = pricing;
 

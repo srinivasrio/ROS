@@ -193,18 +193,18 @@ function FeatureCard({ feature, index }: { feature: SaasFeature; index: number }
           scale: 1.015,
           transition: { type: "spring", stiffness: 400, damping: 25 },
         }}
-        className="group relative rounded-3xl h-full min-h-[300px] cursor-default overflow-hidden border border-border/80 bg-white/90 dark:bg-neutral-900/90 backdrop-blur-xl shadow-xs transition-shadow duration-500 hover:shadow-xl"
+        className="group relative rounded-3xl h-full min-h-[300px] cursor-default overflow-hidden border border-slate-200/85 liquid-glass-surface shadow-xs transition-all duration-500 hover:border-slate-300 hover:shadow-[0_16px_40px_rgba(15,23,42,0.08),inset_0_1px_2px_rgba(255,255,255,1)]"
       >
         {/* Subtle Ambient Background Gradient Tint */}
-        <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} opacity-70 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none`} />
+        <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} opacity-20 group-hover:opacity-40 transition-opacity duration-300 pointer-events-none`} />
 
-        {/* Dynamic Glow Cursor Light */}
+        {/* Dynamic Specular Cursor Glow Light */}
         <motion.div
           className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
           style={{
             background: useTransform(
               [glowX, glowY],
-              ([x, y]) => `radial-gradient(circle at ${x}% ${y}%, rgba(255,255,255,0.3) 0%, transparent 65%)`
+              ([x, y]) => `radial-gradient(circle at ${x}% ${y}%, rgba(255,255,255,0.4) 0%, transparent 60%)`
             ),
           }}
         />
@@ -214,14 +214,14 @@ function FeatureCard({ feature, index }: { feature: SaasFeature; index: number }
             {/* Top Row: Category Tag + Emoji Icon */}
             <div className="flex items-center justify-between mb-4">
               <span 
-                className="text-[11px] font-bold tracking-wider px-3 py-1 rounded-full border border-border/60 bg-white/80 dark:bg-neutral-800/80 shadow-2xs"
+                className="text-[11px] font-bold tracking-wider px-3 py-1 rounded-full border border-slate-200 liquid-glass-clear shadow-2xs"
                 style={{ color: feature.accentColor }}
               >
                 {feature.badge}
               </span>
 
               <motion.div
-                className="text-2xl md:text-3xl"
+                className="text-2xl md:text-3xl filter drop-shadow-[0_2px_6px_rgba(0,0,0,0.08)]"
                 animate={isHovered ? { scale: 1.15, rotate: [0, -8, 8, 0] } : { scale: 1, rotate: 0 }}
                 transition={{ duration: 0.4 }}
               >
@@ -230,20 +230,20 @@ function FeatureCard({ feature, index }: { feature: SaasFeature; index: number }
             </div>
 
             {/* Feature Title */}
-            <h3 className="font-extrabold text-lg md:text-xl mb-2 text-foreground group-hover:text-primary transition-colors">
+            <h3 className="font-extrabold text-lg md:text-xl mb-2 text-slate-900 group-hover:text-[#FF6B6B] transition-colors">
               {feature.title}
             </h3>
 
             {/* Feature Description */}
-            <p className="text-xs md:text-sm leading-relaxed text-muted-foreground font-medium mb-4">
+            <p className="text-xs md:text-sm leading-relaxed text-slate-600 font-medium mb-4">
               {feature.desc}
             </p>
 
             {/* Feature Highlights Bullet Checklist */}
-            <ul className="space-y-1.5 border-t border-border/50 pt-3">
+            <ul className="space-y-1.5 border-t border-slate-200/80 pt-3">
               {feature.highlights.map((h) => (
-                <li key={h} className="text-[11px] font-semibold text-foreground/80 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: feature.accentColor }} />
+                <li key={h} className="text-[11px] font-semibold text-slate-700 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full shadow-[0_0_6px_currentColor]" style={{ backgroundColor: feature.accentColor }} />
                   <span>{h}</span>
                 </li>
               ))}
@@ -251,7 +251,7 @@ function FeatureCard({ feature, index }: { feature: SaasFeature; index: number }
           </div>
 
           {/* Bottom Interactive Progress Bar */}
-          <div className="mt-5 h-[2px] rounded-full bg-border/40 overflow-hidden">
+          <div className="mt-5 h-[2px] rounded-full bg-slate-200 overflow-hidden">
             <motion.div
               className="h-full rounded-full"
               style={{ backgroundColor: feature.accentColor }}
@@ -267,19 +267,19 @@ function FeatureCard({ feature, index }: { feature: SaasFeature; index: number }
 }
 
 const FeaturesGrid = () => (
-  <section id="features" className="py-16 md:py-28 bg-background relative overflow-hidden">
-    <div className="absolute top-1/3 left-0 w-80 h-80 bg-[#4ECDC4]/5 rounded-full blur-[140px] pointer-events-none" />
-    <div className="absolute bottom-1/3 right-0 w-80 h-80 bg-purple-500/5 rounded-full blur-[140px] pointer-events-none" />
+  <section id="features" className="py-16 md:py-28 bg-transparent relative overflow-hidden">
+    <div className="absolute top-1/3 left-0 w-80 h-80 bg-[#4ECDC4]/8 rounded-full blur-[140px] pointer-events-none" />
+    <div className="absolute bottom-1/3 right-0 w-80 h-80 bg-[#8278FF]/8 rounded-full blur-[140px] pointer-events-none" />
 
     <div className="max-w-6xl mx-auto px-4 md:px-6 relative z-10">
       <RevealMotion className="text-center mb-12 md:mb-18">
-        <span className="gradient-text-coral text-xs md:text-sm font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-[#FF6B6B]/10 border border-[#FF6B6B]/20">
+        <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs md:text-sm font-bold uppercase tracking-widest liquid-glass-pill text-[#FF6B6B] border-slate-200 mb-3 shadow-2xs">
           The Dine In One SaaS Ecosystem
         </span>
-        <h2 className="text-3xl md:text-5xl font-extrabold mt-4 text-foreground tracking-tight">
+        <h2 className="text-3xl md:text-5xl font-extrabold mt-4 text-slate-900 tracking-tight">
           The Only Platform Your Restaurant Needs
         </h2>
-        <p className="text-sm md:text-base text-muted-foreground max-w-2xl mx-auto mt-3">
+        <p className="text-sm md:text-base text-slate-600 max-w-2xl mx-auto mt-3 font-medium">
           Every specialized panel, custom delivery fleet, recipe costing engine, and live billing capability — engineered into one cohesive ecosystem.
         </p>
       </RevealMotion>

@@ -126,6 +126,14 @@ export async function middleware(request: NextRequest) {
         return new NextResponse(null, { status: 404 });
     }
 
+    // Fast-path for landing page on apex or localhost/LAN:
+    if (!subdomain && path === '/') {
+        const superAdminCookie = request.cookies.get('dine_superadmin_token') || request.cookies.get('superadmin_token');
+        if (!superAdminCookie) {
+            return NextResponse.next();
+        }
+    }
+
     // Public Marketing Website Isolation:
     // Only applies to production marketing apex domain (dineinone.com).
     // On localhost, IP addresses, and dedicated subdomains, internal panels and logins remain accessible.

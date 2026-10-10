@@ -26,8 +26,8 @@ import {
 } from "lucide-react";
 import LottiePlayer from "./LottiePlayer";
 
-// Dynamic words cycling in hero headline: "smartest" -> "Best" -> "ultimate" -> "perfect"
-const dynamicHeadlineWords = ["smartest", "Best", "ultimate", "perfect"];
+// Dynamic words cycling in hero headline: "Best" -> "ultimate" -> "perfect" -> "smartest"
+const dynamicHeadlineWords = ["Best", "ultimate", "perfect", "smartest"];
 
 export interface PipelineStep {
   step: number;
@@ -192,108 +192,84 @@ const ContinuousLottieHeadline: React.FC<ContinuousLottieHeadlineProps> = ({
   shouldReduceMotion = false,
 }) => {
   const [dynWordIdx, setDynWordIdx] = useState(0);
+  const [currentText, setCurrentText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setDynWordIdx((prev) => (prev + 1) % dynamicHeadlineWords.length);
-    }, 2500);
-    return () => clearInterval(timer);
-  }, []);
+    if (shouldReduceMotion) {
+      setCurrentText(dynamicHeadlineWords[dynWordIdx]);
+      return;
+    }
+
+    const targetWord = dynamicHeadlineWords[dynWordIdx];
+    const typingSpeed = isDeleting ? 65 : 120;
+
+    if (!isDeleting && currentText === targetWord) {
+      // Pause on completed word
+      const timer = setTimeout(() => setIsDeleting(true), 1800);
+      return () => clearTimeout(timer);
+    }
+
+    if (isDeleting && currentText === "") {
+      // Completed deleting, advance to next word
+      const timer = setTimeout(() => {
+        setIsDeleting(false);
+        setDynWordIdx((prev) => (prev + 1) % dynamicHeadlineWords.length);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+
+    const timer = setTimeout(() => {
+      setCurrentText((prev) =>
+        isDeleting
+          ? targetWord.slice(0, prev.length - 1)
+          : targetWord.slice(0, prev.length + 1)
+      );
+    }, typingSpeed);
+
+    return () => clearTimeout(timer);
+  }, [currentText, isDeleting, dynWordIdx, shouldReduceMotion]);
 
   return (
     <div className="relative mb-5 sm:mb-6 select-none">
-      {/* Ambient glowing aura that continuously breathes */}
-      <motion.div 
-        animate={shouldReduceMotion ? {} : {
-          opacity: [0.35, 0.65, 0.35],
-          scale: [0.96, 1.05, 0.96],
-        }}
-        transition={{
-          duration: 4,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-        className="absolute -top-6 -left-6 w-80 sm:w-96 h-36 bg-gradient-to-r from-[#FF6B6B]/25 via-[#A855F7]/20 to-[#4ECDC4]/25 blur-3xl rounded-full pointer-events-none"
+      {/* Ambient glowing aura */}
+      <div 
+        className="absolute -top-6 -left-6 w-80 sm:w-96 h-36 bg-gradient-to-r from-[#FF6B6B]/20 via-[#A855F7]/15 to-[#4ECDC4]/20 blur-3xl rounded-full pointer-events-none"
       />
 
       <h1 className={`${
         isDesktop 
-          ? "text-4xl sm:text-5xl md:text-6xl lg:text-[3.5rem] xl:text-[4.15rem]" 
+          ? "text-4xl sm:text-5xl md:text-6xl lg:text-[3.4rem] xl:text-[4rem]" 
           : "text-3xl sm:text-4xl"
-      } font-black leading-[1.08] tracking-tight text-neutral-900 relative z-10`}>
-        <motion.span
-          animate={shouldReduceMotion ? {} : { y: [0, -3.5, 0] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-          className="inline-block mr-[0.22em] text-neutral-900"
-        >
-          The
-        </motion.span>
+      } font-black leading-[1.12] tracking-tight text-slate-900 relative z-10 whitespace-normal`}>
+        {/* First line: The best (including other words) */}
+        <div className="block">
+          <span className="mr-[0.22em] text-slate-900">
+            The
+          </span>
+          <span className="inline-block relative text-left min-w-[5.2ch] sm:min-w-[5.2ch] md:min-w-[5.5ch] align-baseline">
+            <span className="bg-gradient-to-r from-[#FF6B6B] via-[#FF8E53] via-[#FFAE73] to-[#FF6B6B] bg-[length:200%_auto] bg-clip-text text-transparent font-black whitespace-nowrap">
+              {currentText}
+            </span>
+            <span className="inline-block w-[2.5px] h-[0.8em] bg-[#FF6B6B] ml-0.5 animate-pulse align-middle" />
+          </span>
+        </div>
 
-        {/* Dynamic cycling word: smartest -> Best -> ultimate -> perfect */}
-        <span className="inline-block relative mr-[0.22em]">
-          <AnimatePresence mode="wait">
-            <motion.span
-              key={dynamicHeadlineWords[dynWordIdx]}
-              initial={{ opacity: 0, y: 16, scale: 0.92, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -16, scale: 0.92, filter: "blur(4px)" }}
-              transition={{ type: "spring", stiffness: 280, damping: 20 }}
-              className="inline-block relative"
-            >
-              <span className="bg-gradient-to-r from-[#FF6B6B] via-[#FF8E53] via-[#FFAE73] to-[#FF6B6B] bg-[length:200%_auto] bg-clip-text text-transparent animate-[gradient-flow_3.5s_ease_infinite] drop-shadow-xs font-black">
-                {dynamicHeadlineWords[dynWordIdx]}
-              </span>
-
-              {/* Lottie Starburst Sparkle 1 */}
-              <motion.span
-                animate={shouldReduceMotion ? {} : {
-                  rotate: [0, 180, 360],
-                  scale: [0.8, 1.25, 0.8],
-                  opacity: [0.65, 1, 0.65],
-                }}
-                transition={{
-                  duration: 2.5,
-                  repeat: Infinity,
-                  ease: "easeInOut",
-                }}
-                className="absolute -top-3 -right-2.5 pointer-events-none text-[#FF8E53] drop-shadow-[0_0_8px_#FF6B6B]"
-              >
-                <svg className="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 0L14.6 9.4L24 12L14.6 14.6L12 24L9.4 14.6L0 12L9.4 9.4L12 0Z" />
-                </svg>
-              </motion.span>
-            </motion.span>
-          </AnimatePresence>
-        </span>
-
-        {/* "decision" highlighted */}
-        <span className="inline-block mr-[0.22em] relative">
-          <span className="bg-gradient-to-r from-[#FF6B6B] via-[#FF8E53] to-[#FF6B6B] bg-clip-text text-transparent font-black">
+        {/* Second line: decision for your restaurant */}
+        <div className="block mt-1 sm:mt-1.5">
+          <span className="bg-gradient-to-r from-[#FF6B6B] via-[#FF8E53] to-[#FF6B6B] bg-clip-text text-transparent font-black mr-[0.22em]">
             decision
           </span>
-        </span>
-
-        <motion.span
-          animate={shouldReduceMotion ? {} : { y: [0, -3.5, 0] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 0.1 }}
-          className="inline-block mr-[0.22em] text-neutral-900"
-        >
-          for
-        </motion.span>
-        <motion.span
-          animate={shouldReduceMotion ? {} : { y: [0, -3.5, 0] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
-          className="inline-block mr-[0.22em] text-neutral-900"
-        >
-          your
-        </motion.span>
-        <motion.span
-          animate={shouldReduceMotion ? {} : { y: [0, -3.5, 0] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
-          className="inline-block text-neutral-900"
-        >
-          restaurant
-        </motion.span>
+          <span className="text-slate-900 mr-[0.22em]">
+            for
+          </span>
+          <span className="text-slate-900 mr-[0.22em]">
+            your
+          </span>
+          <span className="text-slate-900">
+            restaurant
+          </span>
+        </div>
       </h1>
 
       {/* Continuous animated luminous energy beam underneath headline */}
@@ -427,7 +403,7 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
         } bg-neutral-950 border-[2px] border-neutral-800 shadow-[0_22px_55px_rgba(0,0,0,0.35)] ring-1 ring-black/10 flex flex-col justify-between overflow-hidden z-10`}
       >
         {/* Dynamic Island Pill */}
-        <div className={`absolute ${isDesktop ? "top-3 w-20 h-3.5 pr-2" : "top-2 w-16 h-3 pr-1.5"} left-1/2 -translate-x-1/2 bg-neutral-900 rounded-full z-30 flex items-center justify-end`}>
+        <div className={`absolute ${isDesktop ? "top-3 w-20 h-4.5 pr-2" : "top-2 w-18 h-4.5 pr-2"} left-1/2 -translate-x-1/2 bg-neutral-900 rounded-full z-30 flex items-center justify-end`}>
           <div className={`${isDesktop ? "w-2 h-2" : "w-1.5 h-1.5"} rounded-full bg-neutral-800 border border-neutral-700/80`} />
         </div>
 
@@ -453,7 +429,7 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
             {/* Logo Left */}
             <div className="flex items-center gap-1.5">
               <div className={`${isDesktop ? "w-6 h-6" : "w-5 h-5"} rounded-md bg-white p-0.5 border border-neutral-200 shadow-xs flex items-center justify-center shrink-0`}>
-                <img src="/favicon.png" alt="Dine in One" className="w-full h-full object-contain" />
+                <img src="/favicon.png" alt="Dine in One" width={24} height={24} fetchPriority="high" className="w-full h-full object-contain" />
               </div>
               <div className={`${isDesktop ? "text-xs" : "text-[10.5px]"} font-bold leading-none text-neutral-900 flex items-center gap-0.5`}>
                 <span>Dine</span>
@@ -463,17 +439,17 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
             </div>
 
             {/* Table Number Card on Top Right */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <div className={`px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-800 border border-neutral-300 ${isDesktop ? "text-[10px]" : "text-[8px]"} font-bold tracking-tight shadow-xs`}>
                 Table 08
               </div>
-              {/* Phone mini 3-lines menu with minimize capability */}
+              {/* Phone mini menu button with large tap target */}
               <button
                 onClick={() => setPhoneMenuOpen(!phoneMenuOpen)}
-                className="p-1 rounded text-neutral-400 hover:text-neutral-700 transition-colors"
+                className="p-1.5 -m-0.5 rounded text-neutral-500 hover:text-neutral-800 transition-colors touch-manipulation z-30 cursor-pointer"
                 aria-label="Toggle mobile menu"
               >
-                {phoneMenuOpen ? <Minimize2 className="w-3 h-3 text-[#FF6B6B]" /> : <Menu className="w-3 h-3" />}
+                {phoneMenuOpen ? <X className="w-3.5 h-3.5 text-[#FF6B6B]" /> : <Menu className="w-3.5 h-3.5" />}
               </button>
             </div>
           </div>
@@ -488,16 +464,19 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                 className="bg-neutral-50 border-b border-neutral-200 p-2 text-left z-20 shrink-0"
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] font-bold text-neutral-700">Quick Menu</span>
-                  <button
+                  <span className={`${isDesktop ? "text-[11px]" : "text-[10px]"} font-bold text-neutral-700`}>Quick Menu</span>
+                  <motion.button
+                    whileHover={{ scale: 1.15, rotate: 90 }}
+                    whileTap={{ scale: 0.9 }}
+                    transition={{ type: "spring", stiffness: 350, damping: 22 }}
                     onClick={() => setPhoneMenuOpen(false)}
-                    className="inline-flex items-center gap-0.5 text-[8px] font-bold text-[#FF6B6B] bg-white px-1.5 py-0.5 rounded border border-neutral-200"
+                    className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-[#FF6B6B] bg-white rounded-full border border-slate-200/90 shadow-xs cursor-pointer transition-colors"
+                    aria-label="Close menu"
                   >
-                    <Minimize2 className="w-2.5 h-2.5" />
-                    Minimize
-                  </button>
+                    <X className="w-3 h-3 stroke-[2.5]" />
+                  </motion.button>
                 </div>
-                <div className="text-[8px] text-neutral-500 space-y-0.5">
+                <div className={`${isDesktop ? "text-[10px]" : "text-[9px]"} text-neutral-600 space-y-0.5`}>
                   <div>• Starters, Mains, Breads & Beverages</div>
                   <div>• Call Waiter Srinivas / Request Water</div>
                   <div>• Instant Bill & Settlement</div>
@@ -558,7 +537,7 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                   className="flex flex-col justify-between h-full py-0.5 text-left"
                 >
                   <div className={`${isDesktop ? "space-y-1.5" : "space-y-1"}`}>
-                    <div className={`flex items-center justify-between ${isDesktop ? "text-[10px]" : "text-[8px]"} font-bold text-neutral-500 uppercase`}>
+                    <div className={`flex items-center justify-between ${isDesktop ? "text-xs" : "text-[10px]"} font-bold text-neutral-600 uppercase`}>
                       <span>Menu Selection</span>
                       <span className="text-purple-600 font-semibold">Cart (3 items)</span>
                     </div>
@@ -566,35 +545,37 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                     {sampleFoodItems.map((item) => (
                       <div
                         key={item.name}
-                        className={`${isDesktop ? "p-1.5 text-xs" : "p-1 text-[9px]"} rounded-lg bg-neutral-50 border border-neutral-200/80 flex items-center justify-between gap-2`}
+                        className={`${isDesktop ? "p-1.5 text-xs" : "p-1.5 text-[10.5px]"} rounded-lg bg-neutral-50 border border-neutral-200/80 flex items-center justify-between gap-2`}
                       >
                         <div className="flex items-center gap-1.5 min-w-0">
                           <img
                             src={item.image}
                             alt={item.name}
+                            loading="lazy"
+                            decoding="async"
                             className={`${isDesktop ? "w-7 h-7 rounded-md" : "w-6 h-6 rounded"} object-cover border border-neutral-200 shrink-0`}
                           />
-                          <span className="font-semibold text-neutral-800 truncate">
+                          <span className={`font-semibold text-neutral-800 truncate ${isDesktop ? "text-xs" : "text-[10.5px]"}`}>
                             {item.name} <span className="text-[#8B5CF6] font-bold">×{item.qty}</span>
                           </span>
                         </div>
-                        <span className="font-mono font-bold text-neutral-900 shrink-0">
+                        <span className={`font-mono font-bold text-neutral-900 shrink-0 ${isDesktop ? "text-xs" : "text-[10.5px]"}`}>
                           ₹{item.price}
                         </span>
                       </div>
                     ))}
 
-                    <div className={`${isDesktop ? "px-2 py-1 text-[9px]" : "px-1.5 py-0.5 text-[8px]"} rounded-md bg-amber-50 border border-amber-200 text-amber-700 font-medium truncate`}>
+                    <div className={`${isDesktop ? "px-2 py-1 text-[9.5px]" : "px-1.5 py-0.5 text-[8.5px]"} rounded-md bg-amber-50 border border-amber-200 text-amber-700 font-medium truncate`}>
                       Note: Less spicy & extra napkins
                     </div>
                   </div>
 
                   <div className={`pt-1.5 border-t border-neutral-200 ${isDesktop ? "mt-1.5" : "mt-1"}`}>
-                    <div className={`flex items-center justify-between ${isDesktop ? "text-xs mb-1" : "text-[9px] mb-1"}`}>
+                    <div className={`flex items-center justify-between ${isDesktop ? "text-xs mb-1" : "text-[9.5px] mb-1"}`}>
                       <span className="text-neutral-500 font-medium">Subtotal</span>
                       <span className={`font-mono font-black text-neutral-900 ${isDesktop ? "text-sm" : ""}`}>₹680</span>
                     </div>
-                    <div className={`w-full ${isDesktop ? "py-1.5 text-xs" : "py-1 text-[9px]"} rounded-lg bg-[#8B5CF6] text-white font-bold text-center shadow-xs`}>
+                    <div className={`w-full ${isDesktop ? "py-1.5 text-xs" : "py-1.5 text-[10px]"} rounded-lg bg-[#8B5CF6] text-white font-bold text-center shadow-xs`}>
                       Order Confirmed ✓
                     </div>
                   </div>
@@ -649,6 +630,8 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                             <img
                               src={item.image}
                               alt={item.name}
+                              loading="lazy"
+                              decoding="async"
                               className={`${isDesktop ? "w-7 h-7 rounded-md" : "w-6 h-6 rounded"} object-cover border border-neutral-200 shrink-0`}
                             />
                             <div className="min-w-0">
@@ -735,6 +718,8 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                           <img
                             src={item.image}
                             alt={item.name}
+                            loading="lazy"
+                            decoding="async"
                             className={`${isDesktop ? "w-7 h-7 rounded-md" : "w-6 h-6 rounded"} object-cover border border-emerald-300 shrink-0`}
                           />
                           <span className={`${isDesktop ? "text-[11px]" : "text-[9px]"} font-bold text-neutral-900 truncate`}>
@@ -837,6 +822,8 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                             <img
                               src={item.image}
                               alt={item.name}
+                              loading="lazy"
+                              decoding="async"
                               className={`${isDesktop ? "w-8 h-8 rounded-md" : "w-6 h-6 rounded"} object-cover border border-cyan-200 shrink-0`}
                             />
                             <div className="min-w-0">
@@ -881,20 +868,20 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                 >
                   {!paymentDone ? (
                     <>
-                      {/* Increased Height Authentic Restaurant Thermal Bill */}
-                      <div className={`${isDesktop ? "p-2.5" : "p-2"} bg-amber-50/40 rounded-xl border-2 border-dashed border-neutral-300 font-mono relative overflow-hidden shadow-xs flex-1 flex flex-col justify-between`}>
+                      {/* Compact Authentic Restaurant Thermal Bill */}
+                      <div className={`${isDesktop ? "p-2" : "p-1.5"} bg-amber-50/40 rounded-xl border-2 border-dashed border-neutral-300 font-mono relative overflow-hidden shadow-xs flex flex-col justify-between`}>
                         {/* Bill Header */}
-                        <div className="text-center pb-1 border-b border-dashed border-neutral-300">
-                          <div className={`${isDesktop ? "text-xs" : "text-[9.5px]"} font-black text-neutral-900 tracking-wider uppercase`}>
+                        <div className="text-center pb-0.5 border-b border-dashed border-neutral-300">
+                          <div className={`${isDesktop ? "text-[11px]" : "text-[9px]"} font-black text-neutral-900 tracking-wider uppercase`}>
                             DINE IN ONE BISTRO
                           </div>
-                          <div className={`${isDesktop ? "text-[8.5px]" : "text-[7px]"} text-neutral-500`}>
+                          <div className={`${isDesktop ? "text-[8px]" : "text-[6.5px]"} text-neutral-500`}>
                             Table 08 • Bill #DIO-108 • 08 Oct
                           </div>
                         </div>
 
                         {/* Bill Items List */}
-                        <div className={`${isDesktop ? "text-[9.5px] space-y-1 my-1" : "text-[7.5px] space-y-0.5 my-0.5"} text-neutral-700`}>
+                        <div className={`${isDesktop ? "text-[9px] space-y-0.5 my-0.5" : "text-[7.5px] space-y-0.5 my-0.5"} text-neutral-700`}>
                           <div className="flex justify-between">
                             <span>2x Paneer Tikka</span>
                             <span className="font-bold">₹360.00</span>
@@ -914,20 +901,20 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                         </div>
 
                         {/* Coupon Option Label with Button */}
-                        <div className="flex items-center justify-between p-1 rounded-md bg-white border border-dashed border-indigo-200 my-1">
+                        <div className="flex items-center justify-between p-0.5 px-1 rounded-md bg-white border border-dashed border-indigo-200 my-0.5">
                           <div className="flex items-center gap-1 min-w-0">
-                            <Tag className="w-3 h-3 text-indigo-600 shrink-0" />
-                            <span className={`${isDesktop ? "text-[8.5px]" : "text-[7px]"} font-bold text-neutral-700 truncate`}>
+                            <Tag className="w-2.5 h-2.5 text-indigo-600 shrink-0" />
+                            <span className={`${isDesktop ? "text-[8px]" : "text-[6.5px]"} font-bold text-neutral-700 truncate`}>
                               Add Coupon: <span className="text-indigo-600">DINE10</span>
                             </span>
                           </div>
-                          <button className={`px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 ${isDesktop ? "text-[8px]" : "text-[6.5px]"} font-black border border-indigo-200`}>
+                          <button className={`px-1 py-0.2 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 ${isDesktop ? "text-[7.5px]" : "text-[6px]"} font-black border border-indigo-200`}>
                             Apply
                           </button>
                         </div>
 
                         {/* Taxes and Exact Grand Total */}
-                        <div className={`pt-1 border-t border-dashed border-neutral-300 ${isDesktop ? "text-[9px]" : "text-[7px]"} text-neutral-600`}>
+                        <div className={`pt-0.5 border-t border-dashed border-neutral-300 ${isDesktop ? "text-[8.5px]" : "text-[6.5px]"} text-neutral-600`}>
                           <div className="flex justify-between">
                             <span>Subtotal</span>
                             <span>₹740.00</span>
@@ -936,7 +923,7 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                             <span>CGST + SGST (5%)</span>
                             <span>₹37.00</span>
                           </div>
-                          <div className={`flex justify-between font-black text-neutral-900 pt-0.5 mt-0.5 border-t border-neutral-300 ${isDesktop ? "text-xs" : "text-[9.5px]"}`}>
+                          <div className={`flex justify-between font-black text-neutral-900 pt-0.5 mt-0.5 border-t border-neutral-300 ${isDesktop ? "text-[11px]" : "text-[9px]"}`}>
                             <span>GRAND TOTAL</span>
                             <span className="text-[#6366F1]">₹777.00</span>
                           </div>
@@ -946,7 +933,7 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
                       {/* Pay Button */}
                       <button
                         onClick={() => setShowPaymentModal(true)}
-                        className={`w-full ${isDesktop ? "py-2 text-xs" : "py-1.5 text-[9.5px]"} mt-1.5 rounded-lg bg-[#6366F1] hover:bg-[#4F46E5] text-white font-black text-center shadow-xs flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer`}
+                        className={`w-full ${isDesktop ? "py-1.5 text-xs" : "py-1.5 text-[9px]"} mt-1 rounded-lg bg-[#6366F1] hover:bg-[#4F46E5] text-white font-black text-center shadow-xs flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer`}
                       >
                         <span>Click to Pay ₹777.00 →</span>
                       </button>
@@ -1092,30 +1079,12 @@ const HeroPhoneMockup: React.FC<HeroPhoneMockupProps> = ({
           </div>
 
           {/* Bottom Micro Status Bar */}
-          <div className={`pt-1.5 border-t border-neutral-200 shrink-0`}>
-            <div className={`flex items-center justify-between ${isDesktop ? "text-[10px]" : "text-[8px]"} font-bold text-neutral-500 uppercase`}>
+          <div className="pt-1.5 border-t border-neutral-200 shrink-0">
+            <div className={`flex items-center justify-between ${isDesktop ? "text-[10px]" : "text-[8.5px]"} font-bold text-neutral-500 uppercase`}>
               <span>#DIO-108</span>
               <span className="font-mono font-bold text-[#FF6B6B]">
                 {orderStatusStates[activeStepIndex]}
               </span>
-            </div>
-            <div className="grid grid-cols-7 gap-1 mt-1">
-              {buttonThemes.map((bItem, sIdx) => {
-                const isCurrent = sIdx === activeStepIndex;
-                const isPast = sIdx < activeStepIndex;
-                return (
-                  <div
-                    key={bItem.id}
-                    className={`${isDesktop ? "h-1.5" : "h-1"} rounded-full transition-colors duration-300 ${
-                      isCurrent
-                        ? bItem.barColor
-                        : isPast
-                        ? "bg-emerald-500"
-                        : "bg-neutral-200"
-                    }`}
-                  />
-                );
-              })}
             </div>
           </div>
 
@@ -1165,14 +1134,14 @@ const HeroSection: React.FC = () => {
 
   return (
     <section 
-      className="relative min-h-screen flex items-center justify-center overflow-hidden pt-28 pb-16 px-4 sm:px-6 lg:px-8 bg-white" 
+      className="relative min-h-screen flex items-center justify-center overflow-hidden pt-28 pb-16 px-4 sm:px-6 lg:px-8 bg-transparent" 
       id="hero"
       aria-label="Live Operational Pipeline Hero"
     >
       {/* Background ambient decorative blurs */}
-      <div className="absolute top-10 left-10 w-[450px] h-[450px] bg-[#FF6B6B]/8 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute top-20 right-10 w-[450px] h-[450px] bg-[#4ECDC4]/8 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-purple-500/8 rounded-full blur-[160px] pointer-events-none" />
+      <div className="absolute top-10 left-10 w-[450px] h-[450px] bg-[#FF6B6B]/12 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute top-20 right-10 w-[450px] h-[450px] bg-[#4ECDC4]/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-[#8278FF]/12 rounded-full blur-[160px] pointer-events-none" />
 
       <div className="relative z-10 max-w-7xl mx-auto w-full">
         
@@ -1193,26 +1162,31 @@ const HeroSection: React.FC = () => {
             {/* Continuous Operational Workflow Pipeline */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-neutral-500">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                   Continuous Operational Workflow
                 </span>
                 <button
                   onClick={() => setIsPlaying(!isPlaying)}
-                  className="inline-flex items-center gap-1.5 text-xs text-neutral-600 hover:text-neutral-900 transition-colors font-semibold cursor-pointer px-2.5 py-1 rounded-full bg-neutral-100 hover:bg-neutral-200 border border-neutral-200"
+                  className={`inline-flex items-center gap-1.5 text-xs transition-all font-semibold cursor-pointer px-3 py-1 rounded-full border shadow-xs ${
+                    isPlaying
+                      ? "liquid-glass-btn border-emerald-500/40 text-emerald-700 bg-emerald-50/80"
+                      : "liquid-glass-btn border-slate-200 text-slate-600 hover:text-slate-900"
+                  }`}
                   title={isPlaying ? "Pause auto-progression" : "Play auto-progression"}
                   aria-label={isPlaying ? "Pause pipeline" : "Play pipeline"}
                 >
                   {isPlaying ? (
                     <>
-                      <Pause className="w-3 h-3 text-neutral-600" />
+                      <Pause className="w-3 h-3 text-emerald-600" />
                       <span>Auto Mode: ON</span>
                     </>
                   ) : (
                     <>
-                      <Play className="w-3 h-3 text-emerald-600" />
+                      <Play className="w-3 h-3 text-slate-500" />
                       <span>Auto Mode: OFF</span>
                     </>
                   )}
+                  <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
                 </button>
               </div>
 
@@ -1221,7 +1195,6 @@ const HeroSection: React.FC = () => {
                 {buttonThemes.map((item, idx) => {
                   const Icon = item.icon;
                   const isActive = idx === activeStepIndex;
-                  const isCompleted = idx < activeStepIndex;
 
                   return (
                     <button
@@ -1229,10 +1202,8 @@ const HeroSection: React.FC = () => {
                       onClick={() => handleStepClick(idx)}
                       className={`relative flex flex-col items-start p-2.5 rounded-xl border text-left cursor-pointer overflow-hidden transition-all ${
                         isActive
-                          ? "border-transparent text-white shadow-sm"
-                          : isCompleted
-                          ? "bg-neutral-50 border-neutral-200 hover:border-neutral-300 text-neutral-800"
-                          : "bg-white border-neutral-200 hover:border-neutral-300 text-neutral-500"
+                          ? "border-transparent text-white shadow-lg"
+                          : "liquid-glass-soft border-slate-200/90 text-slate-700 hover:border-slate-300 hover:bg-white/90 hover:text-slate-900"
                       }`}
                     >
                       {/* Smooth Spring Travel Animation From Button to Button */}
@@ -1255,23 +1226,19 @@ const HeroSection: React.FC = () => {
                           <span className={`text-[9.5px] font-bold font-mono px-1 py-0.2 rounded transition-colors ${
                             isActive 
                               ? "bg-white/20 text-white" 
-                              : isCompleted 
-                              ? "bg-emerald-100 text-emerald-700" 
-                              : "bg-neutral-100 text-neutral-500"
+                              : "bg-slate-100 text-slate-500"
                           }`}>
                             0{item.step}
                           </span>
                           <Icon className={`w-3.5 h-3.5 transition-colors ${
                             isActive 
                               ? "text-white" 
-                              : isCompleted 
-                              ? "text-emerald-600" 
-                              : "text-neutral-400"
+                              : "text-slate-400"
                           }`} />
                         </div>
 
                         <div className={`text-[11px] font-bold leading-tight truncate transition-colors ${
-                          isActive ? "text-white font-extrabold" : "text-neutral-800"
+                          isActive ? "text-white font-extrabold" : "text-slate-700"
                         }`}>
                           {item.name}
                         </div>
@@ -1282,14 +1249,14 @@ const HeroSection: React.FC = () => {
               </div>
 
               {/* Dynamic Live Operational Message Banner */}
-              <div className="mt-3 p-3 rounded-xl border border-neutral-200 bg-neutral-50 flex items-center justify-between gap-3 text-xs">
+              <div className="mt-3 p-3 rounded-xl border border-slate-200/90 liquid-glass-surface flex items-center justify-between gap-3 text-xs shadow-xs">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className={`w-2 h-2 rounded-full ${currentStep.activeDot} shrink-0 animate-pulse`} />
-                  <span className="font-semibold text-neutral-800 truncate">
+                  <span className="font-semibold text-slate-800 truncate">
                     {currentStep.message}
                   </span>
                 </div>
-                <span className="text-[11px] text-neutral-500 font-mono shrink-0 hidden sm:inline">
+                <span className="text-[11px] text-slate-500 font-mono shrink-0 hidden sm:inline">
                   Step {activeStepIndex + 1} of 7
                 </span>
               </div>
@@ -1298,13 +1265,13 @@ const HeroSection: React.FC = () => {
             {/* CTAs */}
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <Link href="/register">
-                <button className="btn-primary text-sm font-semibold !py-2.5 !px-5 shadow-xs">
+                <button className="liquid-glass-btn-primary text-sm font-semibold !py-2.5 !px-5 rounded-full cursor-pointer shadow-md">
                   Get Started Free →
                 </button>
               </Link>
               <button
                 onClick={handleRestartFlow}
-                className="btn-outline text-sm font-medium !py-2.5 !px-4 flex items-center gap-1.5 cursor-pointer"
+                className="liquid-glass-btn text-sm font-medium !py-2.5 !px-4 rounded-full flex items-center gap-1.5 cursor-pointer text-slate-700 hover:text-slate-900"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 See live order flow
@@ -1338,28 +1305,23 @@ const HeroSection: React.FC = () => {
 
           {/* Mobile Auto Mode Toggle Bar */}
           <div className="flex items-center justify-between px-1 mb-2 max-w-[440px] mx-auto">
-            <span className="text-[11px] font-bold text-neutral-500 uppercase tracking-wider">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
               Operational Flow
             </span>
             <button
               onClick={() => setIsPlaying(!isPlaying)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold transition-all cursor-pointer shadow-xs active:scale-95 ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-bold transition-all cursor-pointer shadow-xs active:scale-95 ${
                 isPlaying
-                  ? "bg-emerald-50 border-emerald-300 text-emerald-700"
-                  : "bg-neutral-100 border-neutral-300 text-neutral-600"
+                  ? "liquid-glass-btn border-emerald-500/40 text-emerald-700 bg-emerald-50/80"
+                  : "liquid-glass-btn border-slate-200 text-slate-600"
               }`}
             >
-              {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+              {isPlaying ? <Pause className="w-3 h-3 text-emerald-600" /> : <Play className="w-3 h-3 text-slate-500" />}
               <span>Auto Mode: {isPlaying ? "ON" : "OFF"}</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-emerald-500 animate-pulse" : "bg-neutral-400"}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
             </button>
           </div>
 
-          {/* 
-            MOBILE ALIGNMENT: 
-            items-stretch ensures the Right column height matches the Phone Mockup height exactly!
-            The 1st button aligns flush with the top of the mobile, and the 7th button aligns flush with the bottom of the mobile!
-          */}
           <div className="w-full flex items-stretch justify-between gap-2 sm:gap-3 my-2 max-w-[450px] mx-auto">
             
             {/* LEFT SECTION: iPhone Mockup */}
@@ -1386,10 +1348,8 @@ const HeroSection: React.FC = () => {
                     onClick={() => handleStepClick(idx)}
                     className={`relative flex-1 flex flex-col justify-center px-2 py-2 sm:px-2.5 sm:py-2.5 rounded-xl border text-left transition-all overflow-hidden cursor-pointer active:scale-95 ${
                       isActive
-                        ? "border-transparent text-white shadow-sm"
-                        : isCompleted
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-300 font-medium"
-                        : "bg-neutral-50 text-neutral-700 border-neutral-200 hover:border-neutral-300"
+                        ? "border-transparent text-white shadow-lg"
+                        : "liquid-glass-soft border-slate-200/90 text-slate-700 hover:border-slate-300 hover:bg-white/90"
                     }`}
                   >
                     {/* Smooth Spring Travel Indicator */}
@@ -1408,7 +1368,7 @@ const HeroSection: React.FC = () => {
 
                     <div className="relative z-10 flex items-center gap-1.5">
                       <btn.icon className={`w-3.5 h-3.5 shrink-0 transition-colors ${
-                        isActive ? "text-white" : isCompleted ? "text-emerald-600" : "text-neutral-500"
+                        isActive ? "text-white" : "text-slate-500"
                       }`} />
                       <span className={`text-[10px] sm:text-[11px] font-bold leading-tight truncate transition-colors ${
                         isActive ? "text-white font-black" : ""
@@ -1434,11 +1394,11 @@ const HeroSection: React.FC = () => {
           {/* Mobile CTAs & Status Indicator */}
           <div className="flex flex-col items-center gap-2 pt-2">
             <Link href="/register" className="w-full">
-              <button className="w-full btn-primary text-sm font-bold !py-3 shadow-md justify-center">
+              <button className="w-full liquid-glass-btn-primary text-sm font-bold !py-3 rounded-full shadow-lg justify-center cursor-pointer">
                 Get Started Free →
               </button>
             </Link>
-            <div className="inline-flex items-center gap-2 text-[11px] text-neutral-500 font-medium">
+            <div className="inline-flex items-center gap-2 text-[11px] text-slate-500 font-medium">
               <span className={`w-1.5 h-1.5 rounded-full ${currentStep.activeDot} animate-pulse`} />
               <span>Step {activeStepIndex + 1} of 7 • {currentStep.name}</span>
             </div>
