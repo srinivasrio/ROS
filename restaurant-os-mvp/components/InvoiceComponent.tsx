@@ -5,54 +5,24 @@ import { ChefHat as LucideChefHat, MapPin as LucideMapPin, Phone as LucidePhone,
 import SharedComboCard from '@/components/shared/SharedComboCard';
 import { isComboItem, parseComboSubItems } from '@/lib/combo-utils';
 
+import { calculateOrderPricing } from '@/lib/pricing';
+
 interface InvoiceProps {
     order: Order;
 }
 
 export const InvoiceComponent = React.forwardRef<HTMLDivElement, InvoiceProps>(({ order }, ref) => {
-    const ceil2 = (num: number) => {
-        const n = Number(num || 0);
-        const clean = Math.round(n * 1e8) / 1e8;
-        return Math.ceil(clean * 100) / 100;
-    };
-    const round2 = ceil2;
-
-    const itemsSubtotal = round2(
-        (order.items || []).reduce((sum, item) => sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1)), 0)
-    );
-    const calculatedCgst = (order.items || []).reduce((sum, item) => {
-        const rate = (item as any).cgst_percent ?? (item as any).cgst_percentage ?? (((item as any).tax_percent ?? (item as any).gst_percentage ?? 5) / 2);
-        return sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1) * (rate / 100));
-    }, 0);
-    const calculatedSgst = (order.items || []).reduce((sum, item) => {
-        const rate = (item as any).sgst_percent ?? (item as any).sgst_percentage ?? (((item as any).tax_percent ?? (item as any).gst_percentage ?? 5) / 2);
-        return sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1) * (rate / 100));
-    }, 0);
-    const calculatedGst = calculatedCgst + calculatedSgst;
-
-    const cgst = (order.cgst_amount != null && Number(order.cgst_amount) > 0)
-        ? round2(Number(order.cgst_amount))
-        : round2(calculatedCgst);
-    const sgst = (order.sgst_amount != null && Number(order.sgst_amount) > 0)
-        ? round2(Number(order.sgst_amount))
-        : round2(calculatedSgst);
-    const sumCgstSgst = round2(cgst + sgst);
-    const gst = sumCgstSgst > 0
-        ? sumCgstSgst
-        : (order.gst_amount != null && Number(order.gst_amount) > 0
-            ? round2(Number(order.gst_amount))
-            : round2(calculatedGst));
-
-    const deliveryFee = round2(Number((order as any).delivery_fee || 0));
-    const discountAmount = round2(Number(order.discount_amount || 0));
-
-    const subtotal = itemsSubtotal > 0
-        ? itemsSubtotal
-        : round2(Math.max(0, (Number(order.total_amount) || 0) - gst - deliveryFee + discountAmount));
-
-    const total = (order.total_amount != null && Number(order.total_amount) > 0)
-        ? round2(Number(order.total_amount))
-        : round2(subtotal + gst + deliveryFee - discountAmount);
+    const pricing = calculateOrderPricing(order);
+    const {
+        itemsSubtotal,
+        cgstAmount,
+        sgstAmount,
+        gstAmount,
+        deliveryFee,
+        discountAmount,
+        couponCode,
+        finalTotal,
+    } = pricing;
 
     return (
         <div ref={ref} className="p-8 bg-white text-black font-sans max-w-2xl mx-auto printable-content">
@@ -137,24 +107,24 @@ export const InvoiceComponent = React.forwardRef<HTMLDivElement, InvoiceProps>((
             <div className="flex justify-end mb-12">
                 <div className="w-1/2 space-y-2">
                     <div className="flex justify-between text-sm text-black">
-                        <span>Subtotal</span>
-                        <span className="font-medium">{formatCurrency(subtotal)}</span>
+                        <span>Items Subtotal</span>
+                        <span className="font-medium">{formatCurrency(itemsSubtotal)}</span>
                     </div>
-                    {cgst > 0 && (
+                    {cgstAmount > 0 && (
                         <div className="flex justify-between text-sm text-black">
                             <span>CGST</span>
-                            <span className="font-medium">{formatCurrency(cgst)}</span>
+                            <span className="font-medium">{formatCurrency(cgstAmount)}</span>
                         </div>
                     )}
-                    {sgst > 0 && (
+                    {sgstAmount > 0 && (
                         <div className="flex justify-between text-sm text-black">
                             <span>SGST</span>
-                            <span className="font-medium">{formatCurrency(sgst)}</span>
+                            <span className="font-medium">{formatCurrency(sgstAmount)}</span>
                         </div>
                     )}
                     <div className="flex justify-between text-sm text-black font-semibold border-t border-gray-100 pt-1">
                         <span>Total GST</span>
-                        <span>{formatCurrency(gst)}</span>
+                        <span>{formatCurrency(gstAmount)}</span>
                     </div>
                     {deliveryFee > 0 && (
                         <div className="flex justify-between text-sm text-black font-medium">
@@ -164,13 +134,13 @@ export const InvoiceComponent = React.forwardRef<HTMLDivElement, InvoiceProps>((
                     )}
                     {discountAmount > 0 && (
                         <div className="flex justify-between text-sm text-emerald-700 font-medium">
-                            <span>Discount {order.coupon_code ? `(${order.coupon_code})` : ''}</span>
+                            <span>Discount {couponCode ? `(${couponCode})` : ''}</span>
                             <span>-{formatCurrency(discountAmount)}</span>
                         </div>
                     )}
                     <div className="flex justify-between text-lg font-black border-t-2 border-neutral-900 pt-3 mt-3">
                         <span>Grand Total</span>
-                        <span>{formatCurrency(total)}</span>
+                        <span>{formatCurrency(finalTotal)}</span>
                     </div>
                 </div>
             </div>

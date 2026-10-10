@@ -30,6 +30,7 @@ import { CustomerCache } from '@/services/homepage-cache.service';
 import { OfferService } from '@/services/offers.service';
 import { toast } from 'sonner';
 import { showWarningPopup } from '@/components/shared/WarningPopupCard';
+import { calculateOrderPricing } from '@/lib/pricing';
 
 // Timeline Component supporting both Dine-in/Takeaway and Delivery lifecycles
 const OrderTimeline = ({ status, orderType }: { status: string; orderType?: string }) => {
@@ -416,17 +417,7 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                 return;
             }
 
-            let discountAmount = 0;
-            if (offer.discount_type === 'percentage') {
-                discountAmount = Math.round((targetOrder.total_amount || 0) * (offer.discount_value / 100));
-                if (offer.max_discount && discountAmount > offer.max_discount) {
-                    discountAmount = offer.max_discount;
-                }
-            } else {
-                discountAmount = Math.min(offer.discount_value, targetOrder.total_amount || 0);
-            }
-
-            await OrderService.updateOrderCoupon(targetOrder.id, restaurantId, offer.code, discountAmount);
+            await OrderService.updateOrderCoupon(targetOrder.id, restaurantId, offer.code);
             await OfferService.incrementUsage(offer.id, restaurantId);
             toast.success(`Coupon ${offer.code} applied successfully!`);
             setCouponInputs(prev => ({ ...prev, [orderId]: '' }));
@@ -835,33 +826,30 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
 
                                         {/* Financial Breakdown */}
                                         {(() => {
-                                            const itemSubtotal = order.items && order.items.length > 0
-                                                ? order.items.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0)
-                                                : Math.round((order.total_amount || 0) / 1.05);
-                                            const gst = Number(order.gst_amount || 0);
+                                            const pricing = calculateOrderPricing(order);
 
                                             return (
                                                 <div className="pt-2 border-t border-slate-200/60 space-y-1.5 text-xs font-semibold text-slate-600">
                                                     <div className="flex justify-between">
                                                         <span>Subtotal</span>
-                                                        <span className="font-extrabold text-slate-800">{formatCurrency(itemSubtotal)}</span>
+                                                        <span className="font-extrabold text-slate-800">{formatCurrency(pricing.itemsSubtotal)}</span>
                                                     </div>
-                                                    {gst > 0 && (
+                                                    {pricing.gstAmount > 0 && (
                                                         <div className="flex justify-between text-[11px] text-slate-500">
-                                                            <span>Taxes & GST (5%)</span>
-                                                            <span>{formatCurrency(gst)}</span>
+                                                            <span>Taxes & GST</span>
+                                                            <span>{formatCurrency(pricing.gstAmount)}</span>
                                                         </div>
                                                     )}
-                                                    {(order.discount_amount || 0) > 0 && (
+                                                    {pricing.discountAmount > 0 && (
                                                         <div className="flex justify-between text-emerald-600 font-bold">
-                                                            <span>Coupon Savings</span>
-                                                            <span>- {formatCurrency(order.discount_amount || 0)}</span>
+                                                            <span>Coupon Savings {pricing.couponCode ? `(${pricing.couponCode})` : ''}</span>
+                                                            <span>- {formatCurrency(pricing.discountAmount)}</span>
                                                         </div>
                                                     )}
                                                     <div className="flex justify-between items-center pt-2 border-t border-slate-200/60">
                                                         <span className="font-black text-slate-800 text-xs uppercase tracking-wider">Total</span>
                                                         <span className="text-lg font-black text-slate-900">
-                                                            {formatCurrency((order.total_amount || 0) - (order.discount_amount || 0))}
+                                                            {formatCurrency(pricing.finalTotal)}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -1012,7 +1000,7 @@ export function PersistentOrders({ restaurantId, tableNumber }: { restaurantId: 
                                                         Total Paid
                                                     </span>
                                                     <span className="text-base font-black text-slate-900 tracking-tight">
-                                                        {formatCurrency((pOrder.total_amount || 0) - (pOrder.discount_amount || 0))}
+                                                        {formatCurrency(calculateOrderPricing(pOrder).finalTotal)}
                                                     </span>
                                                 </div>
 

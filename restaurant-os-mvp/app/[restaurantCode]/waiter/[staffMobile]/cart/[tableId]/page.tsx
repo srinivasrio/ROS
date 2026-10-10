@@ -396,7 +396,8 @@ export default function CartReview() {
         0
     );
     const previousGst = Number(existingOrder?.gst_amount) || 0;
-    const previousTotal = Number(existingOrder?.total_amount) || (previousSubtotal + previousGst);
+    const previousDiscount = Number(existingOrder?.discount_amount) || 0;
+    const previousTotal = Number(existingOrder?.total_amount) || Math.max(0, previousSubtotal + previousGst - previousDiscount);
 
     const togglePreviousCombo = (key: string) => {
         haptic.selection();
@@ -970,7 +971,9 @@ export default function CartReview() {
                                         <div className="flex justify-between text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                                             <div>
                                                 <span className="font-bold block">Previous Order Total</span>
-                                                <span className="text-[10px] text-slate-400 font-medium">Already in kitchen (incl. taxes)</span>
+                                                <span className="text-[10px] text-slate-400 font-medium">
+                                                    Already in kitchen (incl. taxes{previousDiscount > 0 ? `, Coupon: -${inr(previousDiscount)}` : ''})
+                                                </span>
                                             </div>
                                             <span className="font-black text-slate-800">{inr(previousTotal)}</span>
                                         </div>

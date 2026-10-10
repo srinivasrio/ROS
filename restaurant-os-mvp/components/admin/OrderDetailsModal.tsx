@@ -11,6 +11,8 @@ import { useRef, useState, useEffect } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { InvoiceComponent } from '@/components/InvoiceComponent';
 
+import { calculateOrderPricing } from '@/lib/pricing';
+
 interface OrderDetailsModalProps {
     order: Order | null;
     onClose: () => void;
@@ -37,49 +39,17 @@ export default function OrderDetailsModal({
         setIsMinimized(false);
     }, [order?.id]);
 
-    const ceil2 = (num: number) => {
-        const n = Number(num || 0);
-        const clean = Math.round(n * 1e8) / 1e8;
-        return Math.ceil(clean * 100) / 100;
-    };
-    const round2 = ceil2;
-
-    const itemsSubtotal = round2(
-        (order?.items || []).reduce((sum, item) => sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1)), 0)
-    );
-    const calculatedCgst = (order?.items || []).reduce((sum, item) => {
-        const rate = (item as any).cgst_percent ?? (item as any).cgst_percentage ?? (((item as any).tax_percent ?? (item as any).gst_percentage ?? 5) / 2);
-        return sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1) * (rate / 100));
-    }, 0);
-    const calculatedSgst = (order?.items || []).reduce((sum, item) => {
-        const rate = (item as any).sgst_percent ?? (item as any).sgst_percentage ?? (((item as any).tax_percent ?? (item as any).gst_percentage ?? 5) / 2);
-        return sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1) * (rate / 100));
-    }, 0);
-    const calculatedGst = calculatedCgst + calculatedSgst;
-
-    const cgstAmount = (order?.cgst_amount != null && Number(order.cgst_amount) > 0)
-        ? round2(Number(order.cgst_amount))
-        : round2(calculatedCgst);
-    const sgstAmount = (order?.sgst_amount != null && Number(order.sgst_amount) > 0)
-        ? round2(Number(order.sgst_amount))
-        : round2(calculatedSgst);
-    const sumCgstSgst = round2(cgstAmount + sgstAmount);
-    const gstAmount = sumCgstSgst > 0
-        ? sumCgstSgst
-        : (order?.gst_amount != null && Number(order.gst_amount) > 0
-            ? round2(Number(order.gst_amount))
-            : round2(calculatedGst));
-
-    const deliveryFee = round2(Number((order as any)?.delivery_fee || 0));
-    const discountAmount = round2(Number(order?.discount_amount || 0));
-
-    const subtotal = itemsSubtotal > 0
-        ? itemsSubtotal
-        : round2(Math.max(0, (Number(order?.total_amount) || 0) - gstAmount - deliveryFee + discountAmount));
-
-    const grandTotal = (order?.total_amount != null && Number(order.total_amount) > 0)
-        ? round2(Number(order.total_amount))
-        : round2(subtotal + gstAmount + deliveryFee - discountAmount);
+    const pricing = calculateOrderPricing(order);
+    const {
+        itemsSubtotal,
+        cgstAmount,
+        sgstAmount,
+        gstAmount,
+        deliveryFee,
+        discountAmount,
+        couponCode,
+        finalTotal,
+    } = pricing;
 
     return (
         <>
@@ -106,7 +76,7 @@ export default function OrderDetailsModal({
                                     </span>
                                 </div>
                                 <p className="text-xs font-black text-emerald-600 mt-0.5">
-                                    {formatCurrency(grandTotal)}
+                                    {formatCurrency(finalTotal)}
                                 </p>
                             </div>
                         </div>
@@ -347,7 +317,7 @@ export default function OrderDetailsModal({
                             <div className="p-6 border-t border-gray-100 bg-gray-50/30">
                                 <div className="flex justify-between items-center mb-1.5">
                                     <span className="text-sm text-neutral-600 font-medium">Items Subtotal</span>
-                                    <span className="text-sm font-bold text-black">{formatCurrency(subtotal)}</span>
+                                    <span className="text-sm font-bold text-black">{formatCurrency(itemsSubtotal)}</span>
                                 </div>
                                 {cgstAmount > 0 && (
                                     <div className="flex justify-between items-center text-xs text-neutral-500 mb-1">
@@ -373,13 +343,13 @@ export default function OrderDetailsModal({
                                 )}
                                 {discountAmount > 0 && (
                                     <div className="flex justify-between items-center text-xs text-emerald-700 mb-1.5 font-medium">
-                                        <span>Discount {order.coupon_code ? `(${order.coupon_code})` : ''}</span>
+                                        <span>Discount {couponCode ? `(${couponCode})` : ''}</span>
                                         <span className="font-bold">-{formatCurrency(discountAmount)}</span>
                                     </div>
                                 )}
                                 <div className="flex justify-between items-center mb-6 pt-1">
                                     <span className="text-base font-black text-black">Total Amount</span>
-                                    <span className="text-2xl font-black text-black">{formatCurrency(grandTotal)}</span>
+                                    <span className="text-2xl font-black text-black">{formatCurrency(finalTotal)}</span>
                                 </div>
 
                                 <div className="flex gap-3">

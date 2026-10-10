@@ -22,6 +22,7 @@ import { motion } from 'framer-motion';
 import BillRequestModal from '@/components/customer/BillRequestModal';
 import ConfirmationModal from '@/components/ui/ConfirmationModal';
 import { formatAddress, normalizeTableNumber } from '@/lib/utils';
+import { calculateOrderPricing } from '@/lib/pricing';
 
 export default function OrderStatusPage() {
     const params = useParams();
@@ -271,18 +272,7 @@ export default function OrderStatusPage() {
                 return;
             }
 
-            // Calculate discount based on order's original total
-            let discountAmount = 0;
-            if (offer.discount_type === 'percentage') {
-                discountAmount = Math.round((order.total_amount || 0) * (offer.discount_value / 100));
-                if (offer.max_discount && discountAmount > offer.max_discount) {
-                    discountAmount = offer.max_discount;
-                }
-            } else {
-                discountAmount = Math.min(offer.discount_value, order.total_amount || 0);
-            }
-
-            await OrderService.updateOrderCoupon(order.id, urlRestaurantId, offer.code, discountAmount);
+            await OrderService.updateOrderCoupon(order.id, urlRestaurantId, offer.code);
             await OfferService.incrementUsage(offer.id, urlRestaurantId);
             toast.success(`Coupon ${offer.code} applied successfully!`);
             setCouponInput('');
@@ -847,60 +837,18 @@ export default function OrderStatusPage() {
 
                 {/* Total & Payment Status */}
                 {(() => {
-                    const ceil2 = (num: number) => {
-                        const n = Number(num || 0);
-                        const clean = Math.round(n * 1e8) / 1e8;
-                        return Math.ceil(clean * 100) / 100;
-                    };
-                    const round2 = ceil2;
-                    const formatAmount = (num: number) => ceil2(num).toFixed(2);
+                    const pricing = calculateOrderPricing(order);
+                    const formatAmount = (num: number) => num.toFixed(2);
+                    const amountPaid = pricing.ceil2(Number(order.amount_paid || 0));
+                    const balanceDue = pricing.ceil2(Math.max(0, pricing.finalTotal - amountPaid));
 
-                    const calculatedCgst = (order.items || []).reduce((sum, item) => {
-                        const rate = (item as any).cgst_percent ?? (item as any).cgst_percentage ?? (((item as any).tax_percent ?? (item as any).gst_percentage ?? 5) / 2);
-                        return sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1) * (rate / 100));
-                    }, 0);
-                    const calculatedSgst = (order.items || []).reduce((sum, item) => {
-                        const rate = (item as any).sgst_percent ?? (item as any).sgst_percentage ?? (((item as any).tax_percent ?? (item as any).gst_percentage ?? 5) / 2);
-                        return sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1) * (rate / 100));
-                    }, 0);
-
-                    const cgstAmount = (order as any).cgst_amount != null && Number((order as any).cgst_amount) > 0
-                        ? round2(Number((order as any).cgst_amount))
-                        : round2(calculatedCgst);
-                    const sgstAmount = (order as any).sgst_amount != null && Number((order as any).sgst_amount) > 0
-                        ? round2(Number((order as any).sgst_amount))
-                        : round2(calculatedSgst);
-
-                    const sumCgstSgst = round2(cgstAmount + sgstAmount);
-                    const gstAmount = sumCgstSgst > 0
-                        ? sumCgstSgst
-                        : ((order as any).gst_amount != null && Number((order as any).gst_amount) > 0
-                            ? round2(Number((order as any).gst_amount))
-                            : round2(calculatedCgst + calculatedSgst));
-
-                    const deliveryFee = round2(Number(order.delivery_fee || 0));
-                    const discountAmount = round2(Number(order.discount_amount || 0));
-
-                    const itemSubtotal = round2(
-                        order.items && order.items.length > 0
-                            ? order.items.reduce((sum, item) => sum + ((Number(item.price) || Number((item as any).price_at_time) || 0) * (Number(item.quantity) || 1)), 0)
-                            : Math.max(0, (Number(order.total_amount) || 0) - gstAmount - deliveryFee + discountAmount)
-                    );
-
-                    const finalTotal = round2(
-                        order.total_amount != null && Number(order.total_amount) > 0
-                            ? Number(order.total_amount) - discountAmount
-                            : (itemSubtotal + gstAmount + deliveryFee - discountAmount)
-                    );
-
-                    const amountPaid = round2(Number(order.amount_paid || 0));
-                    const balanceDue = round2(Math.max(0, finalTotal - amountPaid));
+                    const { itemsSubtotal, gstAmount, cgstAmount, sgstAmount, deliveryFee, discountAmount, couponCode, finalTotal } = pricing;
 
                     return (
                         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col gap-2">
                             <div className="flex justify-between items-center text-sm font-medium text-black">
                                 <span>Item Total</span>
-                                <span>₹{formatAmount(itemSubtotal)}</span>
+                                <span>₹{formatAmount(itemsSubtotal)}</span>
                             </div>
 
                             <div className="flex justify-between items-center text-sm font-medium text-black">
@@ -924,7 +872,7 @@ export default function OrderStatusPage() {
 
                             {discountAmount > 0 && (
                                 <div className="flex justify-between items-center text-green-600 font-bold text-sm">
-                                    <span>🎫 Coupon Discount {order.coupon_code ? `(${order.coupon_code})` : ''}</span>
+                                    <span>🎫 Coupon Discount {couponCode ? `(${couponCode})` : ''}</span>
                                     <span>- ₹{formatAmount(discountAmount)}</span>
                                 </div>
                             )}

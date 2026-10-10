@@ -18,6 +18,7 @@ import { TABLE_STATUS, normalizeTableStatus, AppButton, SectionLabel, Spinner, s
 import type { FloorTable } from './TableCard';
 import { isComboItem, parseComboSubItems } from '@/lib/combo-utils';
 import { getCategoryMenuItemImage } from '@/lib/utils';
+import { calculateOrderPricing } from '@/lib/pricing';
 
 type FloorTableLike = FloorTable;
 
@@ -87,6 +88,11 @@ export function TableDetailsSheet({
     const [paymentQrUrl, setPaymentQrUrl] = useState<string>('');
     const [upiId, setUpiId] = useState<string>('');
     const [customerInfo, setCustomerInfo] = useState<{ name?: string; mobile?: string; dob?: string } | null>(null);
+    const [taxSettings, setTaxSettings] = useState<{ gst_percentage: number; cgst_percentage: number; sgst_percentage: number }>({
+        gst_percentage: 5,
+        cgst_percentage: 2.5,
+        sgst_percentage: 2.5,
+    });
 
     useEffect(() => {
         tableOpenStore.set(true);
@@ -124,6 +130,23 @@ export function TableDetailsSheet({
         }
         fetchPaymentInfo();
         return () => { isMounted = false; };
+    }, [restaurantId, effectiveRestaurantCode]);
+
+    // Fetch restaurant tax settings to ensure GST is calculated accurately
+    useEffect(() => {
+        const targetRes = restaurantId || effectiveRestaurantCode;
+        if (!targetRes) return;
+        RestaurantService.getGstSettings(targetRes).then(res => {
+            if (res) {
+                setTaxSettings({
+                    gst_percentage: res.gst_percentage ?? 5,
+                    cgst_percentage: res.cgst_percentage ?? ((res.gst_percentage ?? 5) / 2),
+                    sgst_percentage: res.sgst_percentage ?? ((res.gst_percentage ?? 5) / 2),
+                });
+            }
+        }).catch(err => {
+            console.warn('Failed to load restaurant GST settings in TableDetailsSheet:', err);
+        });
     }, [restaurantId, effectiveRestaurantCode]);
 
     const toggleCombo = (key: string) => {
@@ -322,30 +345,34 @@ export function TableDetailsSheet({
         loadOrder();
     }, [loadOrder]);
 
+    // Realtime subscription for order changes on this table (e.g. customer applies coupon or places items)
+    useEffect(() => {
+        const targetRes = restaurantId || effectiveRestaurantCode;
+        if (!targetRes || !targetId) return;
+
+        const sub = OrderService.subscribeToOrders(targetRes, (payload) => {
+            const ord = payload.new as any;
+            if (ord && (String(ord.table_id) === String(targetId) || String(ord.merge_group_id) === String(targetId) || ord.id === order?.id)) {
+                loadOrder();
+            }
+        });
+
+        return () => {
+            sub.unsubscribe();
+        };
+    }, [restaurantId, effectiveRestaurantCode, targetId, order?.id, loadOrder]);
+
     const readyItems = (order?.items || []).filter((i: any) => i.status === 'ready');
-    const itemsSubtotal = (order?.items || []).reduce((sum: number, i: any) => sum + (Number(i.price || 0) * Number(i.quantity || 1)), 0);
 
-    const calculatedGst = (order?.items || []).reduce((sum: number, i: any) => {
-        const rate = i.tax_percent ?? i.gst_percentage ?? 5;
-        return sum + (Number(i.price || 0) * Number(i.quantity || 1) * (rate / 100));
-    }, 0);
-
-    const calculatedCgst = (order?.items || []).reduce((sum: number, i: any) => {
-        const rate = i.cgst_percent ?? i.cgst_percentage ?? ((i.tax_percent ?? i.gst_percentage ?? 5) / 2);
-        return sum + (Number(i.price || 0) * Number(i.quantity || 1) * (rate / 100));
-    }, 0);
-
-    const calculatedSgst = (order?.items || []).reduce((sum: number, i: any) => {
-        const rate = i.sgst_percent ?? i.sgst_percentage ?? ((i.tax_percent ?? i.gst_percentage ?? 5) / 2);
-        return sum + (Number(i.price || 0) * Number(i.quantity || 1) * (rate / 100));
-    }, 0);
-
-    const gstAmount = order?.gst_amount != null ? Number(order.gst_amount) : Math.round(calculatedGst * 10000) / 10000;
-    const cgstAmount = order?.cgst_amount != null ? Number(order.cgst_amount) : Math.round(calculatedCgst * 10000) / 10000;
-    const sgstAmount = order?.sgst_amount != null ? Number(order.sgst_amount) : Math.round(calculatedSgst * 10000) / 10000;
-
-    const subtotal = itemsSubtotal > 0 ? itemsSubtotal : Math.max(0, (order?.total_amount || 0) - gstAmount);
-    const orderTotal = order?.total_amount ?? (subtotal + gstAmount);
+    // Authoritative pricing calculation via shared pricing engine
+    const pricing = calculateOrderPricing(order, taxSettings);
+    const subtotal = pricing.itemsSubtotal;
+    const discountAmount = pricing.discountAmount;
+    const couponCode = pricing.couponCode;
+    const gstAmount = pricing.gstAmount;
+    const cgstAmount = pricing.cgstAmount;
+    const sgstAmount = pricing.sgstAmount;
+    const orderTotal = pricing.finalTotal;
 
     const hasExistingItems = Boolean(
         (order && Array.isArray(order.items) && order.items.length > 0) ||
@@ -704,6 +731,19 @@ export function TableDetailsSheet({
                                     }}
                                 >
                                     <BillRow label="Item Subtotal" value={inr(subtotal)} />
+                                    {discountAmount > 0 && (
+                                        <div className="flex justify-between items-center py-1 text-emerald-700 font-bold">
+                                            <span className="flex items-center gap-1.5 text-xs">
+                                                <span>🎫 Coupon Discount</span>
+                                                {couponCode && (
+                                                    <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-[10px] font-black uppercase tracking-wider text-emerald-800">
+                                                        {couponCode}
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <span className="font-extrabold w-num text-sm">- {inr(discountAmount)}</span>
+                                        </div>
+                                    )}
                                     <BillRow label="GST (Taxes)" value={`+ ${inr(gstAmount)}`} />
                                     <p className="text-[10px] text-slate-500 font-semibold mt-0.5">CGST ({inr(cgstAmount)}) + SGST ({inr(sgstAmount)})</p>
                                     <div className="border-t border-slate-300/80 my-3" />
@@ -1464,6 +1504,19 @@ export function TableDetailsSheet({
                                     <span className="text-slate-600 font-semibold">Item Amount (Subtotal)</span>
                                     <span className="font-extrabold text-slate-800 w-num">{inr(subtotal)}</span>
                                 </div>
+                                {discountAmount > 0 && (
+                                    <div className="flex justify-between items-center text-emerald-700">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="font-bold">Coupon Discount</span>
+                                            {couponCode && (
+                                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-[10px] font-black uppercase text-emerald-800">
+                                                    {couponCode}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className="font-extrabold w-num text-sm">- {inr(discountAmount)}</span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between items-center">
                                     <div>
                                         <span className="text-slate-600 font-semibold">GST (Taxes)</span>
