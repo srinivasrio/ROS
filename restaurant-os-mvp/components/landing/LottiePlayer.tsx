@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
-import lottie, { AnimationItem } from "lottie-web";
 
 interface LottiePlayerProps {
   animationPath?: string;
@@ -19,31 +18,55 @@ export const LottiePlayer: React.FC<LottiePlayerProps> = ({
   className = "",
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const animRef = useRef<AnimationItem | null>(null);
+  const animRef = useRef<any>(null);
 
   useEffect(() => {
+    let isMounted = true;
     if (!containerRef.current) return;
 
-    if (animRef.current) {
-      animRef.current.destroy();
-    }
+    const loadAnimation = async () => {
+      try {
+        let data = animationData;
+        if (!data && animationPath) {
+          const res = await fetch(animationPath);
+          if (res.ok) {
+            data = await res.json();
+          }
+        }
+        if (!isMounted || !containerRef.current || !data) return;
 
-    try {
-      animRef.current = lottie.loadAnimation({
-        container: containerRef.current,
-        renderer: "svg",
-        loop,
-        autoplay,
-        path: animationPath,
-        animationData: animationData,
-      });
-    } catch (err) {
-      console.error("Lottie load error:", err);
-    }
+        const lottieModule = await import("lottie-web/build/player/lottie_light");
+        const lottie = lottieModule.default || lottieModule;
+
+        if (!isMounted || !containerRef.current) return;
+
+        if (animRef.current) {
+          try {
+            animRef.current.destroy();
+          } catch (_) {}
+          animRef.current = null;
+        }
+
+        animRef.current = lottie.loadAnimation({
+          container: containerRef.current,
+          renderer: "svg",
+          loop,
+          autoplay,
+          animationData: data,
+        });
+      } catch (_) {
+        // Silently handle animation load or cancellation
+      }
+    };
+
+    loadAnimation();
 
     return () => {
+      isMounted = false;
       if (animRef.current) {
-        animRef.current.destroy();
+        try {
+          animRef.current.destroy();
+        } catch (_) {}
         animRef.current = null;
       }
     };

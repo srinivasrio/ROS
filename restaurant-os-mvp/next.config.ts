@@ -19,7 +19,9 @@ const nextConfig: NextConfig = {
       '@dnd-kit/sortable',
       '@dnd-kit/utilities',
       'date-fns',
-      'clsx'
+      'clsx',
+      'sonner',
+      'next-themes'
     ],
   },
   webpack: (config, { dev }) => {

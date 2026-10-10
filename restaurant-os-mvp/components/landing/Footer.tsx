@@ -1,28 +1,18 @@
 const Footer = () => (
-  <footer className="py-16 border-t border-border bg-background">
+  <footer className="py-16 border-t border-slate-200/80 bg-white/70 backdrop-blur-2xl relative overflow-hidden">
     <div className="max-w-6xl mx-auto px-4 md:px-6">
       <div className="mb-8 md:hidden">
-        <div className="flex flex-col items-start leading-none mb-2">
-          <h3 className="text-xl font-bold text-foreground">
-            Dine <span className="gradient-text-coral">in</span> One
-          </h3>
-          <span className="text-[8px] font-black tracking-[0.28em] text-neutral-400 uppercase mt-0.5">
-            SMART POS
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground font-medium">Unified restaurant management ecosystem built for Indian food businesses.</p>
+        <h3 className="text-xl font-bold text-slate-900 mb-2">
+          Dine <span className="gradient-text-coral drop-shadow-xs">in</span> One
+        </h3>
+        <p className="text-xs text-slate-600 font-medium">Unified restaurant management ecosystem built for Indian food businesses.</p>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-10 mb-12">
         <div className="hidden md:block">
-          <div className="flex flex-col items-start leading-none mb-3">
-            <h3 className="text-xl font-bold text-foreground">
-              Dine <span className="gradient-text-coral">in</span> One
-            </h3>
-            <span className="text-[8px] font-black tracking-[0.28em] text-neutral-400 uppercase mt-0.5">
-              SMART POS
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground font-medium leading-relaxed">
+          <h3 className="text-xl font-bold text-slate-900 mb-3">
+            Dine <span className="gradient-text-coral drop-shadow-xs">in</span> One
+          </h3>
+          <p className="text-xs text-slate-600 font-medium leading-relaxed">
             Full-stack restaurant operating system powering QR self-ordering, kitchen KDS, delivery fleets, inventory, and automated GST billing.
           </p>
         </div>
@@ -32,19 +22,19 @@ const Footer = () => (
           { title: "Platform", links: ["Pricing & Plans", "FAQ", "Book Free Demo", "Contact Support", "Privacy & Security"] },
         ].map((col) => (
           <div key={col.title}>
-            <h4 className="font-bold text-xs uppercase tracking-wider text-foreground mb-4">{col.title}</h4>
+            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-900 mb-4">{col.title}</h4>
             <ul className="space-y-2.5">
               {col.links.map((l) => (
                 <li key={l}>
-                  <span className="text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors font-medium">{l}</span>
+                  <span className="text-xs text-slate-600 hover:text-slate-900 transition-colors cursor-pointer font-medium">{l}</span>
                 </li>
               ))}
             </ul>
           </div>
         ))}
       </div>
-      <div className="h-px w-full" style={{ background: "linear-gradient(90deg, #FF6B6B, #A855F7, #4ECDC4)" }} />
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground mt-6 font-medium">
+      <div className="h-px w-full bg-gradient-to-r from-[#FF6B6B]/40 via-[#8278FF]/40 to-[#4ECDC4]/40" />
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 mt-6 font-medium">
         <p>© 2026 Dine in One. All rights reserved.</p>
         <p>Built with ❤️ for hospitality & food service in India.</p>
       </div>

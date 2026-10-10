@@ -43,17 +43,17 @@ const FAQSection = () => {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   return (
-    <section id="faq" className="py-20 md:py-32 relative bg-background overflow-hidden">
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-purple-500/5 rounded-full blur-[200px] pointer-events-none" />
+    <section id="faq" className="py-20 md:py-32 relative bg-transparent overflow-hidden">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] bg-gradient-to-r from-[#8278FF]/12 to-[#4ECDC4]/12 rounded-full blur-[160px] pointer-events-none" />
       <div className="relative z-10 max-w-3xl mx-auto px-4 md:px-6">
         <RevealMotion className="text-center mb-12 md:mb-16">
-          <span className="gradient-text-hero text-xs md:text-sm font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20">
+          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs md:text-sm font-bold uppercase tracking-widest liquid-glass-pill text-indigo-700 border-indigo-200/70 bg-indigo-50/70 mb-3 shadow-xs">
             Got Questions?
           </span>
-          <h2 className="text-3xl md:text-5xl font-extrabold mt-3 text-foreground tracking-tight">
+          <h2 className="text-3xl md:text-5xl font-extrabold mt-3 text-slate-900 tracking-tight">
             Frequently Asked Questions
           </h2>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="text-sm md:text-base text-slate-600 mt-2 font-medium">
             Everything you need to know about Dine In One's unified restaurant operating system.
           </p>
         </RevealMotion>
@@ -63,10 +63,10 @@ const FAQSection = () => {
             <RevealMotion key={i} delay={0.04 * i}>
               <motion.div
                 layout
-                className={`rounded-2xl border border-border overflow-hidden transition-all duration-200 ${
+                className={`rounded-2xl border overflow-hidden transition-all duration-300 ${
                   openIndex === i 
-                    ? "bg-white dark:bg-neutral-900 shadow-md border-primary/40" 
-                    : "bg-white/60 dark:bg-neutral-900/40 hover:bg-white dark:hover:bg-neutral-900"
+                    ? "liquid-glass-surface border-[#FF6B6B]/40 shadow-[0_12px_32px_rgba(255,107,107,0.12),inset_0_1px_2px_rgba(255,255,255,0.9)]" 
+                    : "liquid-glass-soft border-slate-200/80 hover:border-slate-300 hover:bg-white/80 shadow-xs"
                 }`}
               >
                 <button
@@ -74,7 +74,7 @@ const FAQSection = () => {
                   className="w-full flex items-center justify-between p-5 text-left cursor-pointer"
                 >
                   <span className={`font-bold text-sm md:text-base transition-colors ${
-                    openIndex === i ? "text-primary" : "text-foreground"
+                    openIndex === i ? "text-[#FF6B6B] drop-shadow-xs" : "text-slate-800"
                   }`}>
                     {f.q}
                   </span>
@@ -82,7 +82,7 @@ const FAQSection = () => {
                     animate={{ rotate: openIndex === i ? 45 : 0 }}
                     transition={{ duration: 0.25 }}
                     className={`text-xl ml-4 shrink-0 font-bold ${
-                      openIndex === i ? "text-primary" : "text-muted-foreground"
+                      openIndex === i ? "text-[#FF6B6B]" : "text-slate-400"
                     }`}
                   >
                     +
@@ -94,9 +94,11 @@ const FAQSection = () => {
                   transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                   className="overflow-hidden"
                 >
-                  <p className="px-5 pb-5 text-xs md:text-sm text-muted-foreground leading-relaxed font-medium">
-                    {f.a}
-                  </p>
+                  <div className="border-t border-slate-200/80 mx-5 pt-3 pb-5">
+                    <p className="text-xs md:text-sm text-slate-600 leading-relaxed font-medium">
+                      {f.a}
+                    </p>
+                  </div>
                 </motion.div>
               </motion.div>
             </RevealMotion>
