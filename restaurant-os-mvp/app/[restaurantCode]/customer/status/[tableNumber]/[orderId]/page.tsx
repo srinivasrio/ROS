@@ -21,7 +21,7 @@ import { motion } from 'framer-motion';
 
 import BillRequestModal from '@/components/customer/BillRequestModal';
 import ConfirmationModal from '@/components/ui/ConfirmationModal';
-import { formatAddress } from '@/lib/utils';
+import { formatAddress, normalizeTableNumber } from '@/lib/utils';
 
 export default function OrderStatusPage() {
     const params = useParams();
@@ -51,12 +51,10 @@ export default function OrderStatusPage() {
             const data = await OrderService.getOrderDetails(orderId, urlRestaurantId);
             if (!isMountedRef.current) return;
             if (data && (data as any).restaurant_id) {
-                const orderTableNum = String((data as any).table_number || '').trim();
-                const routeTableNum = String(tableNumber || '').trim();
+                const orderTableNum = normalizeTableNumber((data as any).table_number);
+                const routeTableNum = normalizeTableNumber(tableNumber);
                 if (routeTableNum && routeTableNum !== 'direct' && orderTableNum && orderTableNum !== routeTableNum) {
-                    console.warn('[OrderStatus] Table mismatch detected for orderId:', orderId);
-                    toast.error('Order does not match table');
-                    return;
+                    console.warn('[OrderStatus] Table mismatch notice:', { orderTableNum, routeTableNum, orderId });
                 }
                 setOrder(data);
                 setOrderRestaurantId((data as any).restaurant_id);
@@ -445,16 +443,26 @@ export default function OrderStatusPage() {
                 <div className="size-20 bg-gray-200 rounded-full flex items-center justify-center mb-6 text-black">
                     <LucideReceipt size={32} />
                 </div>
-                <h2 className="text-xl font-black text-black mb-2">Session Ended</h2>
-                <p className="text-black mb-8">This table has been cleared. Thank you for dining with us!</p>
-                <button
-                    onClick={() => {
-                        router.push(`/${urlRestaurantId}/customer/menu/${tableNumber}`);
-                    }}
-                    className="px-8 py-3 bg-neutral-900 text-white font-bold rounded-xl hover:bg-black transition-colors"
-                >
-                    View Menu
-                </button>
+                <h2 className="text-xl font-black text-black mb-2">Order Details Unavailable</h2>
+                <p className="text-slate-600 mb-8 max-w-xs text-sm">
+                    We could not find the details for this order. Your active dining session is intact.
+                </p>
+                <div className="flex gap-3">
+                    <button
+                        onClick={() => loadOrder()}
+                        className="px-6 py-3 bg-white border border-gray-200 text-black font-bold rounded-xl hover:bg-gray-50 transition-colors"
+                    >
+                        Retry
+                    </button>
+                    <button
+                        onClick={() => {
+                            router.push(`/${urlRestaurantId}/customer/home/${tableNumber}`);
+                        }}
+                        className="px-6 py-3 bg-neutral-900 text-white font-bold rounded-xl hover:bg-black transition-colors"
+                    >
+                        Back to Table
+                    </button>
+                </div>
             </div>
         );
     }

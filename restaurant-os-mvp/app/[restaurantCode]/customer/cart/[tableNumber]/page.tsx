@@ -392,6 +392,7 @@ export default function CustomerCart(props: any) {
     }, [tableNumber, setTableNumber, urlRestaurantId, isTakeaway, isDelivery]);
 
     const handlePlaceOrder = async () => {
+        if (submitting) return;
         if (!tableNumber) {
             toast.error('Session invalid. Please scan QR or select mode again.');
             return;

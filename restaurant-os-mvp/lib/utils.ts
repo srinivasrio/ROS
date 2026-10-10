@@ -221,3 +221,16 @@ export function formatAddress(addr: any): string {
     }
     return String(addr);
 }
+
+/**
+ * Normalizes table number strings for consistent matching across routes, tokens, and DB.
+ * Handles 'Table 5', 'table 05', '5', 'T-5', etc.
+ */
+export function normalizeTableNumber(val?: string | number | null): string {
+    if (val === null || val === undefined) return '';
+    const str = String(val).trim().toLowerCase().replace(/^table\s*/i, '').trim();
+    if (/^\d+$/.test(str)) {
+        return String(parseInt(str, 10));
+    }
+    return str;
+}

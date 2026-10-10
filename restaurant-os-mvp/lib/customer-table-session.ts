@@ -154,6 +154,21 @@ export function setCustomerTableSessionCookie(
 }
 
 /**
+ * Clears the customer table session cookie.
+ */
+export function clearCustomerTableSessionCookie(
+    res: NextResponse
+): void {
+    res.cookies.set(CUSTOMER_TABLE_SESSION_COOKIE, '', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 0,
+    });
+}
+
+/**
  * Resolves a table's cryptographic token from restaurantCode and tableNumber
  */
 export async function getTableTokenByNumber(
