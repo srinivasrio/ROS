@@ -21,7 +21,7 @@ npm install --legacy-peer-deps
 cd ..
 
 echo "🔨 4. Building main application (Port 3000)..."
-rm -f .next/lock
+rm -rf .next
 NODE_OPTIONS='--max-http-header-size=131072 --max-old-space-size=4096' npm run build
 
 echo "🔨 5. Building super-admin application (Port 3005)..."
