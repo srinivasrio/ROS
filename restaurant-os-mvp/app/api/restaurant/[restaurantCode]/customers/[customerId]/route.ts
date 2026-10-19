@@ -93,6 +93,7 @@ export async function PATCH(
 
         const body = await req.json();
         const updates: any = {};
+        if (body.name !== undefined) updates.name = body.name;
         if (body.mobile !== undefined) updates.mobile = body.mobile;
         if (body.email !== undefined) updates.email = body.email;
         if (body.date_of_birth !== undefined) updates.date_of_birth = body.date_of_birth;

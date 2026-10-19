@@ -101,7 +101,6 @@ export default function CustomersPage() {
             setTotalPages(data.totalPages || 1);
             if (data.stats) setStats(data.stats);
             setCache(cacheKey, data);
-            setCache('customers-cache', data);
         } catch (err: any) {
             console.error('Failed to load customers:', err);
             setError(err.message || 'Failed to load customers');

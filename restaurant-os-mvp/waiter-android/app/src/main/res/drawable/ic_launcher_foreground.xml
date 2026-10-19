@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple leaf mark on lavender, matching brand accent -->
+    <path
+        android:fillColor="#6A55E0"
+        android:pathData="M54,30 C66,30 76,40 76,54 C76,68 66,78 54,78 C48,78 42,75 38,70 C50,70 60,62 60,50 C60,42 56,36 50,33 C51,31 52,30 54,30 Z" />
+    <path
+        android:fillColor="#E8766A"
+        android:pathData="M48,46 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+</vector>

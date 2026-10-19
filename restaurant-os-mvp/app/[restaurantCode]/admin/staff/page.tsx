@@ -35,7 +35,7 @@ import DeleteStaffModal from '@/components/admin/payroll/DeleteStaffModal';
 import { getCached, setCache, hasFreshCache, clearCache } from '@/lib/data-cache';
 import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
-import { createClient } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { realtimeManager } from '@/lib/realtime-manager';
 
 type TabId = 'employees' | 'attendance' | 'payroll' | 'reports' | 'logins' | 'approvals';
@@ -159,7 +159,6 @@ export default function StaffManagement() {
             const subHandle = realtimeManager.subscribe(
                 `staff-logins:${targetId}`,
                 () => {
-                    const supabase = createClient();
                     const channel = supabase
                         .channel(`staff-logins-live-${targetId}`)
                         .on(
@@ -174,7 +173,13 @@ export default function StaffManagement() {
                                 realtimeManager.dispatch(`staff-logins:${targetId}`, payload);
                             }
                         );
-                    channel.subscribe();
+                    channel.subscribe((status, err) => {
+                        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                            if (process.env.NODE_ENV === 'development') {
+                                console.warn(`[StaffRealtime] channel status: ${status}`, err);
+                            }
+                        }
+                    });
                     return channel;
                 },
                 (payload) => {

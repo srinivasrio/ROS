@@ -287,15 +287,16 @@ export const OrderService = {
         const { data, error } = await query;
         let staffList: any[] = (data as any[]) || [];
 
-        // 2. Fallback to staff view if employees query encounters an error or empty result
+        // 2. Fallback to employees table searching both normalized and raw mobile
         if (error || staffList.length === 0) {
             let fallbackQuery = (supabase
-                .from('staff')
-                .select('id, name, mobile, role, restaurant_id, branch_id, status, is_online, availability_status, employee_id, avatar_url') as any)
-                .eq('restaurant_id', actualRestaurantId);
+                .from('employees')
+                .select('id, name, mobile, role, restaurant_id, branch_id, status, is_online, availability_status, employee_id, avatar_url, active_tables_count, active_orders_count') as any)
+                .eq('restaurant_id', actualRestaurantId)
+                .eq('is_deleted', false);
 
             if (cleanMobile) {
-                fallbackQuery = fallbackQuery.ilike('mobile', `%${cleanMobile}%`);
+                fallbackQuery = fallbackQuery.or(`phone_normalized.ilike.%${cleanMobile}%,mobile.ilike.%${cleanMobile}%`);
             } else {
                 fallbackQuery = fallbackQuery.eq('mobile', mobile);
             }
@@ -332,7 +333,7 @@ export const OrderService = {
 
             if (!rpcErr && waiterId) {
                 const { data: staffMember } = await supabase
-                    .from('staff')
+                    .from('employees')
                     .select('id, name, mobile, role, restaurant_id, branch_id')
                     .eq('id', waiterId)
                     .maybeSingle();
@@ -702,7 +703,7 @@ export const OrderService = {
         // 4. Update waiter's last_assigned_at if they were newly assigned to prevent race condition ties
         if (waiterAssignedJustNow && assignedWaiterId) {
             await supabase
-                .from('staff')
+                .from('employees')
                 .update({ last_assigned_at: now })
                 .eq('id', assignedWaiterId);
         }
@@ -747,10 +748,10 @@ export const OrderService = {
             } else if (staleTables && staleTables.length > 0) {
             for (const table of staleTables) {
                 console.log(`[checkAndResetStaleTables] Resetting stale table ${table.table_number}`);
-                // Archive pending orders
+                // Archive pending orders as cancelled (never falsely book abandoned tables as paid)
                 await supabase
                     .from('orders')
-                    .update({ is_completed: true, status: 'paid', completed_at: new Date().toISOString() })
+                    .update({ is_completed: true, status: 'cancelled', completed_at: new Date().toISOString() })
                     .eq('table_id', table.id)
                     .eq('restaurant_id', actualRestaurantId)
                     .eq('is_completed', false);
@@ -902,7 +903,7 @@ export const OrderService = {
             query = query.eq('restaurant_id', actualId);
 
             if (finalBranchId && finalBranchId !== 'all') {
-                query = query.eq('branch_id', finalBranchId);
+                query = query.or(`branch_id.eq.${finalBranchId},branch_id.is.null`);
             }
 
             if (waiterId) {
@@ -1080,7 +1081,7 @@ export const OrderService = {
                 .eq('restaurant_id', actualId);
 
             if (finalBranchId && finalBranchId !== 'all') {
-                query = query.eq('branch_id', finalBranchId);
+                query = query.or(`branch_id.eq.${finalBranchId},branch_id.is.null`);
             }
 
             const { data, error } = await query;
@@ -1168,7 +1169,7 @@ export const OrderService = {
 
         const applyBranchFilter = (q: any) => {
             if (finalBranchId && finalBranchId !== 'all') {
-                return q.eq('branch_id', finalBranchId);
+                return q.or(`branch_id.eq.${finalBranchId},branch_id.is.null`);
             }
             return q;
         };
@@ -1848,7 +1849,7 @@ export const OrderService = {
                         return;
                     }
 
-                    if (branchId && rec.branch_id !== branchId) return;
+                    if (branchId && rec.branch_id && rec.branch_id !== branchId) return;
                     if (waiterId && (!rec.waiter_id || String(rec.waiter_id).toLowerCase() !== String(waiterId).toLowerCase())) return;
                     onChange(payload as unknown as RealtimePostgresChangesPayload<Order>);
                 }
@@ -2155,7 +2156,7 @@ export const OrderService = {
                         return;
                     }
 
-                    if (branchId && rec.branch_id !== branchId) return;
+                    if (branchId && rec.branch_id && rec.branch_id !== branchId) return;
                     onChange(payload);
                 }
             );
@@ -2226,7 +2227,7 @@ export const OrderService = {
                         return;
                     }
 
-                    if (branchId && rec.branch_id !== branchId) return;
+                    if (branchId && rec.branch_id && rec.branch_id !== branchId) return;
                     onChange(payload);
                 }
             );
@@ -2300,7 +2301,7 @@ export const OrderService = {
                         return;
                     }
 
-                    if (branchId && rec.branch_id !== branchId) return;
+                    if (branchId && rec.branch_id && rec.branch_id !== branchId) return;
                     onChange(payload);
                 }
             );
@@ -2374,7 +2375,7 @@ export const OrderService = {
                         return;
                     }
 
-                    if (branchId && rec.branch_id !== branchId) return;
+                    if (branchId && rec.branch_id && rec.branch_id !== branchId) return;
                     onChange(payload);
                 }
             );
@@ -2511,10 +2512,15 @@ export const OrderService = {
                 let isPrivileged = false;
                 try {
                     const { data: emp } = await supabase.from('employees').select('role').eq('id', staffId).maybeSingle();
-                    if (emp?.role && ['admin', 'supervisor', 'restaurant_admin', 'manager', 'chef'].includes(emp.role.toLowerCase())) {
+                    if (emp?.role && ['admin', 'supervisor', 'restaurant_admin', 'manager', 'chef', 'kitchen', 'cook', 'staff', 'kds'].includes(emp.role.toLowerCase())) {
                         isPrivileged = true;
                     }
                 } catch (_) {}
+
+                // Kitchen/chef staff are ALWAYS authorized to move orders to 'preparing' or 'ready'
+                if (status === 'preparing' || status === 'ready') {
+                    isPrivileged = true;
+                }
 
                 if (!isPrivileged) {
                     const targetTableId = ord.table_id || ord.merge_group_id;
@@ -2542,9 +2548,12 @@ export const OrderService = {
         }).eq('order_id', orderId);
 
         if (status === 'preparing') {
-            itemsQuery = itemsQuery.or('status.eq.placed,status.eq.queued,status.is.null') as any;
+            itemsQuery = itemsQuery.not('status', 'in', '("ready","served","paid","cancelled")') as any;
         } else if (status === 'ready') {
-            itemsQuery = itemsQuery.or('status.eq.placed,status.eq.preparing,status.is.null') as any;
+            itemsQuery = supabase.from('order_items').update({ 
+                status,
+                ready_at: new Date().toISOString()
+            }).eq('order_id', orderId).not('status', 'in', '("served","paid","cancelled")') as any;
         } else if (status === 'served') {
             itemsQuery = supabase.from('order_items').update({ 
                 status,
@@ -2561,6 +2570,25 @@ export const OrderService = {
         if (itemsError) {
             console.error('Failed to cascade status to items', itemsError);
             throw itemsError; // Fail fast if items fail
+        }
+
+        // Trigger waiter alert if marked ready
+        if (status === 'ready') {
+            try {
+                const { data: ordRow } = await supabase.from('orders').select('table_id, restaurant_id').eq('id', orderId).maybeSingle();
+                if (ordRow?.table_id && ordRow?.restaurant_id) {
+                    await supabase
+                        .from('service_requests')
+                        .delete()
+                        .eq('table_id', ordRow.table_id)
+                        .eq('request_type', 'order_ready')
+                        .in('request_status', ['completed', 'pending']);
+
+                    await this.submitServiceRequest(ordRow.table_id, 'order_ready', ordRow.restaurant_id, 1, 'All dishes ready');
+                }
+            } catch (alertErr) {
+                console.error('[updateOrderStatus] Non-fatal order_ready alert dispatch error:', alertErr);
+            }
         }
 
         // 2. Update Order Status (Second) with tenant and branch scoping enforced atomically
@@ -3787,6 +3815,24 @@ export const OrderService = {
             throw error;
         }
 
+        // If coupon changed or was removed, decrement previous coupon usage count
+        const oldCode = ord.coupon_code ? String(ord.coupon_code).trim().toUpperCase() : null;
+        if (oldCode && oldCode !== cleanCode) {
+            try {
+                const { data: prevOffer } = await supabase
+                    .from('offers')
+                    .select('id')
+                    .eq('restaurant_id', actualRestaurantId)
+                    .eq('code', oldCode)
+                    .maybeSingle();
+                if (prevOffer?.id) {
+                    await OfferService.decrementUsage(prevOffer.id, actualRestaurantId);
+                }
+            } catch (err) {
+                console.warn('[updateOrderCoupon] Failed to decrement old coupon usage:', err);
+            }
+        }
+
         return {
             id: orderId,
             coupon_code: cleanCode,
@@ -4360,14 +4406,15 @@ export const OrderService = {
             }
         }
 
-        // 2. Settle fully based on DB total minus discount AND set completed_at
-        const payableAmount = (order.total_amount || 0) - (order.discount_amount || 0);
+        // 2. Settle fully based on DB total (which is already net of discount) AND set completed_at
+        const payableAmount = Math.max(0, Number(order.total_amount || 0));
         const { error } = await supabase
             .from('orders')
             .update({
                 status: 'paid',
                 amount_paid: payableAmount,
                 paid_by: paidBy,
+                payment_method: paidBy,
                 completed_at: new Date().toISOString(), // Set completed time
                 is_completed: true // Mark completed so it leaves active orders
             })
@@ -4462,13 +4509,14 @@ export const OrderService = {
 
         const payableAmount = amount != null 
             ? ceil2(amount) 
-            : ceil2(Math.max(0, Number(order.total_amount || 0) - Number(order.discount_amount || 0)));
+            : ceil2(Math.max(0, Number(order.total_amount || 0)));
 
         // Update payment details on orders
         const { data: updated, error: updateErr } = await supabase
             .from('orders')
             .update({
                 paid_by: paymentMethod,
+                payment_method: paymentMethod,
                 amount_paid: payableAmount,
                 status: 'paid', // Record payment status as Paid
             })
@@ -4516,7 +4564,7 @@ export const OrderService = {
             const clean = Math.round(n * 1e8) / 1e8;
             return Math.ceil(clean * 100) / 100;
         };
-        const payableAmount = ceil2(Math.max(0, Number(order.total_amount || 0) - Number(order.discount_amount || 0)));
+        const payableAmount = ceil2(Math.max(0, Number(order.total_amount || 0)));
         const isPaid = !!order.paid_by || order.status === 'paid' || (order.amount_paid != null && order.amount_paid >= payableAmount);
 
         if (!isPaid) {
@@ -4657,7 +4705,7 @@ export const OrderService = {
 
                 // Check staff role
                 const { data: staffMember } = await supabase
-                    .from('staff')
+                    .from('employees')
                     .select('id, role')
                     .eq('id', staffId)
                     .maybeSingle();
@@ -4709,36 +4757,41 @@ export const OrderService = {
 
         // Trigger "Order Ready" Alert if item is marked ready
         if (status === 'ready') {
-            const { data: order } = await supabase
-                .from('orders')
-                .select('table_id, restaurant_id')
-                .eq('id', item.order_id)
-                .single();
+            try {
+                const { data: order } = await supabase
+                    .from('orders')
+                    .select('table_id, restaurant_id')
+                    .eq('id', item.order_id)
+                    .single();
 
-            if (order && order.restaurant_id) {
-                // Always create a FRESH alert to notify the waiter again.
-                // Delete old order_ready requests (both completed and pending) in a single atomic query
-                const { error: deleteError } = await supabase
-                    .from('service_requests')
-                    .delete()
-                    .eq('table_id', order.table_id)
-                    .eq('request_type', 'order_ready')
-                    .in('request_status', ['completed', 'pending']);
+                if (order && order.restaurant_id) {
+                    // Always create a FRESH alert to notify the waiter again.
+                    // Delete old order_ready requests (both completed and pending) in a single atomic query
+                    const { error: deleteError } = await supabase
+                        .from('service_requests')
+                        .delete()
+                        .eq('table_id', order.table_id)
+                        .eq('request_type', 'order_ready')
+                        .in('request_status', ['completed', 'pending']);
 
-                if (deleteError) {
-                    console.error('Failed to cleanup old order_ready alerts:', deleteError);
+                    if (deleteError) {
+                        console.error('Failed to cleanup old order_ready alerts:', deleteError);
+                    }
+
+                    // 2. Create NEW 'order_ready' request with dish name
+                    const dishName = (item as any)?.name || (item as any)?.item_name || 'Dish';
+                    await this.submitServiceRequest(order.table_id, 'order_ready', order.restaurant_id, (item as any)?.quantity || 1, dishName);
                 }
-
-                // 2. Create NEW 'order_ready' request
-                await this.submitServiceRequest(order.table_id, 'order_ready', order.restaurant_id);
+            } catch (alertErr) {
+                console.error('[updateOrderItemStatus] Non-fatal order_ready alert error:', alertErr);
             }
         }
 
-        // 2. Check siblings to sync Parent Order Status with strict priority:
-        // Priority 1: If ANY item is 'placed' (or 'queued'), Order -> 'placed' (Incoming)
-        // Priority 2: Else if ANY item is 'preparing' (or 'cooking'), Order -> 'preparing' (Preparing)
-        // Priority 3: Else if ANY item is 'ready', Order -> 'ready' (Ready)
-        // Priority 4: Else if ALL items are 'served' (or 'paid'), Order -> 'served' (Served/Dining)
+        // 2. Check siblings to sync Parent Order Status with logical kitchen priority:
+        // Priority 1: If ALL items are 'served' (or 'paid'), Order -> 'served' (Served/Dining)
+        // Priority 2: If ALL items are 'ready' (or served/paid), Order -> 'ready' (Ready)
+        // Priority 3: Else if ANY item is 'ready' or 'preparing', Order -> 'preparing' (Kitchen actively preparing)
+        // Priority 4: Else (all items queued/placed) -> 'placed' (Incoming)
 
         const { data: siblings } = await supabase
             .from('order_items')
@@ -4754,14 +4807,14 @@ export const OrderService = {
 
         let newOrderStatus: OrderStatus = 'placed';
 
-        if (siblingStatuses.some(s => s === 'placed' || s === 'queued' || s === 'incoming')) {
-            newOrderStatus = 'placed';
-        } else if (siblingStatuses.some(s => s === 'preparing' || s === 'cooking')) {
-            newOrderStatus = 'preparing';
-        } else if (siblingStatuses.some(s => s === 'ready')) {
-            newOrderStatus = 'ready';
-        } else if (siblingStatuses.every(s => s === 'served' || s === 'paid')) {
+        if (siblingStatuses.every(s => s === 'served' || s === 'paid')) {
             newOrderStatus = 'served';
+        } else if (siblingStatuses.every(s => s === 'ready' || s === 'served' || s === 'paid')) {
+            newOrderStatus = 'ready';
+        } else if (siblingStatuses.some(s => s === 'ready' || s === 'preparing' || s === 'cooking')) {
+            newOrderStatus = 'preparing';
+        } else {
+            newOrderStatus = 'placed';
         }
 
         await supabase
@@ -4845,19 +4898,30 @@ export const OrderService = {
         const assignedWaiterId = (physicalTable as any).assigned_waiter_id;
 
         if (groupId) {
-            // Archive orders for the group
-            const { error: orderError } = await supabase
+            // Check active orders on merge group before archiving
+            const { data: activeGroupOrders, error: orderFetchErr } = await supabase
                 .from('orders')
-                .update({ 
-                    is_completed: true,
-                    status: 'paid',
-                    completed_at: new Date().toISOString()
-                })
+                .select('id, status, paid_by, amount_paid')
                 .eq('merge_group_id', groupId)
                 .eq('restaurant_id', actualRestaurantId)
                 .eq('is_completed', false);
 
-            if (orderError) console.error('Failed to archive merged order:', orderError);
+            if (!orderFetchErr && activeGroupOrders && activeGroupOrders.length > 0) {
+                const nowIso = new Date().toISOString();
+                for (const actOrd of activeGroupOrders) {
+                    // Only preserve 'paid' if the bill was actually settled with a payment method/status
+                    const finalStatus = (actOrd.status === 'paid' || !!actOrd.paid_by) ? 'paid' : 'cancelled';
+                    await supabase
+                        .from('orders')
+                        .update({ 
+                            is_completed: true,
+                            status: finalStatus,
+                            completed_at: nowIso
+                        })
+                        .eq('id', actOrd.id)
+                        .eq('restaurant_id', actualRestaurantId);
+                }
+            }
             
             // Unmerge the tables
             await this.unmergeTables(groupId, actualRestaurantId);
@@ -4882,18 +4946,30 @@ export const OrderService = {
 
             if (tableError) console.error('Failed to clear table:', tableError);
 
-            const { error: orderError } = await supabase
+            // Check active orders on table before archiving
+            const { data: activeTableOrders, error: orderFetchErr } = await supabase
                 .from('orders')
-                .update({ 
-                    is_completed: true,
-                    status: 'paid',
-                    completed_at: new Date().toISOString()
-                })
+                .select('id, status, paid_by, amount_paid')
                 .eq('table_id', actualTableId)
                 .eq('restaurant_id', actualRestaurantId)
                 .eq('is_completed', false);
 
-            if (orderError) console.error('Failed to archive order:', orderError);
+            if (!orderFetchErr && activeTableOrders && activeTableOrders.length > 0) {
+                const nowIso = new Date().toISOString();
+                for (const actOrd of activeTableOrders) {
+                    // Only preserve 'paid' if the bill was actually settled with a payment method/status
+                    const finalStatus = (actOrd.status === 'paid' || !!actOrd.paid_by) ? 'paid' : 'cancelled';
+                    await supabase
+                        .from('orders')
+                        .update({ 
+                            is_completed: true,
+                            status: finalStatus,
+                            completed_at: nowIso
+                        })
+                        .eq('id', actOrd.id)
+                        .eq('restaurant_id', actualRestaurantId);
+                }
+            }
         }
 
         // Recalculate waiter workload
@@ -5245,7 +5321,7 @@ export const OrderService = {
      * Supports multiple active requests per table.
      * persisted in service_requests AND updates table alert_status.
      */
-    async submitServiceRequest(tableId: number | string, type: string, restaurantId: string, quantity: number = 1) {
+    async submitServiceRequest(tableId: number | string, type: string, restaurantId: string, quantity: number = 1, notes?: string) {
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
 
         const physicalTable = await this.findTableAnywhere(tableId, actualRestaurantId);
@@ -5316,11 +5392,15 @@ export const OrderService = {
                         })
                         .eq('id', actualTableId);
                 }
-                // Update the waiter's last assigned timestamp
-                await supabase
-                    .from('staff')
-                    .update({ last_assigned_at: new Date().toISOString() })
+                // Update the waiter's last assigned timestamp in employees table
+                const nowIso = new Date().toISOString();
+                const { error: empErr } = await supabase
+                    .from('employees')
+                    .update({ last_assigned_at: nowIso })
                     .eq('id', assignedWaiterId);
+                if (empErr) {
+                    console.error('Failed to update waiter last_assigned_at in employees:', empErr);
+                }
             }
         }
 
@@ -5345,7 +5425,10 @@ export const OrderService = {
         if (existingRequest) {
             const { error } = await supabase
                 .from('service_requests')
-                .update({ quantity: (existingRequest.quantity || 0) + quantity })
+                .update({ 
+                    quantity: (existingRequest.quantity || 0) + quantity,
+                    ...(notes ? { notes } : {})
+                })
                 .eq('id', existingRequest.id);
 
             if (error) {
@@ -5366,7 +5449,8 @@ export const OrderService = {
                     request_status: 'pending',
                     quantity: quantity,
                     restaurant_id: actualRestaurantId,
-                    assigned_waiter_id: assignedWaiterId
+                    assigned_waiter_id: assignedWaiterId,
+                    notes: notes || null
                 });
 
             if (error) {
@@ -5531,7 +5615,7 @@ export const OrderService = {
         let staffMember: any = null;
         try {
             const res = await supabase
-                .from('staff')
+                .from('employees')
                 .select('role')
                 .eq('id', waiterId)
                 .maybeSingle();
@@ -5864,7 +5948,7 @@ export const OrderService = {
     async getWaiterRecord(restaurantId: string, userId: string) {
         const actualRestaurantId = await this.resolveRestaurantId(restaurantId);
         const { data, error } = await supabase
-            .from('staff')
+            .from('employees')
             .select('id, user_id, name, mobile, role, restaurant_id, branch_id, availability_status, created_at, updated_at')
             .eq('restaurant_id', actualRestaurantId)
             .eq('user_id', userId)
@@ -5879,7 +5963,7 @@ export const OrderService = {
      */
     async updateWaiterStatus(staffId: string, status: 'available' | 'busy' | 'break') {
         const { error } = await supabase
-            .from('staff')
+            .from('employees')
             .update({ availability_status: status })
             .eq('id', staffId);
         
@@ -5952,9 +6036,10 @@ export const OrderService = {
         return coalesceRequest(`staff:${targetId}`, async () => {
             const actualRestaurantId = await this.resolveRestaurantId(targetId);
             const { data, error } = await supabase
-                .from('staff')
+                .from('employees')
                 .select('*')
-                .eq('restaurant_id', actualRestaurantId);
+                .eq('restaurant_id', actualRestaurantId)
+                .eq('is_deleted', false);
             
             if (error) throw error;
             return data || [];
@@ -5967,7 +6052,7 @@ export const OrderService = {
     async fetchStaffWithWorkload(restaurantId: string) {
         const actualId = await this.resolveRestaurantId(restaurantId);
         const { data, error } = await supabase
-            .from('staff')
+            .from('employees')
             .select(`
                 id,
                 name,
@@ -5978,6 +6063,7 @@ export const OrderService = {
             `)
             .eq('restaurant_id', actualId)
             .eq('role', 'waiter')
+            .eq('is_deleted', false)
             .order('active_workload', { ascending: true });
 
         if (error) throw error;
@@ -6142,26 +6228,28 @@ export const OrderService = {
      * Transfer all active work (tables, orders, services) from one waiter to another.
      */
     async transferFullWorkload(fromWaiterId: string, toWaiterId: string, restaurantId: string) {
+        const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
+
         // 1. Update tables
         await supabase
             .from('tables')
             .update({ assigned_waiter_id: toWaiterId })
             .eq('assigned_waiter_id', fromWaiterId)
-            .eq('restaurant_id', restaurantId);
+            .eq('restaurant_id', actualRestaurantId);
 
         // 2. Update merge groups
         await supabase
             .from('table_merge_groups')
             .update({ assigned_waiter_id: toWaiterId })
             .eq('assigned_waiter_id', fromWaiterId)
-            .eq('restaurant_id', restaurantId);
+            .eq('restaurant_id', actualRestaurantId);
 
         // 3. Update active orders
         await supabase
             .from('orders')
             .update({ waiter_id: toWaiterId })
             .eq('waiter_id', fromWaiterId)
-            .eq('restaurant_id', restaurantId)
+            .eq('restaurant_id', actualRestaurantId)
             .eq('is_completed', false);
 
         // 4. Update pending service requests
@@ -6169,7 +6257,7 @@ export const OrderService = {
             .from('service_requests')
             .update({ assigned_waiter_id: toWaiterId })
             .eq('assigned_waiter_id', fromWaiterId)
-            .eq('restaurant_id', restaurantId)
+            .eq('restaurant_id', actualRestaurantId)
             .eq('request_status', 'pending');
     },
 

@@ -8,7 +8,7 @@ import { OrderService, Order } from '@/services/orders.service';
 import { useRestaurantId } from '@/hooks/useRestaurantId';
 
 interface OrderNotificationContextType {
-    triggerOrderReady: (tableId: number | string | null | undefined, items: { name: string; quantity: number; image_url?: string | null }[]) => void;
+    triggerOrderReady: (tableId: number | string | null | undefined, items: { name: string; quantity: number; image_url?: string | null; combo_items?: any; item_type?: string }[], orderId?: string) => void;
 }
 
 const OrderNotificationContext = createContext<OrderNotificationContextType | undefined>(undefined);
@@ -26,10 +26,16 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
     const params = useParams();
     const staffMobile = params?.staffMobile as string;
 
-    const [modalConfig, setModalConfig] = useState<{ isOpen: boolean; tableId: number | string | null | undefined; items: { name: string; quantity: number; image_url?: string | null }[] }>({
+    const [modalConfig, setModalConfig] = useState<{ 
+        isOpen: boolean; 
+        tableId: number | string | null | undefined; 
+        items: { name: string; quantity: number; image_url?: string | null; combo_items?: any; item_type?: string }[];
+        orderId?: string;
+    }>({
         isOpen: false,
         tableId: 0,
         items: [],
+        orderId: undefined,
     });
 
     const [waiterRecord, setWaiterRecord] = useState<any>(null);
@@ -63,8 +69,12 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
         return () => { active = false; };
     }, [restaurantId, staffMobile]);
 
-    const triggerOrderReady = (tableId: number | string | null | undefined, items: { name: string; quantity: number; image_url?: string | null }[]) => {
-        setModalConfig({ isOpen: true, tableId, items });
+    const triggerOrderReady = (
+        tableId: number | string | null | undefined, 
+        items: { name: string; quantity: number; image_url?: string | null; combo_items?: any; item_type?: string }[],
+        orderId?: string
+    ) => {
+        setModalConfig({ isOpen: true, tableId, items, orderId });
     };
 
     const handleClose = () => {
@@ -105,6 +115,8 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
         if (!restaurantLoading && restaurantId && waiterRecord?.id) {
             const currentWaiterId = String(waiterRecord.id).toLowerCase();
 
+            // Do not pass waiterRecord.id to subscribeToOrders so that customer QR orders
+            // (which start with waiter_id = NULL) are delivered and verified against table assignment via isOrderAssignedToWaiter
             const subscription = OrderService.subscribeToOrders(restaurantId, (payload) => {
                 if (!active) return;
                 const newOrder = payload.new as Order;
@@ -119,6 +131,8 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
                             return;
                         }
 
+                        const targetOrderId = fullOrder.id || newOrder.id;
+
                         if (fullOrder.items) {
                             // Filter for items that are actually 'ready'
                             const readyItems = fullOrder.items
@@ -132,13 +146,13 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
                                 }));
 
                             const displayItems = readyItems.length > 0 ? readyItems : [{ name: 'Order is Ready', quantity: 1 }];
-                            triggerOrderReady(fullOrder?.table_number || fullOrder?.table_id || newOrder.table_id || newOrder.merge_group_id, displayItems);
+                            triggerOrderReady(fullOrder?.table_number || fullOrder?.table_id || newOrder.table_id || newOrder.merge_group_id, displayItems, targetOrderId);
                         } else {
-                            triggerOrderReady(fullOrder?.table_number || fullOrder?.table_id || newOrder.table_id || newOrder.merge_group_id, [{ name: 'Order #' + newOrder.id.slice(0, 4), quantity: 1 }]);
+                            triggerOrderReady(fullOrder?.table_number || fullOrder?.table_id || newOrder.table_id || newOrder.merge_group_id, [{ name: 'Order #' + newOrder.id.slice(0, 4), quantity: 1 }], targetOrderId);
                         }
                     });
                 }
-            }, waiterRecord.id);
+            });
 
             // Keep track of which order items have already triggered a notification in this session
             const notifiedItemsRef = new Set<string>();
@@ -174,7 +188,7 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
                                 }));
 
                             if (readyItems.length > 0) {
-                                triggerOrderReady(fullOrder?.table_number || fullOrder?.table_id || fullOrder?.merge_group_id, readyItems);
+                                triggerOrderReady(fullOrder?.table_number || fullOrder?.table_id || fullOrder?.merge_group_id, readyItems, fullOrder.id || newItem.order_id);
                             }
                         }
                     });
@@ -195,7 +209,7 @@ export function OrderNotificationProvider({ children }: { children: ReactNode })
             <OrderReadyModal
                 isOpen={modalConfig.isOpen}
                 onClose={handleClose}
-                onPickup={() => handlePickup()}
+                onPickup={() => handlePickup(modalConfig.orderId)}
                 tableId={modalConfig.tableId as any}
                 items={modalConfig.items}
             />

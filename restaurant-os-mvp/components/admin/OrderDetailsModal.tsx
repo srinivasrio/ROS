@@ -19,6 +19,7 @@ interface OrderDetailsModalProps {
     deliveryBoys?: any[];
     onAssignDeliveryBoy?: (orderId: string, deliveryBoyId: string) => Promise<void>;
     onInitiateTakeawayHandover?: (order: Order) => void;
+    onSettleBill?: (order: Order) => Promise<void> | void;
 }
 
 export default function OrderDetailsModal({ 
@@ -27,6 +28,7 @@ export default function OrderDetailsModal({
     deliveryBoys = [],
     onAssignDeliveryBoy,
     onInitiateTakeawayHandover,
+    onSettleBill,
 }: OrderDetailsModalProps) {
     const componentRef = useRef<HTMLDivElement>(null);
     const handlePrint = useReactToPrint({
@@ -34,9 +36,11 @@ export default function OrderDetailsModal({
     });
 
     const [isMinimized, setIsMinimized] = useState(false);
+    const [isSettling, setIsSettling] = useState(false);
 
     useEffect(() => {
         setIsMinimized(false);
+        setIsSettling(false);
     }, [order?.id]);
 
     const pricing = calculateOrderPricing(order);
@@ -354,15 +358,12 @@ export default function OrderDetailsModal({
 
                                 <div className="flex gap-3">
                                     <button
-                                        disabled={order.status !== 'paid'}
+                                        type="button"
                                         onClick={handlePrint}
-                                        className={`flex-1 py-3 border font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2 ${order.status === 'paid'
-                                            ? 'bg-white border-gray-200 text-black hover:bg-gray-50'
-                                            : 'bg-gray-100 border-gray-200 text-black cursor-not-allowed'
-                                            }`}
+                                        className="flex-1 py-3 border font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2 bg-white border-gray-200 text-black hover:bg-gray-50 cursor-pointer"
                                     >
                                         <LucidePrinter size={18} />
-                                        Print Bill
+                                        <span>{order.status === 'paid' ? 'Print Receipt' : 'Print Bill'}</span>
                                     </button>
                                     {order.order_type === 'TAKEAWAY' && (order.status === 'ready' || order.status === 'paid') && onInitiateTakeawayHandover ? (
                                         <button 
@@ -373,10 +374,23 @@ export default function OrderDetailsModal({
                                             <LucideShoppingBag size={18} />
                                             Hand Over
                                         </button>
-                                    ) : (order.status !== 'paid' && order.status !== 'served' && (
-                                        <button className="flex-1 py-3 bg-neutral-900 text-white font-bold rounded-xl hover:bg-neutral-800 transition-colors shadow-lg shadow-neutral-900/10 flex items-center justify-center gap-2">
-                                            <LucideReceipt size={18} />
-                                            Settle Bill
+                                    ) : (order.status !== 'paid' && order.status !== 'cancelled' && (
+                                        <button 
+                                            type="button"
+                                            disabled={isSettling}
+                                            onClick={async () => {
+                                                if (!onSettleBill || isSettling) return;
+                                                setIsSettling(true);
+                                                try {
+                                                    await onSettleBill(order);
+                                                } finally {
+                                                    setIsSettling(false);
+                                                }
+                                            }}
+                                            className="flex-1 py-3 bg-neutral-900 hover:bg-neutral-800 text-white font-bold rounded-xl transition-colors shadow-lg shadow-neutral-900/10 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                        >
+                                            {isSettling ? <LucideClock size={18} className="animate-spin" /> : <LucideReceipt size={18} />}
+                                            <span>{isSettling ? 'Settling...' : 'Settle Bill'}</span>
                                         </button>
                                     ))}
                                 </div>

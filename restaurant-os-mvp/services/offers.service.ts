@@ -175,5 +175,24 @@ export const OfferService = {
                 .eq('restaurant_id', restaurantId);
             this.clearCache(restaurantId);
         }
+    },
+
+    async decrementUsage(offerId: string, restaurantId: string) {
+        const supabase = createClient();
+        const { data } = await supabase
+            .from('offers')
+            .select('usage_count')
+            .eq('id', offerId)
+            .eq('restaurant_id', restaurantId)
+            .single();
+
+        if (data && (data.usage_count || 0) > 0) {
+            await supabase
+                .from('offers')
+                .update({ usage_count: Math.max(0, (data.usage_count || 0) - 1) })
+                .eq('id', offerId)
+                .eq('restaurant_id', restaurantId);
+            this.clearCache(restaurantId);
+        }
     }
 };

@@ -32,6 +32,7 @@ import { useRestaurantId } from '@/hooks/useRestaurantId';
 import { getCached, setCache } from '@/lib/data-cache';
 import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
+import { toast } from 'sonner';
 
 type StatusFilterType = 'all' | 'new' | 'cooking' | 'ready';
 type OrderTypeFilter = 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
@@ -287,6 +288,28 @@ export default function LiveOrders() {
         }
     };
 
+    const handleSettleOrder = async (order: Order) => {
+        const targetId = restaurantId || restaurantCode;
+        if (!targetId) return;
+        try {
+            await OrderService.settleBill(order.id, targetId, order.total_amount, 'Admin Settle');
+            toast.success(`Order #${order.id.slice(0, 8)} settled successfully.`);
+            const updatedOrder: Order = {
+                ...order,
+                status: 'paid' as OrderStatus,
+                paid_by: 'Admin Settle',
+                amount_paid: order.total_amount,
+                is_completed: true,
+            };
+            setSelectedOrder(updatedOrder);
+            setOrders(prev => prev.map(o => o.id === order.id ? updatedOrder : o));
+            loadData();
+        } catch (err: any) {
+            console.error('Failed to settle bill:', err);
+            toast.error(err?.message || 'Failed to settle bill');
+        }
+    };
+
     const loadDataRef = useRef(loadData);
     const loadWaitersRef = useRef(loadWaiters);
     const loadDeliveryBoysRef = useRef(loadDeliveryBoys);
@@ -314,14 +337,24 @@ export default function LiveOrders() {
                 }, 400);
             };
 
-            const subscription = OrderService.subscribeToOrders(restaurantId || targetId, () => {
+            const subOrders = OrderService.subscribeToOrders(restaurantId || targetId, () => {
+                debouncedLoadData();
+            });
+
+            const subItems = OrderService.subscribeToOrderItems(restaurantId || targetId, () => {
+                debouncedLoadData();
+            });
+
+            const subTables = OrderService.subscribeToTables(restaurantId || targetId, () => {
                 debouncedLoadData();
             });
 
             return () => {
                 active = false;
                 if (reloadTimer) clearTimeout(reloadTimer);
-                subscription.unsubscribe();
+                subOrders.unsubscribe();
+                subItems.unsubscribe();
+                subTables.unsubscribe();
             };
         }
         return () => { active = false; };
@@ -1096,6 +1129,7 @@ export default function LiveOrders() {
                     deliveryBoys={deliveryBoys}
                     onAssignDeliveryBoy={handleAssignDeliveryBoy}
                     onInitiateTakeawayHandover={handleInitiateTakeawayHandover}
+                    onSettleBill={handleSettleOrder}
                 />
 
                 {/* Takeaway Handover & Payment Modal */}

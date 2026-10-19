@@ -10,6 +10,7 @@ import CreateOfferModal from '@/components/admin/CreateOfferModal';
 import { getCached, setCache, hasFreshCache } from '@/lib/data-cache';
 import { requestManager } from '@/lib/cache/request-manager';
 import { SyncIndicator } from '@/components/admin/SyncIndicator';
+import { toast } from 'sonner';
 
 const getOrderTypeBadge = (type?: string) => {
     switch (type) {
@@ -112,9 +113,10 @@ export default function Offers() {
             setOffers(updated);
             setCache(`offers-${targetId}`, updated);
             if (restaurantId) setCache(`offers-${restaurantId}`, updated);
+            toast.success('Offer deleted successfully');
             loadOffers(targetId, true);
-        } catch (error) {
-            alert('Failed to delete offer');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to delete offer');
         }
     };
 
@@ -164,7 +166,16 @@ export default function Offers() {
 
                                 <div className="flex items-baseline gap-2 mb-1">
                                     <h3 className="text-2xl font-mono font-bold text-black">{offer.code}</h3>
-                                    <button className="text-black hover:text-blue-600"><LucideCopy size={14} /></button>
+                                    <button 
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(offer.code);
+                                            toast.success(`Copied "${offer.code}" to clipboard!`);
+                                        }}
+                                        className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                                        title="Copy coupon code"
+                                    >
+                                        <LucideCopy size={14} />
+                                    </button>
                                 </div>
                                 <h4 className="text-sm font-black text-black">{offer.title}</h4>
                                 <p className="text-[11px] text-black mt-0.5 line-clamp-1">{offer.description}</p>

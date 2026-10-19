@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
                 discount_amount,
                 gst_amount,
                 payment_method, 
+                paid_by,
                 status, 
                 order_type,
                 restaurant_id, 
@@ -90,11 +91,13 @@ export async function GET(request: NextRequest) {
         const branches = branchesRes.data || [];
         const restaurants = restsRes.data || [];
 
-        const totalRevenue = orders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
-        const totalDiscount = orders.reduce((sum, o) => sum + (parseFloat(o.discount_amount) || 0), 0);
-        const totalGst = orders.reduce((sum, o) => sum + (parseFloat(o.gst_amount) || 0), 0);
+        // Exclude cancelled orders from financial revenue calculations
+        const validOrders = orders.filter(o => (o.status || '').toLowerCase() !== 'cancelled');
+        const totalRevenue = validOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+        const totalDiscount = validOrders.reduce((sum, o) => sum + (parseFloat(o.discount_amount) || 0), 0);
+        const totalGst = validOrders.reduce((sum, o) => sum + (parseFloat(o.gst_amount) || 0), 0);
         const totalOrders = orders.length;
-        const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+        const averageOrderValue = validOrders.length > 0 ? totalRevenue / validOrders.length : 0;
 
         // Breakdown by order type (DINE_IN, TAKEAWAY, DELIVERY)
         const orderTypeStats = {
@@ -104,7 +107,8 @@ export async function GET(request: NextRequest) {
         };
 
         orders.forEach(o => {
-            const amount = parseFloat(o.total_amount) || 0;
+            const isCancelled = (o.status || '').toLowerCase() === 'cancelled';
+            const amount = isCancelled ? 0 : (parseFloat(o.total_amount) || 0);
             const type = (o.order_type || '').toUpperCase();
             if (type === 'DINE_IN') {
                 orderTypeStats.dineIn.count++;
@@ -155,7 +159,8 @@ export async function GET(request: NextRequest) {
                     delivery: 0
                 };
             }
-            const amt = parseFloat(o.total_amount) || 0;
+            const isCancelled = (o.status || '').toLowerCase() === 'cancelled';
+            const amt = isCancelled ? 0 : (parseFloat(o.total_amount) || 0);
             branchBreakdown[key].revenue += amt;
             branchBreakdown[key].orders += 1;
             const t = (o.order_type || '').toUpperCase();
@@ -164,10 +169,17 @@ export async function GET(request: NextRequest) {
             else if (t === 'DELIVERY') branchBreakdown[key].delivery += 1;
         });
 
-        // Payment method breakdown
+        // Payment method breakdown (only valid settled/non-cancelled orders)
         const paymentBreakdown: Record<string, { count: number; amount: number }> = {};
-        orders.forEach(o => {
-            const method = (o.payment_method || 'CASH').toUpperCase();
+        validOrders.forEach(o => {
+            const raw = String(o.paid_by || o.payment_method || 'CASH').toUpperCase();
+            let method = 'CASH';
+            if (raw.includes('UPI')) method = 'UPI';
+            else if (raw.includes('CARD')) method = 'CARD';
+            else if (raw.includes('ONLINE') || raw.includes('RAZORPAY')) method = 'ONLINE';
+            else if (raw.includes('CASH')) method = 'CASH';
+            else method = raw.trim();
+
             if (!paymentBreakdown[method]) paymentBreakdown[method] = { count: 0, amount: 0 };
             paymentBreakdown[method].count += 1;
             paymentBreakdown[method].amount += parseFloat(o.total_amount) || 0;

@@ -169,6 +169,7 @@ class RealtimeSubscriptionManager {
                                 console.log(`[RealtimeManager] Grace period expired. Tearing down channel: ${channelKey}`);
                             }
                             try {
+                                check.channel.unsubscribe();
                                 supabase.removeChannel(check.channel);
                             } catch (_) {}
                             this.channels.delete(channelKey);
@@ -213,6 +214,7 @@ class RealtimeSubscriptionManager {
         for (const [key, entry] of this.channels.entries()) {
             if (entry.teardownTimer) clearTimeout(entry.teardownTimer);
             try {
+                entry.channel.unsubscribe();
                 supabase.removeChannel(entry.channel);
             } catch (_) {}
         }

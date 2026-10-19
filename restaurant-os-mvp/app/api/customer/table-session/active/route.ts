@@ -69,6 +69,31 @@ async function buildOtherSessionPayload(
     };
 }
 
+async function getMergeGroupMemberTables(
+    restaurantIds: string[],
+    resolvedTableNumber: string
+): Promise<string[]> {
+    try {
+        const { data: physicalTable } = await supabaseAdmin
+            .from('tables')
+            .select('id, table_number, is_merged, merged_group_id')
+            .in('restaurant_id', restaurantIds)
+            .or(`table_number.eq.${resolvedTableNumber},id.eq.${resolvedTableNumber}`)
+            .maybeSingle();
+
+        if (physicalTable?.is_merged && physicalTable.merged_group_id) {
+            const { data: groupTables } = await supabaseAdmin
+                .from('tables')
+                .select('table_number')
+                .eq('merged_group_id', physicalTable.merged_group_id);
+            if (groupTables && groupTables.length > 0) {
+                return groupTables.map(t => String(t.table_number)).filter(Boolean);
+            }
+        }
+    } catch (_) {}
+    return [];
+}
+
 /**
  * GET /api/customer/table-session/active
  * Check if an active dining session exists for this table.
@@ -174,6 +199,20 @@ export async function GET(req: NextRequest) {
             orConditions.push(`table_token.eq.${tableNumber}`);
             orConditions.push(`table_number.eq.${tableNumber}`);
         }
+        // Check if this table is part of a merged table group and include all member tables
+        const targetRestIds = [restaurantId, canonicalRestaurantId].filter(Boolean);
+        const memberTables = await getMergeGroupMemberTables(targetRestIds, resolvedTableNumber);
+        for (const mt of memberTables) {
+            if (mt !== resolvedTableNumber) {
+                orConditions.push(`table_number.eq.${mt}`);
+                const normMt = normalizeTableNumber(mt);
+                if (normMt) {
+                    orConditions.push(`table_number.eq.${normMt}`);
+                    orConditions.push(`table_number.ilike.Table ${normMt}`);
+                }
+            }
+        }
+
         if (orConditions.length > 0) {
             sessionQuery = sessionQuery.or(orConditions.join(','));
         }
@@ -333,12 +372,31 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        // Check for existing active session on table
+        // Check for existing active session on table or across merged table group members
+        const postTargetRestIds = [restaurantId, canonicalRestaurantId].filter(Boolean);
+        const postMemberTables = await getMergeGroupMemberTables(postTargetRestIds, resolvedTableNumber);
+        const postOrConditions = [
+            `table_number.eq.${resolvedTableNumber}`,
+            `table_token.eq.${tableNumber}`,
+            `table_number.eq.${tableNumber}`,
+            `table_number.ilike.Table ${normReqTable}`
+        ];
+        for (const mt of postMemberTables) {
+            if (mt !== resolvedTableNumber) {
+                postOrConditions.push(`table_number.eq.${mt}`);
+                const normMt = normalizeTableNumber(mt);
+                if (normMt) {
+                    postOrConditions.push(`table_number.eq.${normMt}`);
+                    postOrConditions.push(`table_number.ilike.Table ${normMt}`);
+                }
+            }
+        }
+
         const { data: existingSession } = await supabaseAdmin
             .from('table_active_sessions')
             .select('*')
-            .in('restaurant_id', [restaurantId, canonicalRestaurantId])
-            .or(`table_number.eq.${resolvedTableNumber},table_token.eq.${tableNumber},table_number.eq.${tableNumber},table_number.ilike.Table ${normReqTable}`)
+            .in('restaurant_id', postTargetRestIds)
+            .or(postOrConditions.join(','))
             .eq('is_active', true)
             .order('created_at', { ascending: false })
             .limit(1)

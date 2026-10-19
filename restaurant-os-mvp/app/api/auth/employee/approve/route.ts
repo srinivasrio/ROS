@@ -139,6 +139,7 @@ export async function POST(request: Request) {
 
         // 4. Handle Permanent Deletion
         if (action === 'permanent_delete') {
+            await supabaseAdmin.from('dine_sessions').delete().eq('user_id', employeeId);
             await supabaseAdmin.from('auth').delete().eq('user_id', employeeId);
             await supabaseAdmin.from('waiter_assignments').delete().eq('waiter_id', employeeId);
             await supabaseAdmin.from('waiter_workloads').delete().eq('waiter_id', employeeId);
@@ -188,17 +189,22 @@ export async function POST(request: Request) {
             newStatus = 'inactive';
             newApproval = 'rejected';
             auditAction = 'employee_rejection';
+            await supabaseAdmin.from('dine_sessions').update({ is_active: false }).eq('user_id', employeeId);
+            await supabaseAdmin.from('waiter_workloads').update({ is_online: false, status: 'offline', current_active_tables: 0 }).eq('waiter_id', employeeId);
         } else if (action === 'suspend') {
             newStatus = 'inactive';
             newApproval = 'suspended';
             auditAction = 'employee_suspension';
+            await supabaseAdmin.from('dine_sessions').update({ is_active: false }).eq('user_id', employeeId);
+            await supabaseAdmin.from('waiter_workloads').update({ is_online: false, status: 'offline', current_active_tables: 0 }).eq('waiter_id', employeeId);
         } else if (action === 'delete') {
             isDeleted = true;
             deletedAt = new Date().toISOString();
             deletedBy = actor.userId;
             newStatus = 'inactive';
             auditAction = 'employee_deleted';
-            // Deactivate waiter workload
+            // Invalidate active sessions & deactivate waiter workload
+            await supabaseAdmin.from('dine_sessions').update({ is_active: false }).eq('user_id', employeeId);
             await supabaseAdmin
                 .from('waiter_workloads')
                 .update({ is_online: false, status: 'offline', current_active_tables: 0 })

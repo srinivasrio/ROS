@@ -88,14 +88,14 @@ export default function CustomerMenu() {
                 stylesData = st;
             }
             
-            if (tableInfo) {
-                // Check if the table belongs to this restaurant
-                if (tableInfo.restaurant_id !== urlRestaurantId) {
-                    setTableNotFound(true);
-                } else {
-                    const newName = tableInfo.display_name || tableInfo.table_number || urlTableNumber;
-                    setTableDisplayName(newName);
-                }
+            const isVirtualOrder = urlTableNumber.toLowerCase() === 'takeaway' || urlTableNumber.toLowerCase() === 'delivery';
+            if (isVirtualOrder) {
+                setTableDisplayName(urlTableNumber.toLowerCase() === 'takeaway' ? 'Takeaway' : 'Delivery');
+                setTableNotFound(false);
+            } else if (tableInfo) {
+                const newName = tableInfo.display_name || tableInfo.table_number || urlTableNumber;
+                setTableDisplayName(newName);
+                setTableNotFound(false);
             } else if (urlTableNumber) {
                 setTableNotFound(true);
             }

@@ -38,11 +38,21 @@ export async function GET(req: NextRequest) {
             order_number,
             status,
             total_amount,
+            amount_paid,
+            discount_amount,
+            coupon_code,
+            gst_amount,
+            cgst_amount,
+            sgst_amount,
+            delivery_fee,
+            paid_by,
+            payment_method,
+            waiter_id,
             order_type,
             created_at,
             restaurant_id,
-            tables:table_id (table_number),
-            table_merge_groups:merge_group_id (display_name),
+            tables:table_id (table_number, assigned_waiter_id),
+            table_merge_groups:merge_group_id (display_name, assigned_waiter_id),
             order_items (
                 id,
                 quantity,
@@ -88,6 +98,69 @@ export async function GET(req: NextRequest) {
 
         const tableDisplay = (order as any).table_merge_groups?.display_name || (order as any).tables?.table_number || undefined;
 
+        // Fetch assigned waiter profile if available
+        const effectiveWaiterId = order.waiter_id || (order as any).tables?.assigned_waiter_id || (order as any).table_merge_groups?.assigned_waiter_id;
+        let waiterName: string | undefined = undefined;
+        let waiterAvatar: string | undefined = undefined;
+        if (effectiveWaiterId) {
+            try {
+                const { data: emp } = await supabaseAdmin
+                    .from('employees')
+                    .select('name, avatar_url')
+                    .eq('id', effectiveWaiterId)
+                    .maybeSingle();
+                if (emp) {
+                    waiterName = emp.name;
+                    waiterAvatar = emp.avatar_url;
+                }
+            } catch (_) {}
+        }
+
+        // Fetch active delivery assignment if delivery order
+        let deliveryAssignment: any = null;
+        if (order.order_type === 'DELIVERY') {
+            try {
+                const { data: da } = await supabaseAdmin
+                    .from('delivery_assignments')
+                    .select('id, status, delivery_boy_id, assigned_at, accepted_at, picked_up_at, out_for_delivery_at, delivered_at')
+                    .eq('order_id', order.id)
+                    .not('status', 'in', '("CANCELLED","REASSIGNED")')
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (da && da.delivery_boy_id) {
+                    const { data: db } = await supabaseAdmin
+                        .from('delivery_boys')
+                        .select('id, vehicle_type, vehicle_number, employee_id')
+                        .eq('id', da.delivery_boy_id)
+                        .maybeSingle();
+
+                    if (db && db.employee_id) {
+                        const { data: emp } = await supabaseAdmin
+                            .from('employees')
+                            .select('name, mobile, avatar_url')
+                            .eq('id', db.employee_id)
+                            .maybeSingle();
+
+                        deliveryAssignment = {
+                            ...da,
+                            delivery_boy: {
+                                id: db.id,
+                                name: emp?.name || 'Delivery Partner',
+                                mobile: emp?.mobile || '',
+                                avatar_url: emp?.avatar_url || null,
+                                vehicle_type: db.vehicle_type,
+                                vehicle_number: db.vehicle_number,
+                            }
+                        };
+                    }
+                }
+            } catch (e) {
+                console.error('[OrderStatus] Error fetching delivery assignment:', e);
+            }
+        }
+
         // Sanitize items (no internal secrets)
         const sanitizedItems = (order.order_items || []).map((item: any) => ({
             id: String(item.id),
@@ -99,7 +172,7 @@ export async function GET(req: NextRequest) {
             image_url: item.combo_image || item.menu_items?.image_url || getCategoryMenuItemImage(item.combo_name || item.menu_items?.name || 'Item'),
         }));
 
-        // Return ONLY non-sensitive tracking information
+        // Return complete tracking and billing information
         return NextResponse.json({
             success: true,
             order: {
@@ -107,10 +180,22 @@ export async function GET(req: NextRequest) {
                 order_number: order.order_number,
                 status: order.status,
                 total_amount: order.total_amount,
+                amount_paid: order.amount_paid,
+                discount_amount: order.discount_amount || 0,
+                coupon_code: order.coupon_code || null,
+                gst_amount: order.gst_amount || 0,
+                cgst_amount: order.cgst_amount || 0,
+                sgst_amount: order.sgst_amount || 0,
+                delivery_fee: order.delivery_fee || 0,
+                paid_by: order.paid_by || order.payment_method || null,
+                payment_method: order.payment_method || order.paid_by || null,
                 order_type: order.order_type,
                 created_at: order.created_at,
                 restaurant_id: order.restaurant_id,
                 table_number: tableDisplay,
+                waiter_name: waiterName,
+                waiter_avatar: waiterAvatar,
+                delivery_assignment: deliveryAssignment,
                 items: sanitizedItems,
             },
         });

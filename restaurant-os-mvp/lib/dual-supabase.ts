@@ -36,29 +36,44 @@ export function createDualSupabaseClient<T = any>(
                                 // Intercept promise resolution (when awaited or .then is called)
                                 if (bProp === 'then') {
                                     return function (onFulfilled?: any, onRejected?: any) {
-                                        return bTarget.then(async (primaryResult: any) => {
-                                            // Mirror write operations to secondary database if primary succeeded
+                                        return bTarget.then((primaryResult: any) => {
+                                            // Asynchronously mirror write operations to secondary database without blocking user latency
                                             if (isWriteOperation && sBuilder && !primaryResult?.error) {
-                                                try {
-                                                    // Mirror mutation to secondary
-                                                    const secPromise = sBuilder.then ? sBuilder : Promise.resolve(sBuilder);
-                                                    const secResult = await secPromise;
-                                                    if (secResult?.error) {
+                                                Promise.resolve().then(async () => {
+                                                    try {
+                                                        const secPromise = sBuilder.then ? sBuilder : Promise.resolve(sBuilder);
+                                                        const secResult = await secPromise;
+                                                        if (secResult?.error) {
+                                                            console.warn(
+                                                                `[Dual-DB Mirror] Notice on ${tableName}: Secondary DB reported:`,
+                                                                secResult.error.message || secResult.error
+                                                            );
+                                                        }
+                                                    } catch (secErr: any) {
                                                         console.warn(
-                                                            `[Dual-DB Mirror] Notice on ${tableName}: Secondary DB reported:`,
-                                                            secResult.error.message || secResult.error
+                                                            `[Dual-DB Mirror] Exception on ${tableName}:`,
+                                                            secErr?.message || secErr
                                                         );
                                                     }
-                                                } catch (secErr: any) {
-                                                    console.warn(
-                                                        `[Dual-DB Mirror] Exception on ${tableName}:`,
-                                                        secErr?.message || secErr
-                                                    );
+                                                });
+                                            }
+
+                                            // If read operation failed on primary with a fetch/network error, fallback to secondary
+                                            if (!isWriteOperation && primaryResult?.error && sBuilder) {
+                                                const msg = String(primaryResult.error?.message || '');
+                                                if (msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')) {
+                                                    return sBuilder.then(onFulfilled, onRejected);
                                                 }
                                             }
 
                                             return onFulfilled ? onFulfilled(primaryResult) : primaryResult;
-                                        }, onRejected);
+                                        }, (primaryErr: any) => {
+                                            if (!isWriteOperation && sBuilder) {
+                                                return sBuilder.then(onFulfilled, onRejected);
+                                            }
+                                            if (onRejected) return onRejected(primaryErr);
+                                            throw primaryErr;
+                                        });
                                     };
                                 }
 
@@ -74,11 +89,18 @@ export function createDualSupabaseClient<T = any>(
                                     }
 
                                     const nextPrimary = originalMethod.apply(bTarget, args);
-                                    let nextSecondary = sBuilder;
-                                    if (sBuilder && typeof sBuilder[bProp] === 'function') {
-                                        try {
-                                            nextSecondary = sBuilder[bProp].apply(sBuilder, args);
-                                        } catch (_) {}
+                                    let nextSecondary: any = null;
+                                    if (sBuilder) {
+                                        if (typeof sBuilder[bProp] === 'function') {
+                                            try {
+                                                nextSecondary = sBuilder[bProp].apply(sBuilder, args);
+                                            } catch (_) {
+                                                // Prevent catastrophic unfiltered query execution on secondary DB
+                                                nextSecondary = null;
+                                            }
+                                        } else {
+                                            nextSecondary = null;
+                                        }
                                     }
 
                                     return wrapBuilder(nextPrimary, nextSecondary);
@@ -104,19 +126,21 @@ export function createDualSupabaseClient<T = any>(
                         get(rTarget, rProp, rReceiver) {
                             if (rProp === 'then') {
                                 return function (onFulfilled?: any, onRejected?: any) {
-                                    return rTarget.then(async (primaryResult: any) => {
+                                    return rTarget.then((primaryResult: any) => {
                                         if (secondaryRpc && !primaryResult?.error) {
-                                            try {
-                                                const secResult = await secondaryRpc;
-                                                if (secResult?.error) {
-                                                    console.warn(
-                                                        `[Dual-DB Mirror] RPC ${fnName} warning on Secondary DB:`,
-                                                        secResult.error.message || secResult.error
-                                                    );
+                                            Promise.resolve().then(async () => {
+                                                try {
+                                                    const secResult = await secondaryRpc;
+                                                    if (secResult?.error) {
+                                                        console.warn(
+                                                            `[Dual-DB Mirror] RPC ${fnName} warning on Secondary DB:`,
+                                                            secResult.error.message || secResult.error
+                                                        );
+                                                    }
+                                                } catch (err: any) {
+                                                    console.warn(`[Dual-DB Mirror] RPC ${fnName} exception:`, err?.message || err);
                                                 }
-                                            } catch (err: any) {
-                                                console.warn(`[Dual-DB Mirror] RPC ${fnName} exception:`, err?.message || err);
-                                            }
+                                            });
                                         }
                                         return onFulfilled ? onFulfilled(primaryResult) : primaryResult;
                                     }, onRejected);

@@ -193,20 +193,24 @@ export default function OrderKanbanBoard({
             }
         };
 
-        const debouncedLoadOrders = () => {
+        const debouncedLoadOrders = (immediate = false) => {
             if (debounceTimer) clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
+            if (immediate) {
                 loadOrders();
-            }, 1000);
+            } else {
+                debounceTimer = setTimeout(() => {
+                    loadOrders();
+                }, 250);
+            }
         };
 
         const handleOnline = () => {
-            debouncedLoadOrders();
+            debouncedLoadOrders(true);
         };
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
-                debouncedLoadOrders();
+                debouncedLoadOrders(true);
             }
         };
 
@@ -218,11 +222,21 @@ export default function OrderKanbanBoard({
         // Safety fallback heartbeat (ensures KDS tablet receives orders even across network hiccups)
         const safetyInterval = setInterval(() => {
             debouncedLoadOrders();
-        }, 8000);
+        }, 3000);
+
+        let syncChannel: BroadcastChannel | null = null;
+        try {
+            syncChannel = new BroadcastChannel('ros_orders_sync');
+            syncChannel.onmessage = (event) => {
+                if (event.data?.type === 'ORDER_PLACED' || event.data?.type === 'ORDERS_UPDATED') {
+                    debouncedLoadOrders(true);
+                }
+            };
+        } catch {}
 
         const subscription = OrderService.subscribeToOrders(effectiveRestaurantId, (payload) => {
             if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
-                debouncedLoadOrders();
+                debouncedLoadOrders(true);
             } else if (payload.eventType === 'UPDATE') {
                 const updatedOrder = payload.new as any;
                 if (!updatedOrder) return;
@@ -236,11 +250,15 @@ export default function OrderKanbanBoard({
                     }
                     const exists = prev.some(o => o.id === updatedOrder.id);
                     if (!exists) {
-                        debouncedLoadOrders();
+                        debouncedLoadOrders(true);
                         return prev;
                     }
                     return prev.map(o => {
                         if (o.id === updatedOrder.id) {
+                            // If total amount or item count changed, reload orders to fetch newly added items immediately
+                            if (Number(o.total_amount) !== Number(updatedOrder.total_amount)) {
+                                debouncedLoadOrders(true);
+                            }
                             return {
                                 ...o,
                                 ...updatedOrder,
@@ -257,7 +275,7 @@ export default function OrderKanbanBoard({
 
         const itemSubscription = OrderService.subscribeToOrderItems(effectiveRestaurantId, (payload) => {
             if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
-                debouncedLoadOrders();
+                debouncedLoadOrders(true);
             } else if (payload.eventType === 'UPDATE') {
                 const updatedItem = payload.new as any;
                 if (!updatedItem) return;
@@ -295,6 +313,7 @@ export default function OrderKanbanBoard({
         return () => {
             if (debounceTimer) clearTimeout(debounceTimer);
             clearInterval(safetyInterval);
+            if (syncChannel) syncChannel.close();
             window.removeEventListener('online', handleOnline);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             subscription.unsubscribe();
@@ -311,28 +330,23 @@ export default function OrderKanbanBoard({
 
         const itemStatuses = activeItems.map(i => (i?.status ? String(i.status).toLowerCase() : ''));
 
-        // 1. First priority: Even ONE item in incoming -> order belongs in Incoming
-        if (itemStatuses.some(s => s === 'placed' || s === 'queued' || s === 'incoming')) {
-            return 'placed';
-        }
-
-        // 2. Second priority: If ANY item is preparing -> order belongs in Preparing
-        if (itemStatuses.some(s => s === 'preparing' || s === 'cooking')) {
-            return 'preparing';
-        }
-
-        // 3. Third priority: If ANY item is ready -> order belongs in Ready
-        if (itemStatuses.some(s => s === 'ready')) {
-            return 'ready';
-        }
-
-        // 4. Last priority: If ALL items are served (or paid) -> order belongs in Served
+        // 1. If ALL items are served (or paid) -> Served
         if (itemStatuses.every(s => s === 'served' || s === 'paid')) {
             return 'served';
         }
 
-        if (order.status === 'queued') return 'placed';
-        return (order.status as OrderStatus) || 'placed';
+        // 2. If ALL active items are ready (or already served) -> Ready
+        if (itemStatuses.every(s => s === 'ready' || s === 'served' || s === 'paid')) {
+            return 'ready';
+        }
+
+        // 3. If ANY item is ready or preparing -> Preparing
+        if (itemStatuses.some(s => s === 'ready' || s === 'preparing' || s === 'cooking')) {
+            return 'preparing';
+        }
+
+        // 4. Default: all items are placed/queued -> Incoming
+        return 'placed';
     };
 
     const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
@@ -349,9 +363,20 @@ export default function OrderKanbanBoard({
             return;
         }
 
-        // Optimistic update with state snapshot for rollback
+        // Optimistic update with state snapshot for rollback, cascading to items
         const prevOrders = [...orders];
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+        setOrders(prev => prev.map(o => {
+            if (o.id !== orderId) return o;
+            const updatedItems = (o.items || []).map(i => {
+                if (i.status === 'cancelled' || i.status === 'served' || i.status === 'paid') return i;
+                return { ...i, status: newStatus };
+            });
+            const tempOrder = { ...o, status: newStatus, items: updatedItems };
+            return {
+                ...tempOrder,
+                status: getEffectiveOrderStatus(tempOrder)
+            };
+        }));
         
         try {
             const staffId = currentProfileRef.current?.id;

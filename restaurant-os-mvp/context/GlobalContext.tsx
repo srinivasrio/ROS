@@ -122,7 +122,7 @@ export function GlobalContextProvider({ children }: { children: React.ReactNode 
 
                             // If user has a specific staff record
                             const { data: staff } = await (supabase
-                                .from('staff')
+                                .from('employees')
                                 .select('id')
                                 .eq('user_id', session.user.id)
                                 .maybeSingle() as any);

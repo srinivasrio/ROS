@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
                 customer_phone,
                 delivery_address,
                 payment_method, 
+                paid_by,
                 created_at, 
                 completed_at,
                 tables:table_id (id, table_number)
@@ -151,6 +152,7 @@ export async function GET(request: NextRequest) {
 
         const enrichedOrders = (orders || []).map(o => ({
             ...o,
+            payment_method: o.paid_by || o.payment_method || 'CASH',
             total: o.total_amount || 0,
             table_number: (o.tables as any)?.table_number || null,
             restaurant_name: restMap.get(o.restaurant_id) || 'Restaurant',

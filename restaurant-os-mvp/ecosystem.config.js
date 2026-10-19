@@ -5,8 +5,8 @@ module.exports = {
       script: 'node_modules/next/dist/bin/next',
       args: 'start -H 0.0.0.0 -p 3002',
       cwd: './',
-      instances: 'max',
-      exec_mode: 'cluster',
+      instances: 1,
+      exec_mode: 'fork',
       node_args: '--max-http-header-size=131072 --max-old-space-size=4096',
       env: {
         NODE_ENV: 'production',

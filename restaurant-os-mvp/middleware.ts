@@ -8,6 +8,17 @@ const restStatusCache = new Map<string, { status: string | null; ownerId: string
 const userValidationCache = new Map<string, { data: any; expiresAt: number }>();
 const slugResolutionCache = new Map<string, { id: string; expiresAt: number }>();
 const CACHE_TTL_MS = 60000; // 60 seconds
+const MAX_CACHE_ENTRIES = 2000;
+
+function setBoundedCache<K, V>(map: Map<K, V>, key: K, value: V, maxEntries = MAX_CACHE_ENTRIES) {
+    if (map.size >= maxEntries) {
+        const oldestKey = map.keys().next().value;
+        if (oldestKey !== undefined) {
+            map.delete(oldestKey);
+        }
+    }
+    map.set(key, value);
+}
 
 // P1 FIX (DB-02): Asynchronous, non-blocking security audit logger
 function logSecurityEventAsync(payload: Record<string, unknown>) {
@@ -32,7 +43,7 @@ async function resolveRestaurantCodeToId(code: string | null | undefined): Promi
     // Fast-path: If code already matches standard ID patterns (numeric 8+ digits, REST-*, PEND-*, UUID),
     // skip unnecessary network roundtrips and cache immediately
     if (/^\d{8,}$|^REST-|^PEND-|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanCode)) {
-        slugResolutionCache.set(lowerCode, { id: cleanCode, expiresAt: nowMs + CACHE_TTL_MS });
+        setBoundedCache(slugResolutionCache, lowerCode, { id: cleanCode, expiresAt: nowMs + CACHE_TTL_MS });
         return cleanCode;
     }
 
@@ -45,7 +56,7 @@ async function resolveRestaurantCodeToId(code: string | null | undefined): Promi
             .maybeSingle();
 
         if (exists?.id) {
-            slugResolutionCache.set(lowerCode, { id: exists.id, expiresAt: nowMs + CACHE_TTL_MS });
+            setBoundedCache(slugResolutionCache, lowerCode, { id: exists.id, expiresAt: nowMs + CACHE_TTL_MS });
             return exists.id;
         }
 
@@ -57,7 +68,7 @@ async function resolveRestaurantCodeToId(code: string | null | undefined): Promi
             .maybeSingle();
 
         if (profile?.restaurant_id) {
-            slugResolutionCache.set(lowerCode, { id: profile.restaurant_id, expiresAt: nowMs + CACHE_TTL_MS });
+            setBoundedCache(slugResolutionCache, lowerCode, { id: profile.restaurant_id, expiresAt: nowMs + CACHE_TTL_MS });
             return profile.restaurant_id;
         }
     } catch (err) {
@@ -65,12 +76,46 @@ async function resolveRestaurantCodeToId(code: string | null | undefined): Promi
     }
 
     // Fallback: return original code (short TTL so transient failures recover quickly)
-    slugResolutionCache.set(lowerCode, { id: cleanCode, expiresAt: nowMs + 5000 });
+    setBoundedCache(slugResolutionCache, lowerCode, { id: cleanCode, expiresAt: nowMs + 5000 });
     return cleanCode;
 }
 
 
-export async function middleware(request: NextRequest) {
+function isAllowedCorsOrigin(origin: string | null): boolean {
+    if (!origin) return false;
+    try {
+        const parsed = new URL(origin);
+        const hostname = parsed.hostname.toLowerCase();
+        return (
+            hostname === 'dineinone.com' ||
+            hostname.endsWith('.dineinone.com') ||
+            hostname === 'localhost' ||
+            hostname === '127.0.0.1' ||
+            hostname.endsWith('.local')
+        );
+    } catch {
+        return false;
+    }
+}
+
+function withCors(response: NextResponse, request: NextRequest): NextResponse {
+    const origin = request.headers.get('origin');
+    if (origin && isAllowedCorsOrigin(origin)) {
+        response.headers.set('Access-Control-Allow-Origin', origin);
+        response.headers.set('Access-Control-Allow-Credentials', 'true');
+        response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+        const reqHeaders = request.headers.get('access-control-request-headers');
+        if (reqHeaders) {
+            response.headers.set('Access-Control-Allow-Headers', reqHeaders);
+        } else {
+            response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-dine-token, x-restaurant-id, apikey, next-router-prefetch, purpose, x-forwarded-for, rsc, next-router-state-tree, next-url');
+        }
+        response.headers.set('Access-Control-Max-Age', '86400');
+    }
+    return response;
+}
+
+async function handleRequest(request: NextRequest) {
     const path = request.nextUrl.pathname;
     const host = request.headers.get('host') || '';
     const hostWithoutPort = host.split(':')[0].toLowerCase().trim();
@@ -87,7 +132,15 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL(superAdminUrl));
     }
 
-    const isCustomerRoute = path.includes('/customer') || path.startsWith('/api/customer/');
+    // Strict customer dining route check: only true diner paths (/[code]/customer/table/*, /customer, /api/customer/*)
+    // NEVER match staff/admin management routes such as /[code]/admin/customers or /owner/customers
+    const isCustomerRoute = (
+        path === '/customer' ||
+        path.startsWith('/customer/') ||
+        /^\/[^/]+\/customer(\/.*)?$/.test(path) ||
+        path === '/api/customer' ||
+        path.startsWith('/api/customer/')
+    ) && !path.includes('/admin') && !path.includes('/owner');
 
     // Operational Subdomain Isolation for Customer Dining:
     // If a customer scans a table QR code printed with a staff subdomain (e.g. admin.dineinone.com/202609089153/customer/table/1),
@@ -590,7 +643,7 @@ export async function middleware(request: NextRequest) {
                         }
                         if (dbRest) {
                             restaurantStatus = dbRest.status;
-                            restStatusCache.set(targetRestId, {
+                            setBoundedCache(restStatusCache, targetRestId, {
                                 status: dbRest.status,
                                 ownerId: dbRest.owner_id,
                                 expiresAt: nowMs + CACHE_TTL_MS
@@ -652,7 +705,7 @@ export async function middleware(request: NextRequest) {
 
                     if (!dbError && fetchedUser) {
                         dbUser = fetchedUser;
-                        userValidationCache.set(user.userId, {
+                        setBoundedCache(userValidationCache, user.userId, {
                             data: fetchedUser,
                             expiresAt: nowMs + CACHE_TTL_MS
                         });
@@ -673,7 +726,7 @@ export async function middleware(request: NextRequest) {
                                 is_deleted: fetchedOwner.is_deleted,
                                 auth: null
                             };
-                            userValidationCache.set(user.userId, {
+                            setBoundedCache(userValidationCache, user.userId, {
                                 data: dbUser,
                                 expiresAt: nowMs + CACHE_TTL_MS
                             });
@@ -846,7 +899,7 @@ export async function middleware(request: NextRequest) {
                                         ownerId: dbRest.owner_id,
                                         expiresAt: nowMs + CACHE_TTL_MS
                                     };
-                                    restStatusCache.set(resolvedTargetId, cachedRest);
+                                    setBoundedCache(restStatusCache, resolvedTargetId, cachedRest);
                                 }
                             }
                             const isOwner = cachedRest?.ownerId === user.userId;
@@ -979,6 +1032,15 @@ export async function middleware(request: NextRequest) {
     }
 
     return NextResponse.next();
+}
+
+export async function middleware(request: NextRequest) {
+    if (request.method === 'OPTIONS') {
+        const response = new NextResponse(null, { status: 204 });
+        return withCors(response, request);
+    }
+    const response = await handleRequest(request);
+    return withCors(response, request);
 }
 
 export const config = {

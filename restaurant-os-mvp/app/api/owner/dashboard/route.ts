@@ -87,8 +87,9 @@ export async function GET(request: NextRequest) {
 
         const allOrders = allOrdersData || [];
 
-        // 4. Calculate KPIs
-        const totalRevenue = allOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+        // 4. Calculate KPIs (Excluding cancelled orders from financial revenue)
+        const validOrders = allOrders.filter(o => (o.status || '').toLowerCase() !== 'cancelled');
+        const totalRevenue = validOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
         const totalOrders = allOrders.length;
         const pendingOrders = allOrders.filter(o =>
             ['placed', 'pending', 'confirmed', 'preparing', 'cooking', 'ready'].includes((o.status || '').toLowerCase())
@@ -116,7 +117,8 @@ export async function GET(request: NextRequest) {
         // 6. Restaurant breakdown (aggregated per independent restaurant)
         const branchBreakdown = displayRestaurants.map(r => {
             const restOrders = allOrders.filter(o => o.restaurant_id === r.id);
-            const restRevenue = restOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+            const restValidOrders = restOrders.filter(o => (o.status || '').toLowerCase() !== 'cancelled');
+            const restRevenue = restValidOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
             const restEmps = (employeesRes.data || []).filter(e => e.restaurant_id === r.id).length;
             return {
                 id: r.id,
@@ -144,7 +146,8 @@ export async function GET(request: NextRequest) {
             const dayName = dayNames[d.getDay()];
 
             const dayOrders = allOrders.filter(o => o.created_at && o.created_at.startsWith(dateStr));
-            const dayRevenue = dayOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+            const dayValidOrders = dayOrders.filter(o => (o.status || '').toLowerCase() !== 'cancelled');
+            const dayRevenue = dayValidOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
 
             dailyTrends.push({
                 date: dateStr,

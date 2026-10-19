@@ -21,13 +21,18 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false }
 });
 
-const OWNER_EMAIL = 'riosrinivas8247@gmail.com';
-const OWNER_PASSWORD = 'Sree@1725';
-const OWNER_ID = '29774d5c-4bc9-4160-9c6a-3b2c0ef33b10';
-const RESTAURANT_ID = '202609089153';
-const BRANCH_ADMIN_EMAIL = 'admin@srinivasinn.com';
-const BRANCH_ADMIN_PASSWORD = 'AdminPassword@123';
-const BRANCH_ADMIN_PIN = '4321';
+const OWNER_EMAIL = process.env.TEST_OWNER_EMAIL || 'riosrinivas8247@gmail.com';
+const OWNER_PASSWORD = process.env.TEST_OWNER_PASSWORD;
+const OWNER_ID = process.env.TEST_OWNER_ID || '29774d5c-4bc9-4160-9c6a-3b2c0ef33b10';
+const RESTAURANT_ID = process.env.TEST_RESTAURANT_ID || '202609089153';
+const BRANCH_ADMIN_EMAIL = process.env.TEST_BRANCH_ADMIN_EMAIL || 'admin@srinivasinn.com';
+const BRANCH_ADMIN_PASSWORD = process.env.TEST_BRANCH_ADMIN_PASSWORD;
+const BRANCH_ADMIN_PIN = process.env.TEST_BRANCH_ADMIN_PIN || '4321';
+
+if (!OWNER_PASSWORD || !BRANCH_ADMIN_PASSWORD) {
+    console.error('❌ Missing required env vars: TEST_OWNER_PASSWORD, TEST_BRANCH_ADMIN_PASSWORD');
+    process.exit(1);
+}
 
 let passed = 0;
 let failed = 0;

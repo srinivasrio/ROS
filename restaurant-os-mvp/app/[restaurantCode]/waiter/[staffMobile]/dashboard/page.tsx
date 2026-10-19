@@ -734,15 +734,17 @@ export default function WaiterDashboard() {
         }
     };
 
-    const doDelete = async () => {
+    const doClear = async () => {
         setBusy(true);
         try {
-            await supabase.from('tables').delete().in('id', selectedIds as any[]).eq('restaurant_id', restaurantId!);
-            toast.success('Deleted table(s) successfully');
+            await Promise.all(
+                selectedIds.map(id => OrderService.clearTable(id, restaurantId!, waiterRecord?.id))
+            );
+            toast.success('Cleared table(s) successfully');
             exitSelection();
             loadTables(true);
-        } catch (e) {
-            toast.error('Failed to delete tables');
+        } catch (e: any) {
+            toast.error(e?.message || 'Failed to clear tables');
         } finally {
             setBusy(false);
         }
@@ -1440,7 +1442,7 @@ export default function WaiterDashboard() {
                             <SelectAction icon={<Link2 size={17} className="text-w-brand" />} label="Merge" onClick={() => { if (selectedIds.length < 2) { toast.error('Select at least 2 tables to merge'); return; } setMergeSheetOpen(true); }} />
                             <SelectAction icon={<Move size={17} className="text-[#0284C7]" />} label="Move Area" onClick={() => setMoveSheetOpen(true)} />
                             <SelectAction icon={<Pin size={17} className="text-[#D97706]" />} label="Pin" onClick={doPin} />
-                            <SelectAction icon={<Trash2 size={17} className="text-w-alert" />} label="Delete" onClick={doDelete} loading={busy} />
+                            <SelectAction icon={<Sparkles size={17} className="text-emerald-600" />} label="Clear" onClick={doClear} loading={busy} />
                         </div>
                     </motion.div>
                 )}

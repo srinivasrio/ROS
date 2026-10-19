@@ -90,17 +90,43 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         setTableNumberState(newTable);
     }, []);
 
+    const getCartKey = useCallback((code?: string) => {
+        const c = (code || restCode || '').trim().toLowerCase();
+        return c && !['admin', 'waiter', 'owner', 'super-admin'].includes(c)
+            ? `customer_cart_${c}`
+            : 'customer_cart';
+    }, [restCode]);
+
+    const getTableKey = useCallback((code?: string) => {
+        const c = (code || restCode || '').trim().toLowerCase();
+        return c && !['admin', 'waiter', 'owner', 'super-admin'].includes(c)
+            ? `customer_table_number_${c}`
+            : 'customer_table_number';
+    }, [restCode]);
+
     // Load cart from localStorage on mount & try server recovery if empty
     useEffect(() => {
         let loadedCart: Record<string, CartItem> = {};
         let loadedTable = '';
         try {
-            const savedTable = localStorage.getItem('customer_table_number');
+            const scopedTableKey = getTableKey(restCode);
+            const savedTable = localStorage.getItem(scopedTableKey) || localStorage.getItem('customer_table_number');
             if (savedTable) {
                 loadedTable = savedTable;
                 setTableNumberState(savedTable);
             }
-            const savedCart = localStorage.getItem('customer_cart');
+
+            const scopedCartKey = getCartKey(restCode);
+            let savedCart = localStorage.getItem(scopedCartKey);
+
+            // Fallback to legacy un-scoped key ONLY IF tenant matches or is not set
+            if (!savedCart) {
+                const legacyTenant = localStorage.getItem('customer_cart_tenant');
+                if (!legacyTenant || (restCode && legacyTenant.toLowerCase() === restCode.toLowerCase())) {
+                    savedCart = localStorage.getItem('customer_cart');
+                }
+            }
+
             if (savedCart) {
                 loadedCart = JSON.parse(savedCart);
                 setCart(loadedCart);
@@ -123,14 +149,24 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
                 })
                 .catch(() => {});
         }
-    }, [restCode]);
+    }, [restCode, getCartKey, getTableKey]);
 
     // Sync to localStorage and debounced sync to backend
     const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     useEffect(() => {
         if (!isLoaded) return;
-        localStorage.setItem('customer_cart', JSON.stringify(cart));
-        if (tableNumber) localStorage.setItem('customer_table_number', tableNumber);
+        const scopedCartKey = getCartKey(restCode);
+        const scopedTableKey = getTableKey(restCode);
+
+        try {
+            localStorage.setItem(scopedCartKey, JSON.stringify(cart));
+            localStorage.setItem('customer_cart', JSON.stringify(cart));
+            if (restCode) localStorage.setItem('customer_cart_tenant', restCode.toLowerCase());
+            if (tableNumber) {
+                localStorage.setItem(scopedTableKey, tableNumber);
+                localStorage.setItem('customer_table_number', tableNumber);
+            }
+        } catch (_) {}
 
         // Debounced sync to session
         if (tableNumber && restCode && !['admin', 'waiter', 'owner'].includes(restCode)) {
@@ -151,7 +187,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         return () => {
             if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
         };
-    }, [cart, tableNumber, isLoaded, restCode]);
+    }, [cart, tableNumber, isLoaded, restCode, getCartKey, getTableKey]);
 
     const addToCart = (item: any, qty: number, notes?: string) => {
         const key = String(item.id);
@@ -332,6 +368,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
     const clearCart = () => {
         setCart({});
+        try {
+            const scopedCartKey = getCartKey(restCode);
+            localStorage.removeItem(scopedCartKey);
+            localStorage.removeItem('customer_cart');
+        } catch (_) {}
+
         if (tableNumber && restCode && !['admin', 'waiter', 'owner'].includes(restCode)) {
             fetch('/api/customer/table-session/cart', {
                 method: 'POST',

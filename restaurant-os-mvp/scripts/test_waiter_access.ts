@@ -13,7 +13,7 @@ async function runTest() {
 
     // 1. Fetch distinct waiters (role = 'waiter')
     const { data: staffList, error: staffError } = await supabase
-        .from('staff')
+        .from('employees')
         .select('id, name, mobile, role')
         .eq('restaurant_id', restaurantId)
         .eq('role', 'waiter')

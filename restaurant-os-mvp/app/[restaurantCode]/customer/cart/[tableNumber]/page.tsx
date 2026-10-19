@@ -60,6 +60,9 @@ export default function CustomerCart(props: any) {
         setIsConfirmingOrder(true);
         try {
             await OrderService.updateOrderStatus(orderId, urlRestaurantId, 'placed');
+            const bc = new BroadcastChannel('ros_orders_sync');
+            bc.postMessage({ type: 'ORDERS_UPDATED', orderId });
+            bc.close();
         } catch {}
         toast.success('Order confirmed and sent to kitchen!');
         if (currentToken) {
@@ -594,6 +597,11 @@ export default function CustomerCart(props: any) {
                     if (tableNumber) {
                         localStorage.setItem(`ros_last_order_${urlRestaurantId}_${tableNumber}`, order.id);
                     }
+                } catch {}
+                try {
+                    const bc = new BroadcastChannel('ros_orders_sync');
+                    bc.postMessage({ type: 'ORDER_PLACED', orderId: order.id });
+                    bc.close();
                 } catch {}
                 toast.success('Order placed!');
                 clearCart();

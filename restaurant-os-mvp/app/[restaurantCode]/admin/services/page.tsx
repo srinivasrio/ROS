@@ -93,7 +93,6 @@ export default function AdminServicesPage() {
             const data = await HomepageBuilderService.getServices(targetResId);
             setServices(data);
             setCache(targetKey, data);
-            setCache('services-cache', data);
         } catch (err) {
             console.error('Failed to load services:', err);
         } finally {
@@ -164,7 +163,7 @@ export default function AdminServicesPage() {
 
             setShowModal(false);
             resetForm();
-            loadData();
+            loadData(undefined, true);
         } catch (err: any) {
             console.error('Error saving service:', err);
             setConfirmModal({ isOpen: true, title: 'Error', message: err.message || 'Failed to save service', isAlert: true, isSuperDestructive: false, confirmText: 'OK', onConfirm: () => { } });
@@ -199,7 +198,7 @@ export default function AdminServicesPage() {
             onConfirm: async () => {
                 try {
                     await HomepageBuilderService.deleteService(id);
-                    loadData();
+                    loadData(undefined, true);
                 } catch (err) {
                     console.error('Error deleting:', err);
                 }
@@ -210,7 +209,7 @@ export default function AdminServicesPage() {
     const toggleActive = async (service: HomepageService) => {
         try {
             await HomepageBuilderService.saveService({ ...service, active: !service.active });
-            loadData();
+            loadData(undefined, true);
         } catch (err) {
             console.error('Error toggling:', err);
         }

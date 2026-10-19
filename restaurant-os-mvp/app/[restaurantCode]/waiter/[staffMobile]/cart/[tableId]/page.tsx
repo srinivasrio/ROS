@@ -549,7 +549,12 @@ export default function CartReview() {
             }
 
             const idParam = isNaN(Number(tableId)) ? tableId : Number(tableId);
-            await OrderService.createOrder(idParam, orderItems, restaurantCode, 'placed', waiterId, undefined, undefined, uuid());
+            const created = await OrderService.createOrder(idParam, orderItems, restaurantCode, 'placed', waiterId, undefined, undefined, uuid());
+            try {
+                const bc = new BroadcastChannel('ros_orders_sync');
+                bc.postMessage({ type: 'ORDER_PLACED', orderId: created?.id });
+                bc.close();
+            } catch {}
             haptic.success();
             toast.success(hasPreviousOrder ? 'New items added to order and sent to Kitchen!' : 'Order sent to Kitchen successfully!');
             sessionStorage.removeItem(`waiter_draft_order_${tableId}`);

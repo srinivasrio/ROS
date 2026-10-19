@@ -187,7 +187,7 @@ export function initGlobalSessionInterceptor() {
             );
 
             // Do NOT intercept public customer menu browsing
-            const isCustomerRoute = urlStr.includes('/api/customer/') || urlStr.includes('/customer/');
+            const isCustomerRoute = (urlStr.includes('/api/customer/') || urlStr.includes('/customer/')) && !urlStr.includes('/admin') && !urlStr.includes('/owner');
 
             if (!isLoginAttempt && !isCustomerRoute) {
                 const path = window.location.pathname;

@@ -189,11 +189,11 @@ const PanelsSection = () => (
             </div>
             <div className="border-t border-slate-200/80 pt-3 space-y-1.5">
               <div className="flex justify-between text-xs text-slate-600"><span>Subtotal</span><span className="font-mono text-slate-900 font-bold">₹777.00</span></div>
-              <div className="flex justify-between text-xs text-slate-600"><span>CGST (2.5%)</span><span className="font-mono text-slate-900 font-bold">₹19.42</span></div>
-              <div className="flex justify-between text-xs text-slate-600"><span>SGST (2.5%)</span><span className="font-mono text-slate-900 font-bold">₹19.42</span></div>
+              <div className="flex justify-between text-xs text-slate-600"><span>CGST (2.5%)</span><span className="font-mono text-slate-900 font-bold">₹19.43</span></div>
+              <div className="flex justify-between text-xs text-slate-600"><span>SGST (2.5%)</span><span className="font-mono text-slate-900 font-bold">₹19.43</span></div>
               <div className="flex justify-between font-black text-base text-slate-900 mt-2 pt-2 border-t border-slate-200/80">
                 <span>Grand Total</span>
-                <span className="font-mono gradient-text-coral text-lg drop-shadow-xs">₹815.84</span>
+                <span className="font-mono gradient-text-coral text-lg drop-shadow-xs">₹815.86</span>
               </div>
             </div>
             <div className="flex gap-2.5 mt-5">

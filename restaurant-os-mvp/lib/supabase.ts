@@ -31,48 +31,51 @@ function detectCurrentPanel(): string | null {
 }
 
 export function setDineToken(token: string | null, panel?: string | null) {
-    inMemoryToken = token;
-    if (typeof window !== 'undefined') {
-        try {
-            const detected = panel || detectCurrentPanel();
-            const scopedKey = detected ? `dine_token_${detected}` : null;
-            if (token) {
-                (window as any).__dineSessionExpired = false;
-                sessionStorage.setItem('dine_token', token);
-                localStorage.setItem('dine_token', token);
-                if (scopedKey) {
-                    sessionStorage.setItem(scopedKey, token);
-                    localStorage.setItem(scopedKey, token);
-                }
-            } else {
-                sessionStorage.removeItem('dine_token');
-                localStorage.removeItem('dine_token');
-                if (scopedKey) {
-                    sessionStorage.removeItem(scopedKey);
-                    localStorage.removeItem(scopedKey);
-                }
-            }
-        } catch (_) {}
+    if (typeof window === 'undefined') {
+        // Enforce SSR safety: never store a global in-memory token on the server
+        return;
     }
+    inMemoryToken = token;
+    try {
+        const detected = panel || detectCurrentPanel();
+        const scopedKey = detected ? `dine_token_${detected}` : null;
+        if (token) {
+            (window as any).__dineSessionExpired = false;
+            sessionStorage.setItem('dine_token', token);
+            localStorage.setItem('dine_token', token);
+            if (scopedKey) {
+                sessionStorage.setItem(scopedKey, token);
+                localStorage.setItem(scopedKey, token);
+            }
+        } else {
+            sessionStorage.removeItem('dine_token');
+            localStorage.removeItem('dine_token');
+            if (scopedKey) {
+                sessionStorage.removeItem(scopedKey);
+                localStorage.removeItem(scopedKey);
+            }
+        }
+    } catch (_) {}
 }
 
 export function getDineToken(panel?: string | null): string | null {
-    if (inMemoryToken) return inMemoryToken;
-    if (typeof window !== 'undefined') {
-        try {
-            const detected = panel || detectCurrentPanel();
-            const scopedKey = detected ? `dine_token_${detected}` : null;
-            // Prefer tab-isolated sessionStorage so multiple open panels (Admin, Waiter, KDS) don't overwrite each other
-            const token = (scopedKey ? sessionStorage.getItem(scopedKey) : null) ||
-                          sessionStorage.getItem('dine_token') ||
-                          (scopedKey ? localStorage.getItem(scopedKey) : null) ||
-                          localStorage.getItem('dine_token');
-            if (token) {
-                inMemoryToken = token;
-                return token;
-            }
-        } catch (_) {}
+    if (typeof window === 'undefined') {
+        return null;
     }
+    if (inMemoryToken) return inMemoryToken;
+    try {
+        const detected = panel || detectCurrentPanel();
+        const scopedKey = detected ? `dine_token_${detected}` : null;
+        // Prefer tab-isolated sessionStorage so multiple open panels (Admin, Waiter, KDS) don't overwrite each other
+        const token = (scopedKey ? sessionStorage.getItem(scopedKey) : null) ||
+                      sessionStorage.getItem('dine_token') ||
+                      (scopedKey ? localStorage.getItem(scopedKey) : null) ||
+                      localStorage.getItem('dine_token');
+        if (token) {
+            inMemoryToken = token;
+            return token;
+        }
+    } catch (_) {}
     return null;
 }
 
@@ -100,22 +103,42 @@ export async function syncClientSession(panel?: string | null, restaurantId?: st
     return null;
 }
 
-const customFetch: typeof fetch = (url, options = {}) => {
+const customFetch: typeof fetch = async (url, options = {}) => {
     let targetUrl = url;
     if (typeof url === 'string' && typeof window !== 'undefined' && window.location.protocol === 'https:') {
         if (url.startsWith('http://72.61.250.231:8010')) {
             targetUrl = url.replace('http://72.61.250.231:8010', 'https://db.dineinone.com');
         }
     }
-    const token = getDineToken();
-    if (token) {
-        const headers = new Headers(options.headers || {});
-        if (!headers.has('x-dine-token')) {
+    const headers = new Headers(options.headers || {});
+    if (typeof window !== 'undefined') {
+        const token = getDineToken();
+        if (token && !headers.has('x-dine-token')) {
             headers.set('x-dine-token', token);
         }
-        return fetch(targetUrl, { ...options, headers });
     }
-    return fetch(targetUrl, options);
+
+    try {
+        const res = await fetch(targetUrl, { ...options, headers });
+        return res;
+    } catch (err: any) {
+        // If primary URL failed to fetch (e.g. Mixed Content, CORS, DNS failure),
+        // gracefully fall back to secondary Supabase cloud URL
+        if (typeof url === 'string' && (err?.message?.includes('fetch') || err?.name === 'TypeError')) {
+            const fallbackBase = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_URL || 'https://jmcsygpphwdubnanwjwz.supabase.co';
+            const fallbackKey = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_ANON_KEY || 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY3N5Z3BwaHdkdWJuYW53and6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMjUyMTIsImV4cCI6MjA4NTgwMTIxMn0.uQyoWluprn9Gr-ypserxqF9WM_85MWUMAO7Uch1jN14';
+            try {
+                const parsed = new URL(typeof targetUrl === 'string' ? targetUrl : url.toString());
+                const fallbackUrl = `${fallbackBase}${parsed.pathname}${parsed.search}`;
+                headers.set('apikey', fallbackKey);
+                if (headers.has('authorization') && headers.get('authorization')?.startsWith('Bearer eyJhbGciOiJIUzI1Ni')) {
+                    headers.set('authorization', `Bearer ${fallbackKey}`);
+                }
+                return await fetch(fallbackUrl, { ...options, headers });
+            } catch (_) {}
+        }
+        throw err;
+    }
 };
 
 export type AnyDatabase = {
@@ -138,6 +161,13 @@ const primaryBaseClient = createSupabaseClient<AnyDatabase>(
         },
         global: {
             fetch: customFetch
+        },
+        realtime: {
+            params: {
+                eventsPerSecond: 10
+            },
+            heartbeatIntervalMs: 15000,
+            timeout: 10000
         }
     }
 );
@@ -151,6 +181,13 @@ const secondaryBaseClient = (secondaryUrl && secondaryAnonKey)
         },
         global: {
             fetch: customFetch
+        },
+        realtime: {
+            params: {
+                eventsPerSecond: 10
+            },
+            heartbeatIntervalMs: 15000,
+            timeout: 10000
         }
     })
     : null;

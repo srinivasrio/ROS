@@ -79,7 +79,7 @@ export const ContextValidator = {
         // 4. Validate Staff belongs to Restaurant/Branch
         if (staffId) {
             const { data: staff, error } = await (supabase
-                .from('staff')
+                .from('employees')
                 .select('restaurant_id, branch_id')
                 .eq('id', staffId)
                 .single() as any);

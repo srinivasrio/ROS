@@ -47,3 +47,9 @@ ai-error.log
 scratch/
 logs/
 .cleanup_backup_20260929/
+
+# credentials & secrets (prevent secret scanning incidents)
+**/credentials.json
+**/dineinone_credentials.json
+config/supabase.json
+**/seed.sql

@@ -47,9 +47,10 @@ export default function TakeawayHandoverModal({
     const [confirmedPaymentMethod, setConfirmedPaymentMethod] = useState<string | null>(null);
 
     // Calculate exact payable amount using ceiling logic
+    // Note: order.total_amount is already net of discount in the DB.
     const totalAmount = ceil2(Number(order?.total_amount || 0));
     const discountAmount = ceil2(Number(order?.discount_amount || 0));
-    const payableAmount = ceil2(Math.max(0, totalAmount - discountAmount));
+    const payableAmount = totalAmount;
 
     // Synchronize initial payment state when modal opens or order changes
     useEffect(() => {

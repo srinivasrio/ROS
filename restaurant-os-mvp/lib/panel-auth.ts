@@ -336,7 +336,15 @@ export function resolvePanelLoginUrl(
     };
 
     // 0. Customer Panel - public guest dining interface, never redirect to staff login
-    if (subdomain === 'customer' || cleanPath.includes('/customer') || cleanPath.startsWith('/api/customer')) {
+    const isCustomerPath = (
+        cleanPath === '/customer' ||
+        cleanPath.startsWith('/customer/') ||
+        /^\/[^/]+\/customer(\/.*)?$/.test(cleanPath) ||
+        cleanPath === '/api/customer' ||
+        cleanPath.startsWith('/api/customer/')
+    ) && !cleanPath.includes('/admin') && !cleanPath.includes('/owner');
+
+    if (subdomain === 'customer' || isCustomerPath) {
         return cleanPath || '/';
     }
 

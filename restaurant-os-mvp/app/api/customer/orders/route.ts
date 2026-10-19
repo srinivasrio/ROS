@@ -76,15 +76,19 @@ export async function GET(req: NextRequest) {
         }
 
         let physicalTableId: number | null = null;
+        let mergedGroupId: string | null = null;
         if (tableNumber) {
             const { data: pTable } = await supabaseAdmin
                 .from('tables')
-                .select('id, table_number')
+                .select('id, table_number, is_merged, merged_group_id')
                 .eq('restaurant_id', actualRestaurantId)
                 .or(`table_number.eq.${tableNumber},table_number.eq.${normTableNumber},table_number.ilike.Table ${normTableNumber}`)
                 .maybeSingle();
             if (pTable?.id) {
                 physicalTableId = pTable.id;
+                if (pTable.is_merged && pTable.merged_group_id) {
+                    mergedGroupId = pTable.merged_group_id;
+                }
             }
         }
 
@@ -141,6 +145,7 @@ export async function GET(req: NextRequest) {
                 id,
                 order_number,
                 table_id,
+                merge_group_id,
                 customer_id,
                 status,
                 total_amount,
@@ -214,6 +219,10 @@ export async function GET(req: NextRequest) {
             if (tableHasActiveSession && !isSessionMemberOrHost) {
                 // Not authorized for this table session: only view caller's own orders, hide table's private orders
                 ordersQuery = ordersQuery.eq('customer_id', authenticatedCustomerId);
+            } else if (mergedGroupId) {
+                ordersQuery = ordersQuery.or(
+                    `customer_id.eq.${authenticatedCustomerId},and(table_id.eq.${physicalTableId},is_completed.eq.false),and(merge_group_id.eq.${mergedGroupId},is_completed.eq.false)`
+                );
             } else {
                 ordersQuery = ordersQuery.or(
                     `customer_id.eq.${authenticatedCustomerId},and(table_id.eq.${physicalTableId},is_completed.eq.false)`
@@ -234,8 +243,18 @@ export async function GET(req: NextRequest) {
 
             // Authorized guest sitting at a physical table:
             if (clientLastOrderId && isValidUuid(clientLastOrderId)) {
+                if (mergedGroupId) {
+                    ordersQuery = ordersQuery.or(
+                        `and(table_id.eq.${physicalTableId},is_completed.eq.false),and(merge_group_id.eq.${mergedGroupId},is_completed.eq.false),and(id.eq.${clientLastOrderId},table_id.eq.${physicalTableId})`
+                    );
+                } else {
+                    ordersQuery = ordersQuery.or(
+                        `and(table_id.eq.${physicalTableId},is_completed.eq.false),and(id.eq.${clientLastOrderId},table_id.eq.${physicalTableId})`
+                    );
+                }
+            } else if (mergedGroupId) {
                 ordersQuery = ordersQuery.or(
-                    `and(table_id.eq.${physicalTableId},is_completed.eq.false),and(id.eq.${clientLastOrderId},table_id.eq.${physicalTableId})`
+                    `and(table_id.eq.${physicalTableId},is_completed.eq.false),and(merge_group_id.eq.${mergedGroupId},is_completed.eq.false)`
                 );
             } else {
                 ordersQuery = ordersQuery
@@ -454,7 +473,8 @@ export async function GET(req: NextRequest) {
                 // ONLY show as active order if this order belongs to this physical table!
                 // An active order on Table 1 must NEVER show as active on Table 2.
                 if (physicalTableId) {
-                    if (order.table_id === physicalTableId) {
+                    const isForThisTable = order.table_id === physicalTableId || Boolean(mergedGroupId && order.merge_group_id === mergedGroupId);
+                    if (isForThisTable) {
                         activeOrders.push(enrichedOrder);
                     } else if (authenticatedCustomerId && order.customer_id === authenticatedCustomerId) {
                         // In-flight order for a different table belongs to this user, but don't mix into active orders of this table

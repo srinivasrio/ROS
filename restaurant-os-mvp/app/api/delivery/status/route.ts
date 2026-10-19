@@ -244,17 +244,43 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: updateErr.message }, { status: 500 });
         }
 
-        // If delivered, update the order status to 'served' (delivery equivalent of served)
+        // If delivered, update the order status to 'served' (delivery equivalent of served) with full financial settlement
         if (newStatus === 'DELIVERED') {
+            const { data: ord } = await supabaseAdmin
+                .from('orders')
+                .select('id, total_amount, amount_paid, paid_by, payment_method')
+                .eq('id', assignment.order_id)
+                .eq('restaurant_id', rid)
+                .maybeSingle();
+
+            const orderTotal = ord ? (Number(ord.total_amount) || 0) : 0;
+            const isCash = Boolean(body.cashCollected) || String(body.payment_method || '').toLowerCase() === 'cash' || String(ord?.paid_by || '').toLowerCase() === 'cash';
+            const finalPaidBy = isCash ? 'cash' : (ord?.paid_by || ord?.payment_method || 'online');
+            const finalAmountPaid = isCash 
+                ? (Number(body.amountCollected) || orderTotal) 
+                : (Number(ord?.amount_paid) || orderTotal);
+
             await supabaseAdmin
                 .from('orders')
                 .update({ 
                     status: 'served',
                     is_completed: true,
-                    completed_at: now 
+                    completed_at: now,
+                    amount_paid: finalAmountPaid,
+                    paid_by: finalPaidBy,
+                    payment_method: finalPaidBy,
                 })
                 .eq('id', assignment.order_id)
                 .eq('restaurant_id', rid);
+
+            // Mark active order items as served
+            await supabaseAdmin
+                .from('order_items')
+                .update({ 
+                    status: 'served',
+                    served_at: now 
+                })
+                .eq('order_id', assignment.order_id);
         }
 
         return NextResponse.json({ assignment: updated, message: `Status updated to ${newStatus}` });

@@ -170,6 +170,29 @@ export const CustomerOtpService = {
             return { success: false, error: 'Failed to initiate OTP verification' };
         }
 
+        // Dispatch SMS via configured gateway if key is configured
+        const smsApiKey = process.env.SMS_GATEWAY_API_KEY || process.env.FAST2SMS_API_KEY;
+        if (smsApiKey) {
+            try {
+                fetch('https://www.fast2sms.com/dev/bulkV2', {
+                    method: 'POST',
+                    headers: {
+                        authorization: smsApiKey,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        route: 'otp',
+                        variables_values: rawOtp,
+                        numbers: cleanPhone
+                    })
+                }).catch(err => {
+                    console.error('[CustomerOtpService] SMS Gateway dispatch failed:', err);
+                });
+            } catch (err) {
+                console.error('[CustomerOtpService] SMS Gateway call error:', err);
+            }
+        }
+
         // Log verification code generation for development and diagnostics
         console.log(`[CustomerOtpService] Generated verification code for +91 ${cleanPhone}: ${rawOtp}`);
 
