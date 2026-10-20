@@ -13,15 +13,15 @@ git fetch origin main
 git reset --hard origin/main
 
 echo "📦 2. Installing root dependencies..."
-npm install --legacy-peer-deps
+npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund
 
 echo "📦 3. Installing super-admin dependencies..."
 cd super-admin
-npm install --legacy-peer-deps
+npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund
 cd ..
 
 echo "🔨 4. Building main application (Port 3000)..."
-rm -rf .next
+rm -rf .next/server .next/static .next/standalone
 NODE_OPTIONS='--max-http-header-size=131072 --max-old-space-size=4096' npm run build
 
 echo "🔨 5. Building super-admin application (Port 3005)..."
