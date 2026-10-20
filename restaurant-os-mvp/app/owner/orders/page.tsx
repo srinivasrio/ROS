@@ -78,9 +78,17 @@ export default function OrdersPage() {
         loadOrders();
     }, [loadOrders]);
 
-    // Live realtime updates for owner orders
+    // Live realtime updates for owner orders with auto-reconnection and polling fallback
     useEffect(() => {
         if (isHistoryView) return;
+
+        // Auto-refresh when internet connectivity restores
+        const handleOnline = () => {
+            loadOrders();
+        };
+        window.addEventListener('online', handleOnline);
+
+        // Supabase Realtime channel subscription with graceful status handling
         const channel = supabase
             .channel('owner-live-orders-channel')
             .on(
@@ -90,9 +98,22 @@ export default function OrdersPage() {
                     loadOrders();
                 }
             )
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    // Fail gracefully without crashing UI; fallback poll will keep data synced
+                }
+            });
+
+        // 30s heartbeat fallback poll ensuring data integrity during network fluctuations
+        const fallbackInterval = setInterval(() => {
+            if (navigator.onLine !== false) {
+                loadOrders();
+            }
+        }, 30000);
 
         return () => {
+            window.removeEventListener('online', handleOnline);
+            clearInterval(fallbackInterval);
             supabase.removeChannel(channel);
         };
     }, [isHistoryView, loadOrders]);
