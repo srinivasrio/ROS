@@ -10,6 +10,18 @@ const navLinks = ["Working", "Features", "Panels", "Pricing", "FAQ", "Contact"];
 const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [loginHref, setLoginHref] = useState("/login/owner");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname.toLowerCase();
+      if (host === "dineinone.com" || host === "www.dineinone.com") {
+        setLoginHref("https://owner.dineinone.com/login");
+      } else {
+        setLoginHref("/login/owner");
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 60);
@@ -68,12 +80,12 @@ const Navbar = () => {
               </button>
             ))}
 
-            <a
-              href="https://owner.dineinone.com/login"
+            <Link
+              href={loginHref}
               className="text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors touch-manipulation"
             >
               Login
-            </a>
+            </Link>
 
             <Link href="/register">
               <button className="liquid-glass-btn-teal text-sm !py-2.5 !px-5 rounded-full cursor-pointer shadow-sm touch-manipulation">
@@ -149,13 +161,23 @@ const Navbar = () => {
               ))}
             </div>
 
-            {/* Action buttons (No login button in mobile view) */}
+            {/* Action buttons */}
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.25, duration: 0.25 }}
               className="w-full max-w-xs flex flex-col items-center gap-3 shrink-0"
             >
+              <Link
+                href={loginHref}
+                onClick={() => setMobileOpen(false)}
+                className="w-full"
+              >
+                <button className="liquid-glass-btn w-full text-base !py-3 justify-center rounded-full cursor-pointer shadow-sm text-slate-900 font-bold border border-slate-200">
+                  Owner Login
+                </button>
+              </Link>
+
               <Link
                 href="/register"
                 onClick={() => setMobileOpen(false)}

@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "framer-motion";
-import { ShoppingBag, Truck, ChefHat, Receipt, ShieldCheck, Smartphone, CheckCircle } from "lucide-react";
+import { ShoppingBag, Truck, ChefHat, Receipt, ShieldCheck, Smartphone, CheckCircle, Building2, ArrowRight } from "lucide-react";
 import RevealMotion from "./RevealMotion";
 
 const PanelsSection = () => (
@@ -220,6 +221,78 @@ const PanelsSection = () => (
             <li className="flex items-center gap-2.5 text-sm font-medium"><CheckCircle className="w-4 h-4 text-amber-500 shrink-0" /> Dynamic on-screen UPI QR for instant customer scan</li>
             <li className="flex items-center gap-2.5 text-sm font-medium"><CheckCircle className="w-4 h-4 text-amber-500 shrink-0" /> 1-Click thermal print (ESC/POS 58mm & 80mm)</li>
           </ul>
+        </RevealMotion>
+      </div>
+
+      {/* 5. Multi-Branch Owner Panel */}
+      <div className="grid md:grid-cols-2 gap-10 md:gap-14 items-center mt-20 md:mt-28">
+        <RevealMotion direction="left">
+          <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 block mb-2">Enterprise Leadership</span>
+          <h3 className="text-2xl md:text-3xl font-extrabold mb-4 text-slate-900">Multi-Outlet Owner Control & Live P&L</h3>
+          <p className="text-sm text-slate-600 mb-6 leading-relaxed font-medium">
+            Consolidate multiple restaurant branches into a single high-altitude command center. Track gross revenue, food costs, branch comparison leaderboards, and universal menu syndication in real time.
+          </p>
+          <ul className="space-y-3 text-slate-700 mb-8">
+            <li className="flex items-center gap-2.5 text-sm font-medium"><CheckCircle className="w-4 h-4 text-indigo-600 shrink-0" /> Multi-outlet consolidated live gross & net revenue</li>
+            <li className="flex items-center gap-2.5 text-sm font-medium"><CheckCircle className="w-4 h-4 text-indigo-600 shrink-0" /> Real-time branch performance leaderboard & order velocity</li>
+            <li className="flex items-center gap-2.5 text-sm font-medium"><CheckCircle className="w-4 h-4 text-indigo-600 shrink-0" /> 1-Click universal menu syncing across all outlets</li>
+            <li className="flex items-center gap-2.5 text-sm font-medium"><CheckCircle className="w-4 h-4 text-indigo-600 shrink-0" /> Enterprise staff RBAC, payroll audits & role permissions</li>
+          </ul>
+          <Link href="/login/owner">
+            <button className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold text-sm shadow-lg shadow-indigo-600/25 transition-all cursor-pointer">
+              <Building2 className="w-4 h-4" />
+              <span>Launch Owner Panel</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </Link>
+        </RevealMotion>
+        <RevealMotion direction="right" delay={0.15}>
+          <div className="liquid-glass-surface rounded-3xl border border-slate-200/85 p-6 md:p-7 space-y-4 shadow-xs backdrop-blur-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200/80">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                Enterprise Command • 3 Outlets
+              </span>
+              <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full">Live Syncing</span>
+            </div>
+            {[
+              { name: "Indiranagar (Main Flagship)", revenue: "₹64,280", orders: "142 orders", margin: "+18.4%", badge: "Top Branch", badgeColor: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+              { name: "Koramangala 5th Block", revenue: "₹52,410", orders: "118 orders", margin: "+12.1%", badge: "High Velocity", badgeColor: "text-blue-700 bg-blue-50 border-blue-200" },
+              { name: "Whitefield ITPL", revenue: "₹38,950", orders: "86 orders", margin: "+8.6%", badge: "Steady", badgeColor: "text-amber-700 bg-amber-50 border-amber-200" },
+            ].map((b, i) => (
+              <motion.div
+                key={b.name}
+                initial={{ opacity: 0, x: 20 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.2 + i * 0.1 }}
+                className="flex items-center justify-between p-3.5 rounded-2xl liquid-glass-clear border border-slate-200/80 hover:bg-white/90 transition-colors"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-slate-900">{b.name}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${b.badgeColor}`}>{b.badge}</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">{b.orders} • Margin {b.margin}</p>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono font-bold text-sm text-slate-900">{b.revenue}</span>
+                  <p className="text-[10px] text-emerald-600 font-bold">Gross Today</p>
+                </div>
+              </motion.div>
+            ))}
+            <div className="p-4 rounded-2xl liquid-glass-dense border border-indigo-100 flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Enterprise Today</p>
+                <p className="text-xl font-black text-slate-900 font-mono">₹1,55,640.00</p>
+              </div>
+              <Link href="/login/owner">
+                <span className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer">
+                  Open Analytics <ArrowRight className="w-3.5 h-3.5" />
+                </span>
+              </Link>
+            </div>
+          </div>
         </RevealMotion>
       </div>
     </div>
