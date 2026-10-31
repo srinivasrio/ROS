@@ -105,7 +105,7 @@ function mapDBToEmployee(dbRow: any): Employee {
         phone_normalized: dbRow.phone_normalized || null,
         weekly_off: dbRow.weekly_off || 'sunday',
         salary_type: dbRow.salary_type || 'monthly',
-        pin: dbRow.pin || dbRow.raw_pin || null,
+        pin: dbRow.pin || null,
         is_online: Boolean(dbRow.is_online),
         availability_status: dbRow.availability_status || (dbRow.is_online ? 'available' : 'offline'),
         active_workload: Number(dbRow.active_workload) || 0,

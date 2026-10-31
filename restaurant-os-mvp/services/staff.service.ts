@@ -57,7 +57,7 @@ export const StaffService = {
             const supabase = createClient();
             let query = supabase
                 .from('employees')
-                .select('id, name, email, mobile, role, restaurant_id, branch_id, status, approval_status, avatar_url, created_at, updated_at, pin, raw_pin')
+                .select('id, name, email, mobile, role, restaurant_id, branch_id, status, approval_status, avatar_url, created_at, updated_at, pin')
                 .eq('restaurant_id', rid)
                 .eq('is_deleted', false)
                 .not('role', 'in', '("owner","restaurant_owner")')
@@ -77,7 +77,7 @@ export const StaffService = {
                 .filter((emp: any) => !['owner', 'restaurant_owner'].includes(String(emp.role || '').toLowerCase()))
                 .map((emp: any) => ({
                     ...emp,
-                    pin: emp.raw_pin || (emp.pin && !String(emp.pin).startsWith('$argon2') && !String(emp.pin).startsWith('$2') ? String(emp.pin) : null)
+                    pin: (emp.pin && !String(emp.pin).startsWith('$argon2') && !String(emp.pin).startsWith('$2') ? String(emp.pin) : null)
                 })) as Staff[];
         });
     },
