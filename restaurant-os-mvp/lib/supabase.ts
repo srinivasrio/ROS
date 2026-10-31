@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { refreshRealtimeAuth } from './realtime-auth';
 
 const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_ANON_KEY || 'placeholder-anon-key';
@@ -35,7 +36,9 @@ export function setDineToken(token: string | null, panel?: string | null) {
         // Enforce SSR safety: never store a global in-memory token on the server
         return;
     }
+    const changed = inMemoryToken !== token;
     inMemoryToken = token;
+    if (changed) syncRealtimeAuth();
     try {
         const detected = panel || detectCurrentPanel();
         const scopedKey = detected ? `dine_token_${detected}` : null;
@@ -201,6 +204,13 @@ export const supabase = globalForSupabase.__supabaseClient ?? createDualSupabase
 if (process.env.NODE_ENV !== 'production') {
     globalForSupabase.__supabaseClient = supabase;
 }
+
+// Scoped Realtime auth (DIO-C04): re-mint whenever the staff token changes; customers mint on load.
+function syncRealtimeAuth() {
+    if (typeof window === 'undefined') return;
+    void refreshRealtimeAuth((supabase as any).realtime, () => getDineToken());
+}
+if (typeof window !== 'undefined') syncRealtimeAuth();
 
 export function createClient(customHeaders?: Record<string, string>) {
     if (customHeaders && Object.keys(customHeaders).length > 0) {

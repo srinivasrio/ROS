@@ -117,6 +117,44 @@ export interface RestaurantArea {
 // Helper to generate BigInt-ish IDs (since DB is bigint and no serial)
 const generateId = () => Math.floor(Date.now() + Math.random() * 1000);
 
+/**
+ * True when running in a tokenless customer dining context (no staff dine token).
+ * Such requests must go through service-role customer API routes instead of
+ * direct PostgREST, so they survive the removal of the broad anon RLS (DIO-C04).
+ */
+const isCustomerBrowserContext = (): boolean =>
+    typeof window !== 'undefined' && !getDineToken();
+
+/**
+ * POST a customer dining action to its service-role route.
+ * Returns the parsed JSON on success. Throws on an authoritative 4xx (the caller
+ * should surface it, not silently fall back). Returns null on network/5xx so the
+ * caller can fall back to the legacy direct path while the RLS lockdown is staged.
+ */
+async function postCustomerAction(path: string, body: Record<string, unknown>): Promise<any | null> {
+    try {
+        const res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (res.ok) {
+            return await res.json().catch(() => ({ success: true }));
+        }
+        if (res.status >= 400 && res.status < 500) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.error || `Request failed (${res.status})`);
+        }
+        return null; // 5xx -> allow legacy fallback
+    } catch (err) {
+        if (err instanceof Error && !err.message.startsWith('NetworkError') && !/fetch/i.test(err.message)) {
+            // Re-throw authoritative errors (thrown above); swallow genuine network failures.
+            if (!(err instanceof TypeError)) throw err;
+        }
+        return null; // network failure -> allow legacy fallback
+    }
+}
+
 const generateUUID = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return crypto.randomUUID();
@@ -477,6 +515,13 @@ export const OrderService = {
      */
     async holdTable(tableIdentifier: string | number, restaurantId: string, waiterId?: string) {
         if (!tableIdentifier || typeof tableIdentifier === 'object' || String(tableIdentifier).trim() === '{}') return;
+        // Customer context: hold the caller's own table via the service-role route
+        // (table id is taken from the signed session server-side, not from here).
+        if (isCustomerBrowserContext()) {
+            const result = await postCustomerAction('/api/customer/table/hold', {});
+            if (result) return;
+            // null => network/5xx: fall through to the legacy direct path.
+        }
         const actualRestaurantId = await this.resolveRestaurantId(restaurantId);
         if (!actualRestaurantId) return;
 
@@ -3674,6 +3719,10 @@ export const OrderService = {
      * Updates an existing order with a coupon code and discount amount.
      */
     async updateOrderCoupon(orderId: string, restaurantId: string, couponCode: string, _discountAmount?: number) {
+        if (isCustomerBrowserContext()) {
+            const result = await postCustomerAction('/api/customer/orders/coupon', { orderId, couponCode });
+            if (result) return result;
+        }
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
         const ceil2 = (num: number) => {
             const n = Number(num || 0);
@@ -3849,6 +3898,10 @@ export const OrderService = {
      * Delete an entire order (Cancellation).
      */
     async deleteOrder(orderId: string, restaurantId: string) {
+        if (isCustomerBrowserContext()) {
+            const result = await postCustomerAction('/api/customer/orders/cancel', { orderId });
+            if (result) return;
+        }
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
         // 1. Delete items first (Cascade usually handles this, but good to be explicit)
         await supabase.from('order_items').delete().eq('order_id', orderId);
@@ -3866,6 +3919,10 @@ export const OrderService = {
      * Delete a specific order item.
      */
     async deleteOrderItem(itemId: string, restaurantId: string) {
+        if (isCustomerBrowserContext()) {
+            const result = await postCustomerAction('/api/customer/orders/item/remove', { itemId });
+            if (result) return;
+        }
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
         // 1. Get Item details for price calculation
         const { data: item } = await supabase

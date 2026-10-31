@@ -55,7 +55,6 @@ export async function POST(req: NextRequest) {
                 .from('employees')
                 .update({
                     pin: hashedPin,
-                    raw_pin: cleanPin,
                     session_version: nextSessionVersion
                 })
                 .eq('id', employeeId),
