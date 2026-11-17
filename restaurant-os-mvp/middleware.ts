@@ -183,7 +183,9 @@ async function handleRequest(request: NextRequest) {
     if (!subdomain && path === '/') {
         const superAdminCookie = request.cookies.get('dine_superadmin_token') || request.cookies.get('superadmin_token');
         if (!superAdminCookie) {
-            return NextResponse.next();
+            const url = request.nextUrl.clone();
+            url.pathname = '/landing.html';
+            return NextResponse.rewrite(url);
         }
     }
 
@@ -192,11 +194,14 @@ async function handleRequest(request: NextRequest) {
     // On localhost, IP addresses, and dedicated subdomains, internal panels and logins remain accessible.
     if (isProductionMarketingApex && !subdomain && !path.startsWith('/api/')) {
         if (path === '/') {
-            return NextResponse.next();
+            const url = request.nextUrl.clone();
+            url.pathname = '/landing.html';
+            return NextResponse.rewrite(url);
         }
 
-        if (path === '/login' || path === '/login/owner') {
-            return NextResponse.redirect(new URL(`https://owner.dineinone.com/login${request.nextUrl.search}`));
+        // Allow marketing website auth pages on apex
+        if (path === '/signup' || path === '/register' || path === '/login') {
+            return NextResponse.next();
         }
 
         if (path.startsWith('/owner')) {
@@ -204,7 +209,6 @@ async function handleRequest(request: NextRequest) {
         }
 
         if (
-            path === '/login' ||
             path.startsWith('/login/') ||
             /\/(admin|waiter|kds|delivery|employee|superadmin)\/login\/?$/.test(path)
         ) {
@@ -334,6 +338,7 @@ async function handleRequest(request: NextRequest) {
     const isLoginPage = (
         path === '/login' ||
         path.startsWith('/login/') ||
+        path.startsWith('/signup') ||
         path.startsWith('/register') ||
         /\/(admin|waiter|kds|delivery|employee|superadmin)\/login\/?$/.test(path) ||
         path.endsWith('/login')
