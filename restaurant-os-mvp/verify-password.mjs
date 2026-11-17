@@ -1,23 +1,26 @@
 import argon2 from 'argon2';
+import dotenv from 'dotenv';
+import fs from 'fs';
+
+if (fs.existsSync('.env.local')) {
+    dotenv.config({ path: '.env.local' });
+}
 
 async function verify() {
-    const hash = '$argon2id$v=19$m=65536,t=3,p=4$DSmC6/z7VeNFeTubQmshlw$eybsa0SLDWhc7kFFMXOuH45G90F7wI/UykmVSQ4WRaA';
-    const testPasswords = [
-        'Sree@17251725',
-        'Sree@17251725',
-        'Admin@12345',
-        'Password123!',
-        'Password@123',
-        'Sree@1725',
-    ];
+    const hash = process.env.TEST_PASSWORD_HASH || process.argv[2];
+    const password = process.env.TEST_PASSWORD || process.argv[3];
     
-    for (const pwd of testPasswords) {
-        try {
-            const valid = await argon2.verify(hash, pwd);
-            console.log(`"${pwd}": ${valid ? '✅ MATCH' : '❌ No match'}`);
-        } catch (e) {
-            console.log(`"${pwd}": Error - ${e.message}`);
-        }
+    if (!hash || !password) {
+        console.error('Usage: TEST_PASSWORD_HASH=... TEST_PASSWORD=... node verify-password.mjs');
+        console.error('   or: node verify-password.mjs <hash> <password>');
+        process.exit(1);
+    }
+    
+    try {
+        const valid = await argon2.verify(hash, password);
+        console.log(`Password verification: ${valid ? '✅ MATCH' : '❌ No match'}`);
+    } catch (e) {
+        console.log('Error verifying password:', e.message);
     }
 }
 

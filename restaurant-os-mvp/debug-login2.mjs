@@ -1,17 +1,32 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
-dotenv.config({ path: 'super-admin/.env.local' });
+if (fs.existsSync('.env.local')) {
+    dotenv.config({ path: '.env.local' });
+} else if (fs.existsSync('super-admin/.env.local')) {
+    dotenv.config({ path: 'super-admin/.env.local' });
+}
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://jmcsygpphwdubnanwjwz.supabase.co';
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL || !SERVICE_KEY) {
+    console.error('ERROR: Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.');
+    process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false }
 });
 
 async function debug() {
-    const email = 'hellodineinone@gmail.com';
+    const email = process.env.DEBUG_USER_EMAIL || process.argv[2];
+    if (!email) {
+        console.error('Usage: DEBUG_USER_EMAIL=... node debug-login2.mjs');
+        console.error('   or: node debug-login2.mjs <email>');
+        process.exit(1);
+    }
     const cleanEmail = email.toLowerCase().trim();
     
     // Test without role filter

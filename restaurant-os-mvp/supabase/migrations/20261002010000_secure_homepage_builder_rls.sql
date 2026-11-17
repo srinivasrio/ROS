@@ -9,12 +9,13 @@
 
 BEGIN;
 
--- 1. Synchronize vault_settings jwt_secret and tenant_secret with the active application secret
+-- 1. Ensure vault_settings keys exist without hardcoding plaintext secrets
+-- Secrets should be populated from environment variables / Supabase Dashboard, never hardcoded in migrations.
 INSERT INTO public.vault_settings (key, value)
 VALUES 
-    ('jwt_secret', 'MEfAQ-obz83Fe7Yu_60RlIFTKncal1Vu7nAjNt7PY3RSZXr5RFyAh6-pjPZvGEqn'),
-    ('tenant_secret', 'MEfAQ-obz83Fe7Yu_60RlIFTKncal1Vu7nAjNt7PY3RSZXr5RFyAh6-pjPZvGEqn')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+    ('jwt_secret', COALESCE(current_setting('app.settings.jwt_secret', true), 'SET_JWT_SECRET_IN_VAULT')),
+    ('tenant_secret', COALESCE(current_setting('app.settings.tenant_secret', true), 'SET_TENANT_SECRET_IN_VAULT'))
+ON CONFLICT (key) DO NOTHING;
 
 -- 2. Enhanced verify_custom_jwt supporting both jwt_secret and tenant_secret lookups
 CREATE OR REPLACE FUNCTION public.verify_custom_jwt(jwt_token text)
