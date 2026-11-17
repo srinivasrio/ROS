@@ -2,16 +2,129 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Mail, Phone, MapPin } from "lucide-react";
+import { Mail, Phone, MapPin, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import RevealMotion from "./RevealMotion";
 
-const ContactSection = () => {
-  const [submitted, setSubmitted] = useState(false);
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jmcsygpphwdubnanwjwz.supabase.co";
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY3N5Z3BwaHdkdWJuYW53and6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMjUyMTIsImV4cCI6MjA4NTgwMTIxMn0.uQyoWluprn9Gr-ypserxqF9WM_85MWUMAO7Uch1jN14";
 
-  const handleSubmit = (e: React.FormEvent) => {
+const ContactSection = () => {
+  const [formData, setFormData] = useState({
+    name: "",
+    phone: "",
+    restaurantName: "",
+    email: "",
+    planInterest: "",
+    tablesCount: "",
+    message: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
-    setTimeout(() => setSubmitted(false), 3000);
+    if (submitting) return;
+
+    const name = formData.name.trim();
+    const phone = formData.phone.trim();
+    const restaurantName = formData.restaurantName.trim();
+    const email = formData.email.trim();
+    const planInterest = formData.planInterest || "Not sure yet";
+    const tablesCount = formData.tablesCount ? parseInt(formData.tablesCount, 10) || 1 : 1;
+    const message = formData.message.trim();
+
+    if (!name || !restaurantName || !phone) {
+      setErrorMessage("Please fill in your Name, Restaurant Name, and Phone Number.");
+      return;
+    }
+
+    setSubmitting(true);
+    setErrorMessage(null);
+
+    const payload = {
+      name,
+      restaurant: restaurantName,
+      restaurant_name: restaurantName,
+      phone,
+      email: email || null,
+      plan: planInterest,
+      plan_interest: planInterest,
+      tables: tablesCount,
+      tables_count: tablesCount,
+      message: message || null,
+    };
+
+    let saved = false;
+
+    // 1. Try local/deployed API route first
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+      const res = await fetch("/api/contact/demo-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        saved = true;
+      }
+    } catch {
+      console.warn("[ContactSection] API route unavailable, using direct cloud backup...");
+    }
+
+    // 2. Direct Supabase cloud fallback (triggers postgres trigger & Edge Function email dispatch)
+    if (!saved) {
+      try {
+        const supaRes = await fetch(`${SUPABASE_URL}/rest/v1/demo_requests`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Prefer": "return=minimal",
+          },
+          body: JSON.stringify({
+            name,
+            restaurant_name: restaurantName,
+            phone,
+            email: email || null,
+            plan_interest: planInterest,
+            tables_count: tablesCount,
+            message: message || null,
+            status: "new",
+          }),
+        });
+
+        if (supaRes.ok) {
+          saved = true;
+        }
+      } catch (err) {
+        console.error("[ContactSection] Cloud fallback error:", err);
+      }
+    }
+
+    setSubmitting(false);
+
+    if (saved) {
+      setSubmitted(true);
+      setFormData({
+        name: "",
+        phone: "",
+        restaurantName: "",
+        email: "",
+        planInterest: "",
+        tablesCount: "",
+        message: "",
+      });
+      setTimeout(() => setSubmitted(false), 8000);
+    } else {
+      setErrorMessage("Unable to submit demo request right now. Please call us directly at +91 95158 16084.");
+    }
   };
 
   return (
@@ -29,7 +142,7 @@ const ContactSection = () => {
             <div className="space-y-4">
               {[
                 { icon: Mail, text: "contact@dineinone.com" },
-                { icon: Phone, text: "+91 82470 05501" },
+                { icon: Phone, text: "+91 95158 16084" },
                 { icon: MapPin, text: "Nellore, Andhra Pradesh, India" },
               ].map((c, i) => (
                 <motion.div
@@ -52,39 +165,116 @@ const ContactSection = () => {
           <RevealMotion direction="right" delay={0.15}>
             <div className="liquid-glass-surface rounded-3xl border border-slate-200/90 p-6 md:p-8 shadow-xl backdrop-blur-2xl">
               <form onSubmit={handleSubmit} className="space-y-4">
+                {errorMessage && (
+                  <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{errorMessage}</span>
+                  </div>
+                )}
+
+                {submitted && (
+                  <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-sm flex items-center gap-2.5">
+                    <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+                    <span>Thank you! Your demo request has been received. Our team will contact you shortly.</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
-                  <input required placeholder="Name *" className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium" />
-                  <input required placeholder="Phone *" className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium" />
+                  <input
+                    required
+                    name="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="Name *"
+                    disabled={submitting}
+                    className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium disabled:opacity-60"
+                  />
+                  <input
+                    required
+                    name="phone"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    placeholder="Phone *"
+                    disabled={submitting}
+                    className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium disabled:opacity-60"
+                  />
                 </div>
-                <input required placeholder="Restaurant Name *" className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium" />
-                <input required type="email" placeholder="Email *" className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium" />
+                <input
+                  required
+                  name="restaurantName"
+                  value={formData.restaurantName}
+                  onChange={(e) => setFormData({ ...formData, restaurantName: e.target.value })}
+                  placeholder="Restaurant Name *"
+                  disabled={submitting}
+                  className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium disabled:opacity-60"
+                />
+                <input
+                  required
+                  type="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="Email *"
+                  disabled={submitting}
+                  className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium disabled:opacity-60"
+                />
                 <div className="grid grid-cols-2 gap-4">
-                  <select className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium appearance-none bg-white text-slate-800 border-slate-200/90">
+                  <select
+                    name="planInterest"
+                    value={formData.planInterest}
+                    onChange={(e) => setFormData({ ...formData, planInterest: e.target.value })}
+                    disabled={submitting}
+                    className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium appearance-none bg-white text-slate-800 border-slate-200/90 disabled:opacity-60"
+                  >
                     <option value="">Plan Interest</option>
-                    <option value="standard">Standard (₹999/mo)</option>
-                    <option value="growth">Growth (₹1,499/mo)</option>
-                    <option value="pro">Pro Multi-Branch (₹2,999/mo)</option>
+                    <option value="Starter">Starter</option>
+                    <option value="Pro">Pro</option>
+                    <option value="Enterprise">Enterprise</option>
                   </select>
-                  <select className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium appearance-none bg-white text-slate-800 border-slate-200/90">
+                  <select
+                    name="tablesCount"
+                    value={formData.tablesCount}
+                    onChange={(e) => setFormData({ ...formData, tablesCount: e.target.value })}
+                    disabled={submitting}
+                    className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium appearance-none bg-white text-slate-800 border-slate-200/90 disabled:opacity-60"
+                  >
                     <option value="">Number of Tables</option>
-                    <option>1–10</option>
-                    <option>11–25</option>
-                    <option>26–50</option>
-                    <option>50+</option>
+                    <option value="5">1–10</option>
+                    <option value="18">11–25</option>
+                    <option value="35">26–50</option>
+                    <option value="60">50+</option>
                   </select>
                 </div>
-                <textarea placeholder="Message / Specific requirements..." rows={4} className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium resize-none" />
+                <textarea
+                  name="message"
+                  value={formData.message}
+                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                  placeholder="Message / Specific requirements (optional)..."
+                  rows={4}
+                  disabled={submitting}
+                  className="liquid-glass-input w-full px-4 py-3.5 rounded-xl text-sm font-medium resize-none disabled:opacity-60"
+                />
                 <motion.button
                   type="submit"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  disabled={submitting}
+                  whileHover={submitting ? {} : { scale: 1.02 }}
+                  whileTap={submitting ? {} : { scale: 0.98 }}
                   className={`w-full h-12 rounded-full font-bold text-sm tracking-wide transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
                     submitted 
                       ? "bg-emerald-500 text-white shadow-emerald-500/30" 
                       : "liquid-glass-btn-primary"
-                  }`}
+                  } ${submitting ? "opacity-75 cursor-not-allowed" : ""}`}
                 >
-                  {submitted ? "✓ Sent! We'll call you soon" : "Send Message →"}
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending Request...</span>
+                    </>
+                  ) : submitted ? (
+                    "✓ Sent! We'll call you soon"
+                  ) : (
+                    "Send Message →"
+                  )}
                 </motion.button>
               </form>
             </div>
