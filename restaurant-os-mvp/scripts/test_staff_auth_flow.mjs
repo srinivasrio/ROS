@@ -50,7 +50,7 @@ async function runTests() {
     const TEST_RESTAURANT_ID = '202609084623';
     const TEST_MOBILE = '9998881234';
     const TEST_EMAIL = 'testwaiter.authflow@example.com';
-    const TEST_PASSWORD = 'P@ssw0rd2026!Secure';
+    const TEST_PASSWORD = process.env.TEST_STAFF_PASSWORD || ('TestPass!' + crypto.randomBytes(6).toString('hex'));
 
     // Clean up any stale test employee from previous runs
     await supabase.from('employees').delete().eq('mobile', TEST_MOBILE);

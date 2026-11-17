@@ -54,13 +54,13 @@ async function verifyTotpCode(secret, code, window = 1) {
 }
 
 async function completeMFA() {
-    const userId = '6f0770d2-9826-4805-93eb-bb9f86b38647';
-    const totpSecret = 'UH4H4TOHDWYHOIUI';
-    
-    // Get the code from user
     const code = process.argv[2];
-    if (!code) {
-        console.log('Usage: node complete-mfa.mjs <6-digit-code-from-google-authenticator>');
+    const totpSecret = process.env.TEST_TOTP_SECRET || process.argv[3];
+    const userId = process.env.TEST_MFA_USER_ID || process.argv[4];
+    
+    if (!code || !totpSecret || !userId) {
+        console.log('Usage: node complete-mfa.mjs <6-digit-code> [totpSecret] [userId]');
+        console.log('Or provide environment variables: TEST_TOTP_SECRET, TEST_MFA_USER_ID');
         console.log('Example: node complete-mfa.mjs 123456');
         process.exit(1);
     }

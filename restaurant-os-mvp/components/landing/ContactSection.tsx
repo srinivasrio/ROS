@@ -6,7 +6,7 @@ import { Mail, Phone, MapPin, Loader2, CheckCircle2, AlertCircle } from "lucide-
 import RevealMotion from "./RevealMotion";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jmcsygpphwdubnanwjwz.supabase.co";
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY3N5Z3BwaHdkdWJuYW53and6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMjUyMTIsImV4cCI6MjA4NTgwMTIxMn0.uQyoWluprn9Gr-ypserxqF9WM_85MWUMAO7Uch1jN14";
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 const ContactSection = () => {
   const [formData, setFormData] = useState({
@@ -78,7 +78,7 @@ const ContactSection = () => {
     }
 
     // 2. Direct Supabase cloud fallback (triggers postgres trigger & Edge Function email dispatch)
-    if (!saved) {
+    if (!saved && SUPABASE_URL && SUPABASE_ANON_KEY) {
       try {
         const supaRes = await fetch(`${SUPABASE_URL}/rest/v1/demo_requests`, {
           method: "POST",

@@ -2368,9 +2368,9 @@ class Component extends DCLogic {
           }
 
           // Direct Supabase fallback if API route fails (e.g. static Cloudflare Pages without backend)
-          if (!saved) {
-            const supaUrl = 'https://jmcsygpphwdubnanwjwz.supabase.co/rest/v1/demo_requests';
-            const supaKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY3N5Z3BwaHdkdWJuYW53and6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMjUyMTIsImV4cCI6MjA4NTgwMTIxMn0.uQyoWluprn9Gr-ypserxqF9WM_85MWUMAO7Uch1jN14';
+          if (!saved && window.__DINE_SUPABASE_URL && window.__DINE_SUPABASE_ANON_KEY) {
+            const supaUrl = `${window.__DINE_SUPABASE_URL}/rest/v1/demo_requests`;
+            const supaKey = window.__DINE_SUPABASE_ANON_KEY;
             const fbRes = await fetch(supaUrl, {
               method: 'POST',
               headers: {
