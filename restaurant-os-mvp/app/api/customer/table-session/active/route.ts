@@ -227,6 +227,12 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
         }
 
+        // A leftover session from a past visit must not make this table look occupied.
+        if (session && TableSessionLifecycleService.isStale(session)) {
+            await TableSessionLifecycleService.closeStaleSession(session.id, 'STALE_SESSION_TABLE_RESCAN');
+            session = null;
+        }
+
         if (!session) {
             return NextResponse.json({ hasActiveSession: false, customerHasOtherActiveSession: false });
         }
@@ -392,7 +398,7 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        const { data: existingSession } = await supabaseAdmin
+        let { data: existingSession } = await supabaseAdmin
             .from('table_active_sessions')
             .select('*')
             .in('restaurant_id', postTargetRestIds)
@@ -401,6 +407,12 @@ export async function POST(req: NextRequest) {
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
+
+        // A leftover session from a past visit must not block a new host from claiming the table.
+        if (existingSession && TableSessionLifecycleService.isStale(existingSession)) {
+            await TableSessionLifecycleService.closeStaleSession(existingSession.id, 'STALE_SESSION_TABLE_CLAIM');
+            existingSession = null;
+        }
 
         if (existingSession) {
             const cleanHost = cleanPhone(existingSession.host_customer_mobile);

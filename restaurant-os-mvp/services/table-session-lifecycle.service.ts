@@ -17,7 +17,47 @@ function cleanPhone(raw: string): string {
     return String(raw || '').replace(/\D/g, '').slice(-10);
 }
 
+/**
+ * A dining session never legitimately lasts this long. Sessions older than this
+ * are leftovers (e.g. the table was cleared or settled without the session being
+ * closed) and must never block a customer from scanning another table.
+ */
+export const MAX_TABLE_SESSION_AGE_HOURS = 12;
+
 export class TableSessionLifecycleService {
+    /** True if the session was started more than MAX_TABLE_SESSION_AGE_HOURS ago. */
+    static isStale(session: { created_at?: string | null } | null | undefined): boolean {
+        if (!session?.created_at) return false;
+        const startedMs = new Date(session.created_at).getTime();
+        if (!Number.isFinite(startedMs)) return false;
+        return Date.now() - startedMs > MAX_TABLE_SESSION_AGE_HOURS * 60 * 60 * 1000;
+    }
+
+    /**
+     * Closes a leftover session and expires its memberships. Orders, payments and
+     * the physical table are not touched: this only releases the customer binding.
+     */
+    static async closeStaleSession(sessionId: string, reason: string = 'STALE_SESSION_AUTO_CLOSED'): Promise<void> {
+        const nowIso = new Date().toISOString();
+        await supabaseAdmin
+            .from('table_active_sessions')
+            .update({
+                status: 'CLOSED',
+                is_active: false,
+                closed_at: nowIso,
+                closure_reason: reason,
+                updated_at: nowIso,
+            })
+            .eq('id', sessionId)
+            .eq('is_active', true);
+
+        await supabaseAdmin
+            .from('table_join_requests')
+            .update({ membership_status: 'EXPIRED', updated_at: nowIso })
+            .eq('session_id', sessionId)
+            .eq('membership_status', 'ACTIVE');
+    }
+
     /**
      * Evaluates whether a session is protected or eligible for expiration.
      */
@@ -71,6 +111,12 @@ export class TableSessionLifecycleService {
             .in('restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
             .eq('is_completed', false);
 
+        // Only orders placed during THIS session count. Orders from later diners at the
+        // same table must never keep an old customer's session alive.
+        if (session.created_at) {
+            orderQuery = orderQuery.gte('created_at', session.created_at);
+        }
+
         if (resolvedTableId && !isNaN(Number(resolvedTableId))) {
             orderQuery = orderQuery.eq('table_id', Number(resolvedTableId));
         } else {
@@ -102,6 +148,10 @@ export class TableSessionLifecycleService {
             .select('id')
             .in('restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
             .eq('request_status', 'pending');
+
+        if (session.created_at) {
+            srQuery = srQuery.gte('created_at', session.created_at);
+        }
 
         if (tableNum && resolvedTableId) {
             srQuery = srQuery.or(`table_number.eq.${tableNum},table_id.eq.${resolvedTableId}`);
@@ -252,6 +302,11 @@ export class TableSessionLifecycleService {
             .maybeSingle();
 
         if (hostSession && normalizeTableNumber(hostSession.table_number) !== normTarget) {
+            // Leftover session from a past visit (table cleared/settled without closing it)
+            if (this.isStale(hostSession)) {
+                await this.closeStaleSession(hostSession.id, 'STALE_SESSION_CUSTOMER_RESCAN');
+                return { released: true, previousSession: hostSession };
+            }
             const eligibility = await this.evaluateSessionEligibility(hostSession.id, canonicalRestaurantId);
             if (eligibility.canExpire) {
                 // Safely expire empty previous session

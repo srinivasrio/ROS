@@ -255,11 +255,28 @@ export async function POST(req: NextRequest) {
         }
 
         // 2. Cascade update to all queued order items across all active admins (ensuring both stay in sync)
+        // Confirming ('placed') must only touch items still waiting for confirmation. Updating every
+        // item here used to push ready/preparing/served items back to "Incoming" when a customer
+        // added new items to an order the kitchen had already finished.
         for (const admin of targetAdmins) {
-            await admin
-                .from('order_items')
-                .update({ status: newStatus })
-                .eq('order_id', orderId);
+            let itemsUpdate = admin.from('order_items').update({ status: newStatus }).eq('order_id', orderId);
+            if (newStatus === 'placed') {
+                itemsUpdate = itemsUpdate.or('status.eq.queued,status.is.null,status.eq.pending,status.eq.created') as any;
+            }
+            await itemsUpdate;
+        }
+
+        // For 'placed', derive the order status from its items (same rules as the KDS) so an order with
+        // ready/preparing items stays in its kitchen stage instead of returning to Incoming.
+        let orderStatusToSet = newStatus;
+        if (newStatus === 'placed') {
+            const { data: itemRows } = await matchedAdmin.from('order_items').select('status').eq('order_id', orderId);
+            const st = (itemRows || []).map((i: any) => String(i.status || '').toLowerCase()).filter((x: string) => x !== 'cancelled');
+            if (st.length > 0) {
+                if (st.every(x => x === 'served' || x === 'paid')) orderStatusToSet = 'served';
+                else if (st.every(x => x === 'ready' || x === 'served' || x === 'paid')) orderStatusToSet = 'ready';
+                else if (st.some(x => x === 'ready' || x === 'preparing' || x === 'cooking')) orderStatusToSet = 'preparing';
+            }
         }
 
         // 3. Update orders status across active admins
@@ -267,7 +284,7 @@ export async function POST(req: NextRequest) {
         for (const admin of targetAdmins) {
             const { data, error } = await admin
                 .from('orders')
-                .update({ status: newStatus })
+                .update({ status: orderStatusToSet })
                 .eq('id', orderId)
                 .select('id, status, table_id, restaurant_id')
                 .maybeSingle();

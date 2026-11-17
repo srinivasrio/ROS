@@ -4954,6 +4954,26 @@ export const OrderService = {
         const groupId = isGroup ? physicalTable.id : physicalTable.merged_group_id;
         const assignedWaiterId = (physicalTable as any).assigned_waiter_id;
 
+        // Every physical table this clear covers (a merged group covers all its member
+        // tables). Collected BEFORE unmerging, so their customer sessions can be closed.
+        const sessionTableIds = new Set<string>();
+        const sessionTableNumbers = new Set<string>();
+        const collectTable = (t: any) => {
+            if (!t) return;
+            if (t.id != null && !('display_name' in t)) sessionTableIds.add(String(t.id));
+            if (t.table_number != null && String(t.table_number).trim() !== '') sessionTableNumbers.add(String(t.table_number).trim());
+        };
+        collectTable(physicalTable);
+        if (groupId) {
+            try {
+                const { data: memberTables } = await supabase
+                    .from('tables')
+                    .select('id, table_number')
+                    .eq('merged_group_id', groupId);
+                (memberTables || []).forEach(collectTable);
+            } catch (_) {}
+        }
+
         if (groupId) {
             // Check active orders on merge group before archiving
             const { data: activeGroupOrders, error: orderFetchErr } = await supabase
@@ -5036,44 +5056,53 @@ export const OrderService = {
             } catch (_) {}
         }
 
-        // Deactivate and close active table session so subsequent diners can start a fresh session
+        // Close the customers' table sessions so they can scan another table, and so
+        // the next diners at this table start fresh. Sessions may be stored under the
+        // restaurant code or its UUID, and the table under its number ("5", "Table 5")
+        // or its id, so match every form.
         try {
-            const tableNum = String(physicalTable.table_number || '');
-            const tId = String(physicalTable.id || '');
+            const nowIso = new Date().toISOString();
             const closureReason = requestingStaffId ? `STAFF_CLEARED_${requestingStaffId}` : 'STAFF_CLEARED';
+            const restaurantIds = Array.from(new Set([restaurantId, actualRestaurantId].filter(Boolean)));
 
-            let sessQuery = supabase
-                .from('table_active_sessions')
-                .update({ 
-                    is_active: false,
-                    status: 'CLOSED',
-                    closed_at: new Date().toISOString(),
-                    closure_reason: closureReason,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('restaurant_id', actualRestaurantId)
-                .eq('is_active', true);
-
-            if (tableNum && tId) {
-                sessQuery = sessQuery.or(`table_number.eq.${tableNum},table_id.eq.${tId}`);
-            } else if (tableNum) {
-                sessQuery = sessQuery.eq('table_number', tableNum);
-            } else if (tId) {
-                sessQuery = sessQuery.eq('table_id', tId);
+            const tableConditions = new Set<string>();
+            for (const num of sessionTableNumbers) {
+                tableConditions.add(`table_number.eq.${num}`);
+                const norm = normalizeTableNumber(num);
+                if (norm) {
+                    tableConditions.add(`table_number.eq.${norm}`);
+                    tableConditions.add(`table_number.ilike.Table ${norm}`);
+                }
             }
-            await sessQuery;
+            for (const id of sessionTableIds) {
+                tableConditions.add(`table_id.eq.${id}`);
+            }
 
-            // Expire member join requests for this table
-            if (tableNum) {
-                await supabase
-                    .from('table_join_requests')
+            if (tableConditions.size > 0) {
+                const { data: closedSessions, error: closeErr } = await supabase
+                    .from('table_active_sessions')
                     .update({
-                        membership_status: 'EXPIRED',
-                        updated_at: new Date().toISOString()
+                        is_active: false,
+                        status: 'CLOSED',
+                        closed_at: nowIso,
+                        closure_reason: closureReason,
+                        updated_at: nowIso
                     })
-                    .eq('restaurant_id', actualRestaurantId)
-                    .eq('table_number', tableNum)
-                    .eq('membership_status', 'ACTIVE');
+                    .in('restaurant_id', restaurantIds)
+                    .eq('is_active', true)
+                    .or(Array.from(tableConditions).join(','))
+                    .select('id');
+
+                if (closeErr) console.warn('[clearTable] Closing table sessions failed:', closeErr);
+
+                const closedIds = (closedSessions || []).map((row: any) => row.id).filter(Boolean);
+                if (closedIds.length > 0) {
+                    await supabase
+                        .from('table_join_requests')
+                        .update({ membership_status: 'EXPIRED', updated_at: nowIso })
+                        .in('session_id', closedIds)
+                        .eq('membership_status', 'ACTIVE');
+                }
             }
         } catch (sessErr) {
             console.warn('[clearTable] Deactivating active session error:', sessErr);
