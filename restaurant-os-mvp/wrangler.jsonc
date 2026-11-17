@@ -1,0 +1,47 @@
+{
+	// Dine In One main app (all panels + /api) on Cloudflare Workers via OpenNext.
+	// Deploy guide: CLOUDFLARE_DEPLOY.md
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": ".open-next/worker.js",
+	"name": "dine-in-one",
+	"compatibility_date": "2026-11-01",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Self-reference used by OpenNext for cache revalidation; must match "name" above
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "dine-in-one"
+		},
+		{
+			// Private Argon2 helper Worker (workers/auth-hash). Deploy it first.
+			"binding": "AUTH_HASH",
+			"service": "dine-in-one-auth-hash"
+		}
+	],
+	"r2_buckets": [
+		{
+			// Next.js incremental (ISR/data) cache. Create once:
+			//   npx wrangler r2 bucket create dine-in-one-opennext-cache
+			"binding": "NEXT_INC_CACHE_R2_BUCKET",
+			"bucket_name": "dine-in-one-opennext-cache"
+		}
+	],
+	"images": {
+		// Used by next/image and by /api/upload (replaces sharp on Workers)
+		"binding": "IMAGES"
+	},
+	// Prevents "ReferenceError: __name is not defined" in Next.js inline scripts
+	"keep_names": false,
+	"observability": {
+		"enabled": true
+	}
+	// Secrets (Supabase keys, JWT_SECRET, R2, SES, Upstash) are NOT stored here.
+	// Set them with: npx wrangler secret put <NAME>   (see CLOUDFLARE_DEPLOY.md)
+}

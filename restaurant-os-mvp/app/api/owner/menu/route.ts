@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthenticatedOwner, resolveOwnerScope } from '@/lib/owner-auth';
 import { revalidatePublicMenuCache } from '@/lib/public-menu-cache';
@@ -95,7 +95,8 @@ export async function PATCH(request: NextRequest) {
 
         // Trigger on-demand cache revalidation for the affected restaurant only (P2-09)
         if (item?.restaurant_id) {
-            revalidatePublicMenuCache(item.restaurant_id).catch(() => {});
+            // after() keeps this alive past the response (needed on Workers)
+            after(() => revalidatePublicMenuCache(item.restaurant_id).catch(() => {}));
         }
 
         return NextResponse.json({ success: true, item });

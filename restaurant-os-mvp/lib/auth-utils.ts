@@ -1,16 +1,12 @@
 import crypto from 'crypto';
-import argon2 from 'argon2';
+import { argon2Hash, argon2Verify } from './password-hash';
+export { needsRehash } from './password-hash';
 
 /**
  * Hash password using Argon2id
  */
 export async function hashPassword(password: string): Promise<string> {
-    return await argon2.hash(password, {
-        type: argon2.argon2id,
-        memoryCost: 65536,
-        timeCost: 3,
-        parallelism: 4
-    });
+    return await argon2Hash(password);
 }
 
 /**
@@ -19,7 +15,7 @@ export async function hashPassword(password: string): Promise<string> {
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
     try {
         if (!hash || !password) return false;
-        return await argon2.verify(hash, password);
+        return await argon2Verify(hash, password);
     } catch (err) {
         console.error('Argon2 verification failed:', err);
         return false;
@@ -32,12 +28,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 export async function hashPin(pin: string): Promise<string> {
     const cleanPin = String(pin || '').trim();
     if (!cleanPin) throw new Error('PIN cannot be empty');
-    return await argon2.hash(cleanPin, {
-        type: argon2.argon2id,
-        memoryCost: 65536,
-        timeCost: 3,
-        parallelism: 4
-    });
+    return await argon2Hash(cleanPin);
 }
 
 /**
@@ -50,7 +41,7 @@ export async function verifyPin(pin: string, storedHashOrPlain: string | null | 
 
     if (stored.startsWith('$argon2')) {
         try {
-            return await argon2.verify(stored, cleanPin);
+            return await argon2Verify(stored, cleanPin);
         } catch (err) {
             console.error('Argon2 PIN verification failed:', err);
             return false;

@@ -1,0 +1,27 @@
+# Runtime secrets for the Super Admin Worker.
+# Local preview (npm run cf:preview): copy to .dev.vars and fill in.
+# Production: npx wrangler secret bulk .dev.vars   (run inside super-admin/)
+#
+# NEXT_PUBLIC_* values are baked in at BUILD time, so also keep them in
+# super-admin/.env.local on the machine that runs `npm run cf:deploy`.
+
+JWT_SECRET=
+OTP_HASH_SECRET=
+SUPER_ADMIN_BOOTSTRAP_TOKEN=
+
+# Supabase: must be an HTTPS hostname, not a bare IP
+NEXT_PUBLIC_SUPABASE_URL=https://db.dineinone.com
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Cloudflare R2
+CLOUDFLARE_R2_ACCESS_KEY_ID=
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=
+CLOUDFLARE_R2_ENDPOINT=
+CLOUDFLARE_R2_BUCKET_NAME=
+NEXT_PUBLIC_R2_PUBLIC_URL=
+
+# Email (Amazon SES)
+AWS_SES_REGION=
+AWS_SES_ACCESS_KEY_ID=
+AWS_SES_SECRET_ACCESS_KEY=
+SES_FROM_EMAIL=

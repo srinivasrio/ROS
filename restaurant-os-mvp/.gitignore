@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+dineinone-landing/
 
 # debug
 npm-debug.log*
@@ -53,3 +54,19 @@ logs/
 **/dineinone_credentials.json
 config/supabase.json
 **/seed.sql
+
+# Cloudflare Workers (OpenNext)
+.open-next/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Local migration backups (contain secrets)
+.cf-migration-backup/
+
+# Local tools, scratch outputs & temporary uploads
+Claude outputs/
+brag-output/
+public/uploads/
+
