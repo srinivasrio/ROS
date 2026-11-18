@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { verifyPin } from '@/lib/auth-utils';
+import { verifyPin, hashPin, needsRehash } from '@/lib/auth-utils';
 import { signJwt } from '@/lib/jwt-utils';
 import {
     checkRateLimitAndLockout,
@@ -140,6 +140,18 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({
                 error: `Incorrect employee PIN. (${5 - failResult.failedAttempts} attempt${5 - failResult.failedAttempts === 1 ? '' : 's'} remaining)`
             }, { status: 401 });
+        }
+
+        // Silently upgrade legacy Argon2 or plaintext PIN to Web Crypto PBKDF2
+        if (needsRehash(storedHash, true)) {
+            hashPin(rawPin).then(async (newPinHash) => {
+                try {
+                    await supabaseAdmin.from('employees').update({ pin: newPinHash }).eq('id', employee.id);
+                    console.log(`[kds/login] Silently upgraded PIN hash to PBKDF2 for employee ${employee.id}`);
+                } catch (upgradeErr) {
+                    console.error('[kds/login] Failed to upgrade PIN hash:', upgradeErr);
+                }
+            }).catch(err => console.error('[kds/login] Error rehashing PIN:', err));
         }
 
         // 5. STATUS CHECK

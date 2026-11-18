@@ -77,7 +77,7 @@ export const StaffService = {
                 .filter((emp: any) => !['owner', 'restaurant_owner'].includes(String(emp.role || '').toLowerCase()))
                 .map((emp: any) => ({
                     ...emp,
-                    pin: (emp.pin && !String(emp.pin).startsWith('$argon2') && !String(emp.pin).startsWith('$2') ? String(emp.pin) : null)
+                    pin: (emp.pin && !String(emp.pin).startsWith('$argon2') && !String(emp.pin).startsWith('$pbkdf2') && !String(emp.pin).startsWith('$2') ? String(emp.pin) : null)
                 })) as Staff[];
         });
     },
