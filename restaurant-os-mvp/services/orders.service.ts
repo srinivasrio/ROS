@@ -4463,9 +4463,19 @@ export const OrderService = {
             }
         }
 
+        let dbClient: any = supabase;
+        if (typeof window === 'undefined') {
+            try {
+                const adminMod = await import('@/lib/supabase-admin');
+                if (adminMod?.supabaseAdmin) {
+                    dbClient = adminMod.supabaseAdmin;
+                }
+            } catch (_) {}
+        }
+
         // 2. Settle fully based on DB total (which is already net of discount) AND set completed_at
         const payableAmount = Math.max(0, Number(order.total_amount || 0));
-        const { error } = await supabase
+        const { error } = await dbClient
             .from('orders')
             .update({
                 status: 'paid',
@@ -4495,22 +4505,22 @@ export const OrderService = {
 
         // Also ensure orders table retains waiter_id if it was missing
         if (!order.waiter_id && finalWaiterId) {
-            await supabase.from('orders').update({ waiter_id: finalWaiterId }).eq('id', orderId);
+            await dbClient.from('orders').update({ waiter_id: finalWaiterId }).eq('id', orderId);
         }
 
         const actualTableId = physicalTable?.id || order.table_id;
         const updatePromises: PromiseLike<any>[] = [
-            supabase.from('order_items').update({ status: 'paid' }).eq('order_id', orderId)
+            dbClient.from('order_items').update({ status: 'paid' }).eq('order_id', orderId)
         ];
 
         if (order.merge_group_id) {
             updatePromises.push(
-                supabase.from('table_merge_groups').update(tableUpdate).eq('id', order.merge_group_id).eq('restaurant_id', actualRestaurantId),
-                supabase.from('tables').update(tableUpdate).eq('merged_group_id', order.merge_group_id).eq('restaurant_id', actualRestaurantId)
+                dbClient.from('table_merge_groups').update(tableUpdate).eq('id', order.merge_group_id).eq('restaurant_id', actualRestaurantId),
+                dbClient.from('tables').update(tableUpdate).eq('merged_group_id', order.merge_group_id).eq('restaurant_id', actualRestaurantId)
             );
         } else if (actualTableId) {
             updatePromises.push(
-                supabase.from('tables').update(tableUpdate).eq('id', actualTableId).eq('restaurant_id', actualRestaurantId)
+                dbClient.from('tables').update(tableUpdate).eq('id', actualTableId).eq('restaurant_id', actualRestaurantId)
             );
         }
 
@@ -5062,7 +5072,7 @@ export const OrderService = {
         // or its id, so match every form.
         try {
             const nowIso = new Date().toISOString();
-            const closureReason = requestingStaffId ? `STAFF_CLEARED_${requestingStaffId}` : 'STAFF_CLEARED';
+            const closureReason = requestingStaffId ? `STAFF_CLEARED_${requestingStaffId}` : 'PAID_AND_CLEARED';
             const restaurantIds = Array.from(new Set([restaurantId, actualRestaurantId].filter(Boolean)));
 
             const tableConditions = new Set<string>();
@@ -5077,13 +5087,27 @@ export const OrderService = {
             for (const id of sessionTableIds) {
                 tableConditions.add(`table_id.eq.${id}`);
             }
+            if ((physicalTable as any)?.table_token) {
+                tableConditions.add(`table_token.eq.${(physicalTable as any).table_token}`);
+            }
+
+            let dbClient: any = supabase;
+            if (typeof window === 'undefined') {
+                try {
+                    const adminMod = await import('@/lib/supabase-admin');
+                    if (adminMod?.supabaseAdmin) {
+                        dbClient = adminMod.supabaseAdmin;
+                    }
+                } catch (_) {}
+            }
 
             if (tableConditions.size > 0) {
-                const { data: closedSessions, error: closeErr } = await supabase
+                const { data: closedSessions, error: closeErr } = await dbClient
                     .from('table_active_sessions')
                     .update({
                         is_active: false,
-                        status: 'CLOSED',
+                        status: 'EXPIRED',
+                        expired_at: nowIso,
                         closed_at: nowIso,
                         closure_reason: closureReason,
                         updated_at: nowIso
@@ -5097,7 +5121,7 @@ export const OrderService = {
 
                 const closedIds = (closedSessions || []).map((row: any) => row.id).filter(Boolean);
                 if (closedIds.length > 0) {
-                    await supabase
+                    await dbClient
                         .from('table_join_requests')
                         .update({ membership_status: 'EXPIRED', updated_at: nowIso })
                         .in('session_id', closedIds)
@@ -5110,7 +5134,13 @@ export const OrderService = {
 
         // Invalidate customer cache for this table
         try {
-            CustomerCache.clear(actualRestaurantId, 'orders', String(physicalTable.table_number || tableId));
+            for (const rId of Array.from(new Set([restaurantId, actualRestaurantId].filter(Boolean)))) {
+                for (const tNum of sessionTableNumbers) {
+                    CustomerCache.clear(rId, 'orders', tNum);
+                    CustomerCache.clear(rId, 'table-session', tNum);
+                }
+                CustomerCache.clear(rId, 'orders', String(physicalTable.table_number || tableId));
+            }
         } catch (_) {}
     },
 

@@ -227,6 +227,30 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Database query failed' }, { status: 500 });
         }
 
+        if (session) {
+            // Check if table was cleared or if all food orders were completed/eaten and paid
+            const { data: physicalTable } = await supabaseAdmin
+                .from('tables')
+                .select('id, status')
+                .in('restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
+                .or(`table_number.eq.${resolvedTableNumber},id.eq.${session.table_id || -9999}`)
+                .maybeSingle();
+
+            const isPhysicalTableAvailable = physicalTable && ['available', 'free', 'empty'].includes(String(physicalTable.status || '').toLowerCase());
+
+            if (isPhysicalTableAvailable) {
+                // Table was cleared by staff/admin! Expire the orphaned active session immediately.
+                await TableSessionLifecycleService.closeStaleSession(session.id, 'TABLE_ALREADY_AVAILABLE_OR_CLEARED');
+                session = null;
+            } else {
+                const eligibility = await TableSessionLifecycleService.evaluateSessionEligibility(session.id, canonicalRestaurantId);
+                if (eligibility.canExpire) {
+                    await TableSessionLifecycleService.expireSessionIfEligible(session.id, canonicalRestaurantId, 'PAID_AND_CLEARED');
+                    session = null;
+                }
+            }
+        }
+
         // A leftover session from a past visit must not make this table look occupied.
         if (session && TableSessionLifecycleService.isStale(session)) {
             await TableSessionLifecycleService.closeStaleSession(session.id, 'STALE_SESSION_TABLE_RESCAN');
@@ -407,6 +431,30 @@ export async function POST(req: NextRequest) {
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
+
+        if (existingSession) {
+            // Check if table was cleared or if all food orders were completed/eaten and paid
+            const { data: physicalTable } = await supabaseAdmin
+                .from('tables')
+                .select('id, status')
+                .in('restaurant_id', postTargetRestIds)
+                .or(`table_number.eq.${resolvedTableNumber},id.eq.${existingSession.table_id || -9999}`)
+                .maybeSingle();
+
+            const isPhysicalTableAvailable = physicalTable && ['available', 'free', 'empty'].includes(String(physicalTable.status || '').toLowerCase());
+
+            if (isPhysicalTableAvailable) {
+                // Table was cleared by staff/admin! Expire the orphaned active session immediately.
+                await TableSessionLifecycleService.closeStaleSession(existingSession.id, 'TABLE_CLEARED_NEW_CLAIM');
+                existingSession = null;
+            } else {
+                const eligibility = await TableSessionLifecycleService.evaluateSessionEligibility(existingSession.id, canonicalRestaurantId);
+                if (eligibility.canExpire) {
+                    await TableSessionLifecycleService.expireSessionIfEligible(existingSession.id, canonicalRestaurantId, 'PAID_AND_CLEARED');
+                    existingSession = null;
+                }
+            }
+        }
 
         // A leftover session from a past visit must not block a new host from claiming the table.
         if (existingSession && TableSessionLifecycleService.isStale(existingSession)) {

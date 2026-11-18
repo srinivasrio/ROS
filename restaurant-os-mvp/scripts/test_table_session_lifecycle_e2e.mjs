@@ -201,9 +201,9 @@ async function runTests() {
         const closeSuccess = await TableSessionLifecycleService.closeTableByStaff(t2.id, TEST_RESTAURANT, 'staff-01');
         assert(closeSuccess.success === true, 'Table closed successfully after order was paid');
 
-        const { data: s2Closed } = await supabase.from('table_active_sessions').select('status, is_active, closed_at').eq('id', s2.id).single();
-        assert(s2Closed.status === 'CLOSED' && s2Closed.is_active === false && Boolean(s2Closed.closed_at), 'Session status transitioned to CLOSED with timestamp');
-        console.log('✅ Test 5 Passed: Table close enforced order settlement, cleanly transitioned status to CLOSED.');
+        const { data: s2Closed } = await supabase.from('table_active_sessions').select('status, is_active, closed_at, expired_at').eq('id', s2.id).single();
+        assert((s2Closed.status === 'EXPIRED' || s2Closed.status === 'CLOSED') && s2Closed.is_active === false && Boolean(s2Closed.closed_at || s2Closed.expired_at), 'Session status transitioned to EXPIRED/CLOSED with timestamp');
+        console.log('✅ Test 5 Passed: Table close enforced order settlement, cleanly transitioned status to EXPIRED/CLOSED.');
 
         // --- TEST 6: Scheduled cleanup RPC expires abandoned sessions ---
         console.log('\n🧪 Test 6: Scheduled cleanup RPC -> Atomically expires abandoned empty sessions');

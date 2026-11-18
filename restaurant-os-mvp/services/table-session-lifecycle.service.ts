@@ -19,10 +19,10 @@ function cleanPhone(raw: string): string {
 
 /**
  * A dining session never legitimately lasts this long. Sessions older than this
- * are leftovers (e.g. the table was cleared or settled without the session being
- * closed) and must never block a customer from scanning another table.
+ * are leftovers (e.g. the table was abandoned without being cleared) and must
+ * never block a customer from scanning another table.
  */
-export const MAX_TABLE_SESSION_AGE_HOURS = 12;
+export const MAX_TABLE_SESSION_AGE_HOURS = 2;
 
 export class TableSessionLifecycleService {
     /** True if the session was started more than MAX_TABLE_SESSION_AGE_HOURS ago. */
@@ -42,8 +42,9 @@ export class TableSessionLifecycleService {
         await supabaseAdmin
             .from('table_active_sessions')
             .update({
-                status: 'CLOSED',
+                status: 'EXPIRED',
                 is_active: false,
+                expired_at: nowIso,
                 closed_at: nowIso,
                 closure_reason: reason,
                 updated_at: nowIso,
@@ -125,8 +126,10 @@ export class TableSessionLifecycleService {
 
         const { data: orders } = await orderQuery;
 
+        // Food orders currently being prepared or queued in the kitchen.
+        // Note: 'served' food has already been delivered to the table and eaten.
         const activeOrderList = (orders || []).filter(o => 
-            ['queued', 'placed', 'preparing', 'ready', 'served'].includes(o.status?.toLowerCase())
+            ['queued', 'placed', 'preparing', 'ready'].includes(o.status?.toLowerCase()) && !o.is_completed
         );
         const hasActiveOrders = activeOrderList.length > 0;
         if (hasActiveOrders) {
@@ -134,8 +137,9 @@ export class TableSessionLifecycleService {
         }
 
         // 3. Check for unpaid balances
+        // If an order is not marked 'paid' or 'cancelled' and not completed, customer still owes payment
         const unpaidOrderList = (orders || []).filter(o =>
-            !['paid', 'cancelled'].includes(o.status?.toLowerCase())
+            !['paid', 'cancelled'].includes(o.status?.toLowerCase()) && !o.is_completed
         );
         const hasUnpaidBalance = unpaidOrderList.length > 0;
         if (hasUnpaidBalance) {
@@ -302,19 +306,20 @@ export class TableSessionLifecycleService {
             .maybeSingle();
 
         if (hostSession && normalizeTableNumber(hostSession.table_number) !== normTarget) {
+            // First check eligibility: if the previous table was cleared, or its orders paid and completed,
+            // or if it has no active kitchen orders / unpaid balance, release and expire it immediately!
+            const eligibility = await this.evaluateSessionEligibility(hostSession.id, canonicalRestaurantId);
+            if (eligibility.canExpire) {
+                // Safely expire completed/cleared previous session
+                await this.expireSessionIfEligible(hostSession.id, canonicalRestaurantId, 'CUSTOMER_SCANNED_NEW_TABLE');
+                return { released: true, previousSession: hostSession };
+            }
             // Leftover session from a past visit (table cleared/settled without closing it)
             if (this.isStale(hostSession)) {
                 await this.closeStaleSession(hostSession.id, 'STALE_SESSION_CUSTOMER_RESCAN');
                 return { released: true, previousSession: hostSession };
             }
-            const eligibility = await this.evaluateSessionEligibility(hostSession.id, canonicalRestaurantId);
-            if (eligibility.canExpire) {
-                // Safely expire empty previous session
-                await this.expireSessionIfEligible(hostSession.id, canonicalRestaurantId, 'CUSTOMER_SCANNED_NEW_TABLE');
-                return { released: true, previousSession: hostSession };
-            } else {
-                return { released: false, previousSession: hostSession, eligibility };
-            }
+            return { released: false, previousSession: hostSession, eligibility };
         }
 
         // 2. Check if customer is approved member of another table session
@@ -566,10 +571,11 @@ export class TableSessionLifecycleService {
         let sessQuery = supabaseAdmin
             .from('table_active_sessions')
             .update({
-                status: 'CLOSED',
+                status: 'EXPIRED',
                 is_active: false,
+                expired_at: new Date().toISOString(),
                 closed_at: new Date().toISOString(),
-                closure_reason: staffId ? `STAFF_CLEARED_${staffId}` : 'STAFF_CLEARED',
+                closure_reason: staffId ? `STAFF_CLEARED_${staffId}` : 'PAID_AND_CLEARED',
                 updated_at: new Date().toISOString(),
             })
             .in('restaurant_id', [restaurantId, canonicalRestaurantId].filter(Boolean))
@@ -578,7 +584,18 @@ export class TableSessionLifecycleService {
         if (!isNaN(Number(tableId))) {
             sessQuery = sessQuery.eq('table_id', String(tableId));
         }
-        await sessQuery;
+        const { data: closedSess } = await sessQuery.select('id');
+        const closedIds = (closedSess || []).map((s: any) => s.id).filter(Boolean);
+        if (closedIds.length > 0) {
+            await supabaseAdmin
+                .from('table_join_requests')
+                .update({
+                    membership_status: 'EXPIRED',
+                    updated_at: new Date().toISOString(),
+                })
+                .in('session_id', closedIds)
+                .eq('membership_status', 'ACTIVE');
+        }
 
         // Set table available
         let tblQuery = supabaseAdmin

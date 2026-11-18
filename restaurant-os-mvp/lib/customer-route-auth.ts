@@ -28,6 +28,23 @@ export async function requireCustomerSession(req: NextRequest): Promise<Customer
     if (!session || !session.restaurant_id || session.table_id === undefined || session.table_id === null) {
         return { ok: false, status: 401, error: 'No valid table session. Please re-scan the table QR code.' };
     }
+
+    if (session.session_id) {
+        const { data: dbSession } = await supabaseAdmin
+            .from('table_active_sessions')
+            .select('is_active, status')
+            .eq('id', session.session_id)
+            .maybeSingle();
+
+        if (dbSession && (dbSession.is_active === false || dbSession.status === 'EXPIRED' || dbSession.status === 'CLOSED')) {
+            return {
+                ok: false,
+                status: 401,
+                error: 'Your dining session has concluded and the table has been cleared. Please scan the QR code to start a new session.',
+            };
+        }
+    }
+
     return {
         ok: true,
         ctx: {
