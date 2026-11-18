@@ -1,0 +1,31 @@
+{
+	// Dine In One Super Admin (separate Next.js app) on Cloudflare Workers via OpenNext.
+	// Deploy guide: ../CLOUDFLARE_DEPLOY.md (section "Super Admin")
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": ".open-next/worker.js",
+	"name": "dine-in-one-superadmin",
+	"compatibility_date": "2026-11-01",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Private Argon2 helper Worker (workers/auth-hash). Deploy it first.
+			"binding": "AUTH_HASH",
+			"service": "dine-in-one-auth-hash"
+		}
+	],
+	// Prevents "ReferenceError: __name is not defined" in Next.js inline scripts
+	"keep_names": false,
+	"observability": {
+		"enabled": true
+	},
+	"routes": [
+		{ "pattern": "superadmin.dineinone.com", "custom_domain": true },
+		{ "pattern": "control.dineinone.com", "custom_domain": true }
+	]
+	// No ISR / next/image in this app, so no R2 cache bucket or Images binding is needed.
+	// Secrets: npx wrangler secret bulk .dev.vars   (see .dev.vars.example)
+}

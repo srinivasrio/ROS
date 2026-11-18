@@ -45,6 +45,7 @@
     "public",
     "super-admin",
     "scripts",
-    "scratch"
+    "scratch",
+    "workers"
   ]
 }

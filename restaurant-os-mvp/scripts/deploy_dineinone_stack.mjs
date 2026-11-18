@@ -1,6 +1,11 @@
 import fs from 'fs';
 import { spawn } from 'child_process';
 
+if (!process.env.VPS_SSH_PASSWORD) {
+  console.error("ERROR: VPS_SSH_PASSWORD env var is required. Do not hardcode credentials; export it before running this deploy helper.");
+  process.exit(1);
+}
+
 const creds = JSON.parse(fs.readFileSync('scripts/dineinone_credentials.json', 'utf8'));
 
 // 1. Generate .env
@@ -150,7 +155,7 @@ set timeout 60
 spawn ssh -o StrictHostKeyChecking=no root@72.61.250.231 "echo ${content} | base64 -d > ${remotePath}"
 expect {
     "*assword:*" {
-        send "Karthiktraders@12\\r"
+        send "${process.env.VPS_SSH_PASSWORD}\r"
         exp_continue
     }
     eof
@@ -174,7 +179,7 @@ set timeout 180
 spawn ssh -o StrictHostKeyChecking=no root@72.61.250.231 ${JSON.stringify(cmd)}
 expect {
     "*assword:*" {
-        send "Karthiktraders@12\\r"
+        send "${process.env.VPS_SSH_PASSWORD}\r"
         exp_continue
     }
     eof

@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { uploadToR2 } from '@/lib/r2';
 import { extractTokenForRestaurant, verifyJwt } from '@/lib/jwt-utils';
-import sharp from 'sharp';
+import { optimizeImage } from '@/lib/image-optimize';
 import { RateLimiter } from '@/lib/rate-limiter';
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -262,13 +262,12 @@ export async function POST(req: NextRequest) {
 
         if (detectedContentType.startsWith('image/') && detectedContentType !== 'image/gif') {
             try {
-                const optimized = await sharp(buffer)
-                    .rotate() // auto-orient based on EXIF
-                    .resize({ width: 1200, withoutEnlargement: true })
-                    .webp({ quality: 80, effort: 4 })
-                    .toBuffer();
-                finalBuffer = Buffer.from(optimized);
-                finalContentType = 'image/webp';
+                // sharp on the VPS, Cloudflare Images binding on Workers, original otherwise
+                const optimized = await optimizeImage(buffer, detectedContentType);
+                if (optimized) {
+                    finalBuffer = Buffer.from(optimized.bytes);
+                    finalContentType = optimized.contentType;
+                }
             } catch (sharpErr) {
                 console.warn('Image optimization fallback to original buffer:', sharpErr);
                 finalBuffer = buffer;

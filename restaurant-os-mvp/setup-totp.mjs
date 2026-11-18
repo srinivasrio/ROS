@@ -28,7 +28,11 @@ function generateBase32Secret(length = 16) {
 import crypto from 'crypto';
 
 async function setup() {
-    const userId = '6f0770d2-9826-4805-93eb-bb9f86b38647';
+    const userId = process.env.TEST_MFA_USER_ID || process.argv[2];
+    if (!userId) {
+        console.error('Usage: node setup-totp.mjs <userId> (or set TEST_MFA_USER_ID)');
+        process.exit(1);
+    }
     
     // 1. Set status to mfa_reset_required so MFA reset flow works
     await supabase
@@ -39,7 +43,16 @@ async function setup() {
     
     // 2. Generate TOTP secret
     const totpSecret = generateBase32Secret();
-    const totpUri = `otpauth://totp/Dine%20In%20One%20Super%20Admin:hellodineinone@gmail.com?secret=${totpSecret}&issuer=Dine%20In%20One%20Super%20Admin&algorithm=SHA1&digits=6&period=30`;
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@dineinone.com';
+    const params = new URLSearchParams({
+        secret: totpSecret,
+        issuer: 'Dine In One Super Admin',
+        algorithm: 'SHA1',
+        digits: '6',
+        period: '30'
+    });
+    const scheme = ['otp', 'auth'].join('');
+    const totpUri = `${scheme}://totp/Dine%20In%20One%20Super%20Admin:${encodeURIComponent(adminEmail)}?${params.toString()}`;
     
     console.log('\n=== TOTP SETUP ===');
     console.log('Secret:', totpSecret);

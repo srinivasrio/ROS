@@ -346,7 +346,6 @@ export async function PUT(req: NextRequest) {
             const cleanPin = String(pin).trim();
             if (/^\d{4,6}$/.test(cleanPin)) {
                 updates.pin = await hashPin(cleanPin);
-                updates.raw_pin = cleanPin;
                 // Also update auth table
                 await supabaseAdmin
                     .from('auth')

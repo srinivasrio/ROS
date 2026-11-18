@@ -18,19 +18,19 @@ interface WindowBucket {
 // In-memory distributed-ready storage (Zero PostgreSQL calls on hot path)
 const memoryBuckets = new Map<string, WindowBucket>();
 
-// Periodic memory cleanup every 5 minutes to prevent memory leaks
-if (typeof setInterval !== 'undefined') {
-    const cleanupTimer = setInterval(() => {
-        const now = Date.now();
-        for (const [key, bucket] of memoryBuckets.entries()) {
-            if (bucket.resetAtMs < now && (!bucket.lockedUntilMs || bucket.lockedUntilMs < now)) {
-                memoryBuckets.delete(key);
-            }
-        }
-    }, 5 * 60 * 1000);
+// Lazy memory cleanup (at most every 5 minutes) to prevent memory leaks.
+// Runs inside check() instead of a module-level setInterval, because
+// Cloudflare Workers forbid timers at module (global) scope. Same behaviour on Node.
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+let lastSweepMs = Date.now();
 
-    if (cleanupTimer.unref) {
-        cleanupTimer.unref();
+function sweepExpiredBuckets(now: number) {
+    if (now - lastSweepMs < SWEEP_INTERVAL_MS) return;
+    lastSweepMs = now;
+    for (const [key, bucket] of memoryBuckets.entries()) {
+        if (bucket.resetAtMs < now && (!bucket.lockedUntilMs || bucket.lockedUntilMs < now)) {
+            memoryBuckets.delete(key);
+        }
     }
 }
 
@@ -121,6 +121,10 @@ export const RateLimiter = {
         }
 
         // 2. High-performance memory storage (No DB calls!)
+        // NOTE: on Cloudflare Workers this map is per-isolate, not global.
+        // Set UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN in production
+        // so login/OTP limits are enforced across all Workers instances.
+        sweepExpiredBuckets(now);
         let bucket = memoryBuckets.get(key);
 
         if (!bucket || bucket.resetAtMs <= now) {

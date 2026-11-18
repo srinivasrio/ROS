@@ -1,0 +1,17 @@
+{
+  "name": "dine-in-one-auth-hash",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Argon2 password-check service for the Dine In One Workers (runs on the VPS behind Cloudflare Tunnel)",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "argon2": "^0.44.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { EmailOtpService } from '@/lib/email-otp';
 import { RateLimiter } from '@/lib/rate-limiter';
-import { verifyPassword } from '@/lib/auth-utils';
+import { verifyPassword, hashPassword, needsRehash } from '@/lib/auth-utils';
 import crypto from 'crypto';
 
 /**
@@ -140,16 +140,26 @@ export async function POST(request: Request) {
 
         if (authRecord?.password_hash) {
             try {
-                // STRICT: Only accept Argon2id hashes
-                if (authRecord.password_hash.startsWith('$argon2')) {
+                // STRICT: Accept Web Crypto PBKDF2 and legacy Argon2id hashes
+                if (authRecord.password_hash.startsWith('$pbkdf2') || authRecord.password_hash.startsWith('$argon2')) {
                     isPasswordValid = await verifyPassword(password, authRecord.password_hash);
+                    if (isPasswordValid && needsRehash(authRecord.password_hash)) {
+                        hashPassword(password).then(async (newHash) => {
+                            try {
+                                await supabaseAdmin.from('auth').update({ password_hash: newHash }).eq('user_id', employee.id);
+                                console.log(`[Super Admin Login] Silently upgraded password hash to PBKDF2 for user ${employee.id}`);
+                            } catch (upgradeErr) {
+                                console.error('[Super Admin Login] Failed to upgrade password hash:', upgradeErr);
+                            }
+                        }).catch(err => console.error('[Super Admin Login] Error rehashing password:', err));
+                    }
                 } else {
-                    // Reject plaintext or non-Argon2 hashes
-                    console.warn(`[Super Admin Login] Non-Argon2 password hash detected for user ${employee.id}`);
+                    // Reject plaintext or unknown hashes
+                    console.warn(`[Super Admin Login] Unsupported password hash format detected for user ${employee.id}`);
                     isPasswordValid = false;
                 }
             } catch (hashErr) {
-                console.error('Argon2 verification failed:', hashErr);
+                console.error('Password verification failed:', hashErr);
                 isPasswordValid = false;
             }
         }

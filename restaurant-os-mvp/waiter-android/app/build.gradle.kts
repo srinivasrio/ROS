@@ -21,8 +21,10 @@ android {
 
         // Backend endpoints — reuse existing Dine in One infra.
         // ponytail: LAN dev URL; override per build env if needed.
-        buildConfigField("String", "SUPABASE_URL", "\"http://72.61.250.231:8010\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzkxMjI2NjM2LCJleHAiOjIyNjQyNjY2MzZ9.rIDeqMJlDAGOCMPZh3gQs_zM_g4FMqB8eVY0Vw4spA0\"")
+        val supabaseUrl = System.getenv("SUPABASE_URL") ?: "https://jmcsygpphwdubnanwjwz.supabase.co"
+        val supabaseAnonKey = System.getenv("SUPABASE_ANON_KEY") ?: ""
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
         buildConfigField("String", "BASE_API_URL", "\"http://127.0.0.1:3000\"")
     }
 

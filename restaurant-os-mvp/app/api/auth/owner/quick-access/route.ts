@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { signJwt } from '@/lib/jwt-utils';
+import { signJwt, verifyJwt } from '@/lib/jwt-utils';
 import { getAuthCookieOptions, recordAuthAuditLog } from '@/lib/panel-auth';
 import { getAuthenticatedOwner } from '@/lib/owner-auth';
 
@@ -15,9 +15,6 @@ import { getAuthenticatedOwner } from '@/lib/owner-auth';
 export async function GET(req: NextRequest) {
     try {
         const host = req.headers.get('host') || '';
-        const hostWithoutPort = host.split(':')[0].toLowerCase();
-        const isLocalhost = hostWithoutPort === 'localhost' || hostWithoutPort === '127.0.0.1';
-        const isDev = process.env.NODE_ENV !== 'production' || isLocalhost;
 
         const superToken = req.cookies.get('dine_superadmin_token')?.value || req.cookies.get('superadmin_token')?.value;
         let isSuperAdminFromCookie = false;
@@ -38,12 +35,19 @@ export async function GET(req: NextRequest) {
         } | null = null;
 
         if (!auth) {
-            if (!isDev && !isSuperAdminFromCookie) {
+            // Without an authenticated owner session, the ONLY permitted path is a
+            // verified super admin (holding a valid super-admin cookie) delegating
+            // into a specific restaurant's owner panel. Never trust the Host header
+            // or fall back to an arbitrary owner account.
+            if (!isSuperAdminFromCookie) {
                 return NextResponse.json({ error: 'Unauthorized: Owner authentication required' }, { status: 401 });
             }
 
             const requestedRestaurantId = req.nextUrl.searchParams.get('restaurantId')?.trim();
-            if (requestedRestaurantId) {
+            if (!requestedRestaurantId) {
+                return NextResponse.json({ error: 'A restaurant scope is required' }, { status: 400 });
+            }
+            {
                 const { data: restRec } = await supabaseAdmin
                     .from('restaurants')
                     .select('id, owner_id')
@@ -88,27 +92,7 @@ export async function GET(req: NextRequest) {
             }
 
             if (!sessionUser) {
-                const { data: fallbackOwner } = await supabaseAdmin
-                    .from('employees')
-                    .select('id, name, email, role, restaurant_id')
-                    .in('role', ['owner', 'restaurant_owner'])
-                    .eq('status', 'active')
-                    .limit(1)
-                    .maybeSingle();
-
-                if (fallbackOwner) {
-                    sessionUser = {
-                        userId: fallbackOwner.id,
-                        name: fallbackOwner.name || 'Restaurant Owner',
-                        email: fallbackOwner.email || '',
-                        role: 'owner',
-                        restaurantId: fallbackOwner.restaurant_id || '202631125644'
-                    };
-                }
-            }
-
-            if (!sessionUser) {
-                return NextResponse.json({ error: 'No active owner account available for quick access' }, { status: 404 });
+                return NextResponse.json({ error: 'No owner account found for the selected restaurant' }, { status: 404 });
             }
         } else {
             const authenticatedRole = String(auth.role || '').toLowerCase().trim();
