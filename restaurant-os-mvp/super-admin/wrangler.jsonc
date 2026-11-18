@@ -21,7 +21,11 @@
 	"keep_names": false,
 	"observability": {
 		"enabled": true
-	}
+	},
+	"routes": [
+		{ "pattern": "superadmin.dineinone.com", "custom_domain": true },
+		{ "pattern": "control.dineinone.com", "custom_domain": true }
+	]
 	// No ISR / next/image in this app, so no R2 cache bucket or Images binding is needed.
 	// Secrets: npx wrangler secret bulk .dev.vars   (see .dev.vars.example)
 }
