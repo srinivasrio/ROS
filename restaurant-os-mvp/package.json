@@ -23,7 +23,8 @@
     "cf:typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "cf:deploy:superadmin": "npm --prefix super-admin run cf:deploy",
     "cf:preview:superadmin": "npm --prefix super-admin run cf:preview",
-    "cf:deploy:authhash": "wrangler deploy --config workers/auth-hash/wrangler.jsonc"
+    "cf:deploy:authhash": "wrangler deploy --config workers/auth-hash/wrangler.jsonc",
+    "cf:deploy:realtime": "wrangler deploy --config workers/realtime/wrangler.jsonc"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1051.0",

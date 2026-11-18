@@ -2,6 +2,7 @@
 
 import { supabase } from '@/lib/supabase';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+import { cfRealtimeClient } from '@/lib/cf-realtime-client';
 
 type ChangeListener<T extends { [key: string]: any } = any> = (payload: RealtimePostgresChangesPayload<T>) => void;
 type WakeupListener = () => void;
@@ -117,6 +118,15 @@ class RealtimeSubscriptionManager {
         setupChannel: () => RealtimeChannel,
         onChange: ChangeListener<T>
     ): { unsubscribe: () => void } {
+        // Dual-run support: if Cloudflare Realtime is enabled, bind table listener
+        let cfUnsub: (() => void) | null = null;
+        if (cfRealtimeClient.isEnabled()) {
+            const tableName = channelKey.split(':')[0] || '*';
+            cfUnsub = cfRealtimeClient.subscribeTable(tableName, (payload) => {
+                this.dispatch(channelKey, payload);
+            });
+        }
+
         let entry = this.channels.get(channelKey);
 
         if (entry) {
@@ -148,6 +158,11 @@ class RealtimeSubscriptionManager {
             unsubscribe: () => {
                 if (isUnsubscribed) return;
                 isUnsubscribed = true;
+
+                if (cfUnsub) {
+                    cfUnsub();
+                    cfUnsub = null;
+                }
 
                 const current = this.channels.get(channelKey);
                 if (!current) return;

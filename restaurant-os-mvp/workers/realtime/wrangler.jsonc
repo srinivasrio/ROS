@@ -1,0 +1,35 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "dine-in-one-realtime",
+	"main": "index.ts",
+	"compatibility_date": "2026-11-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": true,
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "RESTAURANT_ROOM",
+				"class_name": "RestaurantRoom"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"RestaurantRoom"
+			]
+		}
+	],
+	"routes": [
+		{
+			"pattern": "realtime.dineinone.com",
+			"custom_domain": true
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}
