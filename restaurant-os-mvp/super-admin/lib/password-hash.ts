@@ -56,14 +56,31 @@ async function getHashService(): Promise<HashService | null> {
     const secret = process.env.AUTH_HASH_SECRET || '';
     if (url && secret) {
         return async (path, body) => {
-            const res = await fetch(`${url}${path}`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json', 'x-auth-hash-secret': secret },
-                body: JSON.stringify(body),
-                signal: AbortSignal.timeout(10_000),
-            });
-            if (!res.ok) throw new Error(`auth-hash service ${path} failed with HTTP ${res.status}`);
-            return res.json();
+            try {
+                const res = await fetch(`${url}${path}`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json', 'x-auth-hash-secret': secret },
+                    body: JSON.stringify(body),
+                    signal: AbortSignal.timeout(5_000),
+                });
+                if (res.ok) {
+                    return await res.json();
+                }
+                console.warn(`[password-hash] Remote hash service returned HTTP ${res.status}, attempting fallback`);
+            } catch (err) {
+                console.warn(`[password-hash] Remote hash service unreachable (${err}), attempting fallback`);
+            }
+
+            const binding = await getAuthHashBinding();
+            if (binding) {
+                try {
+                    return await callAuthHash(binding, path, body);
+                } catch (bindingErr) {
+                    console.warn('[password-hash] Binding fallback failed:', bindingErr);
+                }
+            }
+
+            return null;
         };
     }
 
@@ -157,8 +174,12 @@ export async function argon2Hash(plain: string): Promise<string> {
     }
     const remote = await getHashService();
     if (remote) {
-        const { hash } = await remote('/hash', { plain });
-        return hash;
+        try {
+            const res = await remote('/hash', { plain });
+            if (res && res.hash) return res.hash;
+        } catch (err) {
+            console.warn('[password-hash] Remote hash failed, falling back to in-process noble:', err);
+        }
     }
     const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
     const out = await argon2idAsync(plain, salt, { ...ARGON2_PARAMS, version: 0x13 });
@@ -172,8 +193,14 @@ export async function argon2Verify(phc: string, plain: string): Promise<boolean>
 
     const remote = await getHashService();
     if (remote) {
-        const { ok } = await remote('/verify', { phc, plain });
-        return ok === true;
+        try {
+            const res = await remote('/verify', { phc, plain });
+            if (res && typeof res.ok === 'boolean') {
+                return res.ok === true;
+            }
+        } catch (err) {
+            console.warn('[password-hash] Remote verify failed, falling back to in-process noble:', err);
+        }
     }
 
     const parsed = parsePhc(phc);
