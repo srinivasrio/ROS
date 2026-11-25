@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { verifyPassword, hashPassword, needsRehash } from '@/lib/auth-utils';
+import { verifyPassword } from '@/lib/auth-utils';
+import { upgradePasswordHashIfNeeded } from '@/lib/credential-upgrade';
 import { signJwt } from '@/lib/jwt-utils';
 import { RateLimiter } from '@/lib/rate-limiter';
 import { recordAuthAuditLog, getAuthCookieOptions } from '@/lib/panel-auth';
@@ -183,16 +184,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Silently upgrade legacy Argon2 or weak hashes to Web Crypto PBKDF2
-        if (needsRehash(authRecord.password_hash)) {
-            hashPassword(rawPassword).then(async (newHash) => {
-                try {
-                    await supabaseAdmin.from('auth').update({ password_hash: newHash }).eq('user_id', userId);
-                    console.log(`[auth/login] Silently upgraded password hash to PBKDF2 for user ${userId}`);
-                } catch (upgradeErr) {
-                    console.error('[auth/login] Failed to upgrade password hash:', upgradeErr);
-                }
-            }).catch(err => console.error('[auth/login] Error rehashing password:', err));
-        }
+        await upgradePasswordHashIfNeeded(userId, authRecord.password_hash, rawPassword, 'auth/login');
 
         // ------------------------------------------------------------------
         // 7. Secure Backend Status Validations (Never trust frontend state!)

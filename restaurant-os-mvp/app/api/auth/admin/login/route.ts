@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { verifyPassword, verifyPin, hashPassword, hashPin, needsRehash } from '@/lib/auth-utils';
+import { verifyPassword, verifyPin, hashPassword } from '@/lib/auth-utils';
+import { upgradeEmployeePinIfNeeded, upgradePasswordHashIfNeeded } from '@/lib/credential-upgrade';
 import { signJwt } from '@/lib/jwt-utils';
 import {
     checkRateLimitAndLockout,
@@ -282,16 +283,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Silently upgrade legacy Argon2 password hash to Web Crypto PBKDF2
-        if (passwordHash && needsRehash(passwordHash)) {
-            hashPassword(rawPassword).then(async (newHash) => {
-                try {
-                    await supabaseAdmin.from('auth').update({ password_hash: newHash }).eq('user_id', adminUser.id);
-                    console.log(`[admin/login] Silently upgraded password hash to PBKDF2 for admin ${adminUser.id}`);
-                } catch (upgradeErr) {
-                    console.error('[admin/login] Failed to upgrade admin password hash:', upgradeErr);
-                }
-            }).catch(err => console.error('[admin/login] Error rehashing admin password:', err));
-        }
+        await upgradePasswordHashIfNeeded(adminUser.id, passwordHash, rawPassword, 'admin/login');
 
         // 4. SECURITY PIN VERIFICATION (Compulsory for Restaurant Admin)
         if (!isOwnerPanel) {
@@ -324,17 +316,8 @@ export async function POST(req: NextRequest) {
                 }, { status: 401 });
             }
 
-            // Silently upgrade legacy Argon2 or plaintext PIN to Web Crypto PBKDF2
-            if (needsRehash(adminUser.pin, true)) {
-                hashPin(rawPin).then(async (newPinHash) => {
-                    try {
-                        await supabaseAdmin.from('employees').update({ pin: newPinHash }).eq('id', adminUser.id);
-                        console.log(`[admin/login] Silently upgraded PIN hash to PBKDF2 for admin ${adminUser.id}`);
-                    } catch (upgradeErr) {
-                        console.error('[admin/login] Failed to upgrade admin PIN hash:', upgradeErr);
-                    }
-                }).catch(err => console.error('[admin/login] Error rehashing admin PIN:', err));
-            }
+            // Silently upgrade legacy Argon2 or plaintext PIN to Web Crypto PBKDF2 (keep password separate in auth)
+            await upgradeEmployeePinIfNeeded(adminUser.id, adminUser.pin, rawPin, 'admin/login', false);
         }
 
         // 4. ROLE-BASED ACCESS CONTROL (Separation between Owner and Restaurant Admin)

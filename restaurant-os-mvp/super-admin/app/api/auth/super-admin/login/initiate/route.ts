@@ -144,14 +144,13 @@ export async function POST(request: Request) {
                 if (authRecord.password_hash.startsWith('$pbkdf2') || authRecord.password_hash.startsWith('$argon2')) {
                     isPasswordValid = await verifyPassword(password, authRecord.password_hash);
                     if (isPasswordValid && needsRehash(authRecord.password_hash)) {
-                        hashPassword(password).then(async (newHash) => {
-                            try {
-                                await supabaseAdmin.from('auth').update({ password_hash: newHash }).eq('user_id', employee.id);
-                                console.log(`[Super Admin Login] Silently upgraded password hash to PBKDF2 for user ${employee.id}`);
-                            } catch (upgradeErr) {
-                                console.error('[Super Admin Login] Failed to upgrade password hash:', upgradeErr);
-                            }
-                        }).catch(err => console.error('[Super Admin Login] Error rehashing password:', err));
+                        try {
+                            const newHash = await hashPassword(password);
+                            await supabaseAdmin.from('auth').update({ password_hash: newHash }).eq('user_id', employee.id);
+                            console.log(`[Super Admin Login] Silently upgraded password hash to PBKDF2 for user ${employee.id}`);
+                        } catch (upgradeErr) {
+                            console.error('[Super Admin Login] Failed to upgrade password hash:', upgradeErr);
+                        }
                     }
                 } else {
                     // Reject plaintext or unknown hashes

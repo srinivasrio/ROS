@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { verifyPin, hashPin, needsRehash } from '@/lib/auth-utils';
+import { verifyPin } from '@/lib/auth-utils';
+import { upgradeEmployeePinIfNeeded } from '@/lib/credential-upgrade';
 import { signJwt } from '@/lib/jwt-utils';
 import { resolveRestaurantId } from '@/services/utils.service';
 import {
@@ -162,16 +163,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Silently upgrade legacy Argon2 or plaintext PIN to Web Crypto PBKDF2
-        if (needsRehash(storedHash, true)) {
-            hashPin(rawPin).then(async (newPinHash) => {
-                try {
-                    await supabaseAdmin.from('employees').update({ pin: newPinHash }).eq('id', employee.id);
-                    console.log(`[delivery/login] Silently upgraded PIN hash to PBKDF2 for employee ${employee.id}`);
-                } catch (upgradeErr) {
-                    console.error('[delivery/login] Failed to upgrade PIN hash:', upgradeErr);
-                }
-            }).catch(err => console.error('[delivery/login] Error rehashing PIN:', err));
-        }
+        await upgradeEmployeePinIfNeeded(employee.id, storedHash, rawPin, 'delivery/login');
 
         // 6. EMPLOYEE STATUS CHECKS
         if (employee.is_deleted) {

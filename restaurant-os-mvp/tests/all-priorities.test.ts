@@ -231,3 +231,31 @@ test('P4: marketing assets optimized, routes lazy-loaded, backup guarded, and du
     assert.equal(calls.includes('primary:insert:orders:{"id":"o-1"}'), true);
     assert.equal(calls.includes('secondary:insert:orders:{"id":"o-1"}'), true);
 });
+
+test('Auth Option 1: all login routes await PBKDF2 silent upgrade instead of fire-and-forget .then()', () => {
+    const rootLoginRoutes = [
+        'app/api/auth/login/route.ts',
+        'app/api/auth/admin/login/route.ts',
+        'app/api/auth/waiter/login/route.ts',
+        'app/api/auth/kds/login/route.ts',
+        'app/api/auth/delivery/login/route.ts',
+        'app/api/auth/employee/login/route.ts',
+    ];
+
+    for (const rel of rootLoginRoutes) {
+        const src = read(rel);
+        assert.doesNotMatch(src, /hash(Password|Pin)\([^)]*\)\.then\(/, `${rel} uses unawaited .then() rehash`);
+        assert.match(src, /await upgrade(PasswordHash|EmployeePin)IfNeeded\(/, `${rel} must await credential upgrade`);
+    }
+
+    const adminSrc = read('app/api/auth/admin/login/route.ts');
+    assert.match(
+        adminSrc,
+        /upgradeEmployeePinIfNeeded\([^)]*,\s*false\s*\)/,
+        'admin/login must not overwrite auth password with PIN'
+    );
+
+    const saSrc = read('super-admin/app/api/auth/super-admin/login/initiate/route.ts');
+    assert.doesNotMatch(saSrc, /hashPassword\([^)]*\)\.then\(/);
+    assert.match(saSrc, /const newHash = await hashPassword\(password\)/);
+});
