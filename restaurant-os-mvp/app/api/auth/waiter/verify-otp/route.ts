@@ -17,8 +17,8 @@ export async function POST(req: Request) {
         const cleanMobile = mobile.replace(/[^0-9]/g, '').slice(-10);
         const cleanOtp = otp.toString().trim();
 
-        // 1. Verify OTP using the same bounded store used by the send route.
-        if (!OtpManager.verifyOtp(cleanMobile, cleanOtp)) {
+        // 1. Verify OTP using the distributed store used by the send route.
+        if (!(await OtpManager.verifyOtp(cleanMobile, cleanOtp))) {
             return NextResponse.json({ error: 'Invalid or expired OTP code. Please try again.' }, { status: 401 });
         }
 
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
         }
 
         // 3. Clear OTP after successful verification
-        OtpManager.clear(cleanMobile);
+        await OtpManager.clear(cleanMobile);
 
         // 4. Create authenticated session & sign cryptographically secure HS256 JWT
         const sessionId = crypto.randomUUID();

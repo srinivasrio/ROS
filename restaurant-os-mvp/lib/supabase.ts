@@ -126,19 +126,21 @@ const customFetch: typeof fetch = async (url, options = {}) => {
         return res;
     } catch (err: any) {
         // If primary URL failed to fetch (e.g. Mixed Content, CORS, DNS failure),
-        // gracefully fall back to secondary Supabase cloud URL
+        // gracefully fall back to secondary Supabase cloud URL when configured
         if (typeof url === 'string' && (err?.message?.includes('fetch') || err?.name === 'TypeError')) {
-            const fallbackBase = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_URL || 'https://jmcsygpphwdubnanwjwz.supabase.co';
-            const fallbackKey = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_ANON_KEY || 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptY3N5Z3BwaHdkdWJuYW53and6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMjUyMTIsImV4cCI6MjA4NTgwMTIxMn0.uQyoWluprn9Gr-ypserxqF9WM_85MWUMAO7Uch1jN14';
-            try {
-                const parsed = new URL(typeof targetUrl === 'string' ? targetUrl : url.toString());
-                const fallbackUrl = `${fallbackBase}${parsed.pathname}${parsed.search}`;
-                headers.set('apikey', fallbackKey);
-                if (headers.has('authorization') && headers.get('authorization')?.startsWith('Bearer eyJhbGciOiJIUzI1Ni')) {
-                    headers.set('authorization', `Bearer ${fallbackKey}`);
-                }
-                return await fetch(fallbackUrl, { ...options, headers });
-            } catch (_) {}
+            const fallbackBase = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_URL || '';
+            const fallbackKey = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_ANON_KEY || '';
+            if (fallbackBase && fallbackKey) {
+                try {
+                    const parsed = new URL(typeof targetUrl === 'string' ? targetUrl : url.toString());
+                    const fallbackUrl = `${fallbackBase}${parsed.pathname}${parsed.search}`;
+                    headers.set('apikey', fallbackKey);
+                    if (headers.has('authorization') && headers.get('authorization')?.startsWith('Bearer eyJhbGciOiJIUzI1Ni')) {
+                        headers.set('authorization', `Bearer ${fallbackKey}`);
+                    }
+                    return await fetch(fallbackUrl, { ...options, headers });
+                } catch (_) {}
+            }
         }
         throw err;
     }

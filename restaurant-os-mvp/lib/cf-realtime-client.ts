@@ -2,7 +2,9 @@
 
 import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
-type EventCallback<T extends { [key: string]: any } = any> = (payload: RealtimePostgresChangesPayload<T>) => void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EventRecord = { [key: string]: any };
+type EventCallback<T extends EventRecord = EventRecord> = (payload: RealtimePostgresChangesPayload<T>) => void;
 
 interface SubscriptionEntry {
     table: string;
@@ -16,11 +18,15 @@ interface SubscriptionEntry {
 class CloudflareRealtimeClient {
     private ws: WebSocket | null = null;
     private subscriptions = new Set<SubscriptionEntry>();
-    private pingInterval: any = null;
-    private reconnectTimeout: any = null;
+    private pingInterval: ReturnType<typeof setInterval> | null = null;
+    private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
     private reconnectAttempts = 0;
     private isConnecting = false;
+    private manuallyDisconnected = false;
     private currentRestaurantId: string | null = null;
+    private latestToken: string | null = null;
+    private latestRole: string = 'staff';
+    private latestTableNumber?: string;
 
     /**
      * Check if Cloudflare Realtime is enabled via environment variables.
@@ -39,7 +45,12 @@ class CloudflareRealtimeClient {
     public connect(restaurantId: string, token: string, role: string = 'staff', tableNumber?: string): void {
         if (!this.isEnabled() || !restaurantId || !token) return;
 
-        // If already connected to this restaurant and socket is open, do nothing
+        this.latestToken = token;
+        this.latestRole = role;
+        this.latestTableNumber = tableNumber;
+        this.manuallyDisconnected = false;
+
+        // If already connected to this restaurant and socket is open/connecting, keep existing socket
         if (
             this.ws &&
             this.currentRestaurantId === restaurantId &&
@@ -48,7 +59,7 @@ class CloudflareRealtimeClient {
             return;
         }
 
-        this.disconnect();
+        this.closeSocket();
         this.currentRestaurantId = restaurantId;
         this.isConnecting = true;
 
@@ -72,7 +83,7 @@ class CloudflareRealtimeClient {
                 }
 
                 // Heartbeat to keep connection active and test latency
-                clearInterval(this.pingInterval);
+                if (this.pingInterval) clearInterval(this.pingInterval);
                 this.pingInterval = setInterval(() => {
                     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                         this.ws.send('ping');
@@ -89,11 +100,11 @@ class CloudflareRealtimeClient {
                     if (!msg || !msg.table) return;
 
                     // Convert Cloudflare DO webhook event to standard Supabase Realtime payload
-                    const formattedPayload: RealtimePostgresChangesPayload<any> = {
+                    const formattedPayload: RealtimePostgresChangesPayload<EventRecord> = {
                         schema: msg.schema || 'public',
                         table: msg.table,
                         commit_timestamp: msg.timestamp || new Date().toISOString(),
-                        eventType: (msg.type || 'UPDATE').toUpperCase() as any,
+                        eventType: String(msg.type || 'UPDATE').toUpperCase() as RealtimePostgresChangesPayload<EventRecord>['eventType'],
                         new: msg.record || {},
                         old: msg.old_record || {},
                         errors: [],
@@ -117,8 +128,10 @@ class CloudflareRealtimeClient {
 
             this.ws.onclose = () => {
                 this.isConnecting = false;
-                clearInterval(this.pingInterval);
-                this.scheduleReconnect(restaurantId, token, role, tableNumber);
+                if (this.pingInterval) clearInterval(this.pingInterval);
+                if (!this.manuallyDisconnected) {
+                    this.scheduleReconnect(restaurantId);
+                }
             };
         } catch (err) {
             this.isConnecting = false;
@@ -126,14 +139,14 @@ class CloudflareRealtimeClient {
         }
     }
 
-    private scheduleReconnect(restaurantId: string, token: string, role: string, tableNumber?: string): void {
-        clearTimeout(this.reconnectTimeout);
+    private scheduleReconnect(restaurantId: string): void {
+        if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
         this.reconnectAttempts++;
         // Exponential backoff: 1s, 2s, 4s, up to 15s
         const delay = Math.min(15000, 1000 * Math.pow(1.5, this.reconnectAttempts));
         this.reconnectTimeout = setTimeout(() => {
-            if (this.currentRestaurantId === restaurantId) {
-                this.connect(restaurantId, token, role, tableNumber);
+            if (!this.manuallyDisconnected && this.currentRestaurantId === restaurantId && this.latestToken) {
+                this.connect(restaurantId, this.latestToken, this.latestRole, this.latestTableNumber);
             }
         }, delay);
     }
@@ -141,8 +154,8 @@ class CloudflareRealtimeClient {
     /**
      * Subscribe to real-time events for a specific database table.
      */
-    public subscribeTable<T extends { [key: string]: any } = any>(table: string, callback: EventCallback<T>): () => void {
-        const entry: SubscriptionEntry = { table: table.toLowerCase(), callback };
+    public subscribeTable<T extends EventRecord = EventRecord>(table: string, callback: EventCallback<T>): () => void {
+        const entry: SubscriptionEntry = { table: table.toLowerCase(), callback: callback as EventCallback };
         this.subscriptions.add(entry);
 
         return () => {
@@ -150,20 +163,35 @@ class CloudflareRealtimeClient {
         };
     }
 
+    private closeSocket(): void {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
+        if (this.ws) {
+            try {
+                this.ws.close();
+            } catch {
+                // ignore close errors
+            }
+            this.ws = null;
+        }
+        this.isConnecting = false;
+    }
+
     /**
      * Disconnect WebSocket and clean up timers.
      */
     public disconnect(): void {
-        clearInterval(this.pingInterval);
-        clearTimeout(this.reconnectTimeout);
-        if (this.ws) {
-            try {
-                this.ws.close();
-            } catch (_) {}
-            this.ws = null;
-        }
+        this.manuallyDisconnected = true;
+        this.reconnectAttempts = 0;
+        this.closeSocket();
         this.currentRestaurantId = null;
-        this.isConnecting = false;
+        this.latestToken = null;
     }
 }
 

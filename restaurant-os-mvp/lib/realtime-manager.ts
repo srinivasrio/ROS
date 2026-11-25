@@ -4,10 +4,12 @@ import { supabase } from '@/lib/supabase';
 import { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { cfRealtimeClient } from '@/lib/cf-realtime-client';
 
-type ChangeListener<T extends { [key: string]: any } = any> = (payload: RealtimePostgresChangesPayload<T>) => void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ChangeRecord = { [key: string]: any };
+type ChangeListener<T extends ChangeRecord = ChangeRecord> = (payload: RealtimePostgresChangesPayload<T>) => void;
 type WakeupListener = () => void;
 
-interface ChannelSubscription<T extends { [key: string]: any } = any> {
+interface ChannelSubscription<T extends ChangeRecord = ChangeRecord> {
     channel: RealtimeChannel;
     listeners: Set<ChangeListener<T>>;
     teardownTimer: NodeJS.Timeout | null;
@@ -25,7 +27,7 @@ interface ChannelSubscription<T extends { [key: string]: any } = any> {
  * 4. WebSocket thrashing via debounced channel reuse (5s grace window)
  */
 class RealtimeSubscriptionManager {
-    private channels = new Map<string, ChannelSubscription<any>>();
+    private channels = new Map<string, ChannelSubscription<ChangeRecord>>();
     private wakeupListeners = new Set<WakeupListener>();
     private isInitialized = false;
     private lastWakeupCheck = 0;
@@ -67,7 +69,13 @@ class RealtimeSubscriptionManager {
      */
     public recoverRealtimeConnection(): void {
         try {
-            const realtime = (supabase as any).realtime;
+            const realtime = (supabase as unknown as {
+                realtime?: {
+                    conn?: { readyState?: number };
+                    isConnected?: () => boolean;
+                    connect?: () => void;
+                };
+            }).realtime;
             if (!realtime) return;
 
             const conn = realtime.conn;
@@ -113,7 +121,7 @@ class RealtimeSubscriptionManager {
      * @param onChange Callback to receive change payloads
      * @returns Unsubscribe function that decrements the ref-count with debounced teardown
      */
-    public subscribe<T extends { [key: string]: any } = any>(
+    public subscribe<T extends ChangeRecord = ChangeRecord>(
         channelKey: string,
         setupChannel: () => RealtimeChannel,
         onChange: ChangeListener<T>
@@ -128,6 +136,7 @@ class RealtimeSubscriptionManager {
         }
 
         let entry = this.channels.get(channelKey);
+        const listener = onChange as ChangeListener<ChangeRecord>;
 
         if (entry) {
             // Cancel any pending debounced teardown
@@ -136,11 +145,11 @@ class RealtimeSubscriptionManager {
                 entry.teardownTimer = null;
             }
             entry.refCount++;
-            entry.listeners.add(onChange);
+            entry.listeners.add(listener);
         } else {
             // Create a brand new channel entry
             const channel = setupChannel();
-            const listeners = new Set<ChangeListener<T>>([onChange]);
+            const listeners = new Set<ChangeListener<ChangeRecord>>([listener]);
 
             entry = {
                 channel,
@@ -167,7 +176,7 @@ class RealtimeSubscriptionManager {
                 const current = this.channels.get(channelKey);
                 if (!current) return;
 
-                current.listeners.delete(onChange);
+                current.listeners.delete(listener);
                 current.refCount = Math.max(0, current.refCount - 1);
 
                 if (current.refCount === 0) {
@@ -186,7 +195,9 @@ class RealtimeSubscriptionManager {
                             try {
                                 check.channel.unsubscribe();
                                 supabase.removeChannel(check.channel);
-                            } catch (_) {}
+                            } catch {
+                                // ignore teardown errors
+                            }
                             this.channels.delete(channelKey);
                         }
                     }, 5000);
@@ -198,7 +209,7 @@ class RealtimeSubscriptionManager {
     /**
      * Broadcast a payload to all active listeners on a channel.
      */
-    public dispatch<T extends { [key: string]: any } = any>(channelKey: string, payload: RealtimePostgresChangesPayload<T>): void {
+    public dispatch<T extends ChangeRecord = ChangeRecord>(channelKey: string, payload: RealtimePostgresChangesPayload<T>): void {
         const entry = this.channels.get(channelKey);
         if (!entry || entry.listeners.size === 0) return;
 
@@ -208,7 +219,7 @@ class RealtimeSubscriptionManager {
 
         entry.listeners.forEach(fn => {
             try {
-                fn(payload);
+                fn(payload as RealtimePostgresChangesPayload<ChangeRecord>);
             } catch (err) {
                 console.error(`[RealtimeManager] Error dispatching payload on ${channelKey}:`, err);
             }
@@ -226,15 +237,20 @@ class RealtimeSubscriptionManager {
      * Force clean teardown of all channels (e.g. on user sign-out).
      */
     public clearAll(): void {
-        for (const [key, entry] of this.channels.entries()) {
+        for (const entry of this.channels.values()) {
             if (entry.teardownTimer) clearTimeout(entry.teardownTimer);
             try {
                 entry.channel.unsubscribe();
                 supabase.removeChannel(entry.channel);
-            } catch (_) {}
+            } catch {
+                // ignore teardown errors
+            }
         }
         this.channels.clear();
         this.wakeupListeners.clear();
+        if (cfRealtimeClient.isEnabled()) {
+            cfRealtimeClient.disconnect();
+        }
     }
 }
 

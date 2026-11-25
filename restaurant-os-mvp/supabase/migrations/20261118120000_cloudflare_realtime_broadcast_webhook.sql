@@ -8,13 +8,13 @@ CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA net;
 CREATE TABLE IF NOT EXISTS public.system_realtime_config (
     id TEXT PRIMARY KEY DEFAULT 'default',
     endpoint_url TEXT NOT NULL DEFAULT 'https://realtime.dineinone.com/broadcast',
-    webhook_secret TEXT NOT NULL DEFAULT 'ros_cf_realtime_secret_p0',
-    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    webhook_secret TEXT NOT NULL DEFAULT '',
+    is_enabled BOOLEAN NOT NULL DEFAULT false,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 INSERT INTO public.system_realtime_config (id, endpoint_url, webhook_secret, is_enabled)
-VALUES ('default', 'https://realtime.dineinone.com/broadcast', 'ros_cf_realtime_secret_p0', true)
+VALUES ('default', 'https://realtime.dineinone.com/broadcast', '', false)
 ON CONFLICT (id) DO NOTHING;
 
 -- Trigger function to asynchronously dispatch events to Cloudflare Durable Objects
@@ -34,7 +34,9 @@ BEGIN
     LIMIT 1;
 
     -- Exit if disabled or unconfigured
-    IF v_config.is_enabled IS NOT TRUE OR v_config.endpoint_url IS NULL OR v_config.endpoint_url = '' THEN
+    IF v_config.is_enabled IS NOT TRUE
+        OR v_config.endpoint_url IS NULL OR v_config.endpoint_url = ''
+        OR v_config.webhook_secret IS NULL OR v_config.webhook_secret = '' THEN
         RETURN COALESCE(NEW, OLD);
     END IF;
 

@@ -139,13 +139,16 @@ export const EmailOtpService = {
         // 4. Send the OTP through Amazon SES
         try {
             const sendResult = await sesEmailService.sendVerificationEmail(cleanEmail, otp, {
-                forceFail: options?.forceFailSes,
+                forceFail: process.env.NODE_ENV !== 'production' ? options?.forceFailSes : false,
             });
+
+            const allowDevOtp =
+                process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_OTP === 'true';
 
             return {
                 success: true,
                 expiresAt,
-                devOtp: sendResult.simulated ? otp : undefined,
+                devOtp: sendResult.simulated && allowDevOtp ? otp : undefined,
                 simulated: sendResult.simulated,
             };
         } catch (sesError: any) {

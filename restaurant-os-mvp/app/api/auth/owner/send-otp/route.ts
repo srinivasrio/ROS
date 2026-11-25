@@ -36,18 +36,19 @@ export async function POST(request: Request) {
 
             // Generate 6-digit OTP
             const isDev = process.env.NODE_ENV === 'development';
+            const allowDevOtp = isDev && process.env.ALLOW_DEV_OTP === 'true';
             if (!isDev && !process.env.SMS_GATEWAY_API_KEY) {
                 return NextResponse.json({ error: 'SMS verification is not configured. Please contact support.' }, { status: 503 });
             }
-            const otp = isDev ? '123456' : crypto.randomInt(100000, 999999).toString();
-            OtpManager.setOtp(cleanPhone, otp, 600);
+            const otp = allowDevOtp ? '123456' : crypto.randomInt(100000, 1000000).toString();
+            await OtpManager.setOtp(cleanPhone, otp, 600);
 
             console.log(`[Owner Registration] Mobile OTP generated for ${cleanPhone.slice(-4)}`);
 
             return NextResponse.json({
                 success: true,
                 message: `OTP sent successfully to mobile ending in ${cleanPhone.slice(-4)}`,
-                devOtp: isDev ? otp : undefined
+                ...(allowDevOtp ? { devOtp: otp } : {})
             });
 
         } else if (type === 'email') {
@@ -71,8 +72,9 @@ export async function POST(request: Request) {
 
             // Generate 6-digit OTP
             const isDev = process.env.NODE_ENV === 'development';
-            const otp = isDev ? '123456' : crypto.randomInt(100000, 999999).toString();
-            OtpManager.setOtp(cleanEmail, otp, 600);
+            const allowDevOtp = isDev && process.env.ALLOW_DEV_OTP === 'true';
+            const otp = allowDevOtp ? '123456' : crypto.randomInt(100000, 1000000).toString();
+            await OtpManager.setOtp(cleanEmail, otp, 600);
 
             console.log(`[Owner Registration] Email OTP generated for ${cleanEmail.replace(/^[^@]+/, '***')}`);
 
@@ -88,7 +90,7 @@ export async function POST(request: Request) {
             return NextResponse.json({
                 success: true,
                 message: `Verification code sent to ${cleanEmail}`,
-                devOtp: isDev ? otp : undefined
+                ...(allowDevOtp ? { devOtp: otp } : {})
             });
 
         } else {

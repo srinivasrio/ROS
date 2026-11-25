@@ -13,6 +13,7 @@
     "build": "NODE_OPTIONS='--max-http-header-size=131072 --max-old-space-size=4096' next build --webpack",
     "start": "NODE_OPTIONS='--max-http-header-size=131072' next start",
     "lint": "eslint",
+    "test": "node --test tests/*.test.ts",
     "db:migrate": "node scripts/dual_db_migrate.mjs",
     "db:sql": "node scripts/dual_db_exec.mjs",
     "db:sync": "node scripts/dual_db_sync.mjs",

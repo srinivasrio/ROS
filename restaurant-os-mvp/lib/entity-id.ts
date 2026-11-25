@@ -195,8 +195,14 @@ export function sanitizeEmployeeProfile(emp: any): any {
     if (!emp) return null;
     const safe = { ...emp };
 
-    // Preserve staff PIN for authorized admin display if available (never hashes)
-    const displayPin = emp.raw_pin ? String(emp.raw_pin) : (emp.pin && !String(emp.pin).startsWith('$argon2') && !String(emp.pin).startsWith('$pbkdf2') && !String(emp.pin).startsWith('$2') ? String(emp.pin) : null);
+    // Never expose legacy plaintext credential columns; only surface non-hashed PIN if present
+    const displayPin =
+        emp.pin &&
+        !String(emp.pin).startsWith('$argon2') &&
+        !String(emp.pin).startsWith('$pbkdf2') &&
+        !String(emp.pin).startsWith('$2')
+            ? String(emp.pin)
+            : null;
     safe.pin = displayPin;
 
     // Delete all sensitive authentication passwords/hashes

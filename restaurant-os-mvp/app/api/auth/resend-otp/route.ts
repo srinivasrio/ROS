@@ -48,9 +48,7 @@ export async function POST(request: Request) {
         }
 
         // Call resendOtp which enforces the 60-second cooldown and invalidates previous OTP
-        const result = await EmailOtpService.resendOtp(email, clientIp, {
-            forceFailSes: body.forceFailSes === true,
-        });
+        const result = await EmailOtpService.resendOtp(email, clientIp);
 
         if (!result.success) {
             const isCooldown = Boolean(result.cooldownRemaining);
@@ -68,7 +66,7 @@ export async function POST(request: Request) {
             email,
             cooldownRemaining: 60,
             expiresAt: result.expiresAt,
-            devOtp: result.devOtp,
+            ...(result.devOtp ? { devOtp: result.devOtp } : {}),
             message: 'A new verification code has been sent to your email address.',
         });
 

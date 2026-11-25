@@ -14,7 +14,7 @@ export async function POST(request: Request) {
             ? target.replace(/[^0-9]/g, '') 
             : target.toLowerCase().trim();
 
-        const isValid = OtpManager.verifyOtp(cleanTarget, otp.toString().trim());
+        const isValid = await OtpManager.verifyOtp(cleanTarget, otp.toString().trim());
 
         if (!isValid) {
             return NextResponse.json({ error: 'Invalid or expired verification code. Please try again.' }, { status: 401 });

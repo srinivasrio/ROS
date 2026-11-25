@@ -1,10 +1,14 @@
 'use client';
 
+import { cfRealtimeClient } from './cf-realtime-client';
+
 /**
- * Keeps the Supabase Realtime websocket authenticated with a scoped token from
- * /api/realtime/token (audit DIO-C04, option A'). Joined channels are re-authed
- * by supabase-js on setAuth, so subscribing before the first token lands is safe.
- * If the server is not configured (204) nothing changes: the socket stays anon.
+ * Keeps the Supabase Realtime websocket and Cloudflare Realtime Durable Object
+ * connection authenticated with a scoped token from /api/realtime/token
+ * (audit DIO-C04, option A'). Joined channels are re-authed by supabase-js on
+ * setAuth, so subscribing before the first token lands is safe.
+ * If the server is not configured (204) nothing changes for Supabase; any active
+ * CF Realtime socket is cleanly disconnected.
  */
 
 type RealtimeLike = { setAuth: (token?: string | null) => unknown };
@@ -24,10 +28,18 @@ export function refreshRealtimeAuth(realtime: RealtimeLike, getDineToken: () => 
                 cache: 'no-store',
                 headers: dineToken ? { 'x-dine-token': dineToken } : undefined,
             });
-            if (res.status !== 200) return;
-            const { token, expiresAt } = await res.json();
+            if (res.status !== 200) {
+                if (mine === generation && cfRealtimeClient.isEnabled()) {
+                    cfRealtimeClient.disconnect();
+                }
+                return;
+            }
+            const { token, expiresAt, restaurantId, role, tableNumber } = await res.json();
             if (!token || mine !== generation) return; // a newer token change superseded this call
             await realtime.setAuth(token);
+            if (cfRealtimeClient.isEnabled() && restaurantId) {
+                cfRealtimeClient.connect(String(restaurantId), token, role || 'staff', tableNumber);
+            }
             if (timer) clearTimeout(timer);
             const wait = Math.max(30_000, (expiresAt - Date.now()) * 0.8);
             timer = setTimeout(() => { void refreshRealtimeAuth(realtime, getDineToken); }, wait);

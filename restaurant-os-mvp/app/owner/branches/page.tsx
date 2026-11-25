@@ -458,8 +458,8 @@ Admin Login URL: ${origin}/admin/login
             adminName: existingAdmin?.name || (branch.adminName && branch.adminName !== branch.name ? branch.adminName : ''),
             adminEmail: existingAdmin?.email || (branch.adminEmail && branch.adminEmail !== branch.email ? branch.adminEmail : ''),
             adminMobile: existingAdmin?.mobile || '',
-            adminPassword: branch.adminPassword || existingAdmin?.adminPassword || existingAdmin?.raw_password || '',
-            adminPin: existingAdmin?.raw_pin || branch.adminPin || ''
+            adminPassword: '',
+            adminPin: ''
         });
         setShowAddModal(true);
     };

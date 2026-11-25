@@ -20,7 +20,7 @@ cd super-admin
 npm install --legacy-peer-deps --prefer-offline --no-audit --no-fund
 cd ..
 
-echo "🔨 4. Building main application (Port 3000)..."
+echo "🔨 4. Building main application (Port 3002)..."
 rm -rf .next/server .next/static .next/standalone
 NODE_OPTIONS='--max-http-header-size=131072 --max-old-space-size=4096' npm run build
 

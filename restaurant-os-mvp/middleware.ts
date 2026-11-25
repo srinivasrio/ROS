@@ -126,9 +126,18 @@ async function handleRequest(request: NextRequest) {
     const subdomain = extractSubdomain(host, request.nextUrl.searchParams, request.headers);
     const isPrefetch = request.headers.get('next-router-prefetch') === '1' || request.headers.get('purpose') === 'prefetch';
 
-    // Super Admin is now a standalone website on Port 3005
-    if (path.startsWith('/super-admin') || (subdomain === 'superadmin' && (path === '/' || path.startsWith('/dashboard')))) {
-        const superAdminUrl = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || 'http://control.localhost:3005';
+    // Super Admin is now a standalone website on Port 3005 (or control.dineinone.com in production)
+    if (
+        path.startsWith('/super-admin') ||
+        path.startsWith('/superadmin') ||
+        (subdomain === 'superadmin' && (path === '/' || path.startsWith('/dashboard')))
+    ) {
+        const isLocalHost =
+            hostWithoutPort === 'localhost' ||
+            hostWithoutPort === '127.0.0.1' ||
+            hostWithoutPort.endsWith('.local');
+        const defaultSuperAdminUrl = isLocalHost ? 'http://control.localhost:3005' : 'https://control.dineinone.com';
+        const superAdminUrl = process.env.NEXT_PUBLIC_SUPER_ADMIN_URL || defaultSuperAdminUrl;
         return NextResponse.redirect(new URL(superAdminUrl));
     }
 

@@ -2254,8 +2254,8 @@ export default function OwnerManagementWorkspace({
                                     adminName: manageAdminData.admin?.name,
                                     adminEmail: manageAdminData.admin?.email,
                                     adminMobile: manageAdminData.admin?.mobile,
-                                    adminPassword: manageAdminData.admin?.raw_password,
-                                    adminPin: manageAdminData.admin?.raw_pin
+                                    adminPassword: manageAdminData.admin?.newPassword || undefined,
+                                    adminPin: manageAdminData.admin?.newPin || undefined
                                 });
                                 setManageAdminLoading(false);
                                 setManageAdminData(null);
@@ -2311,30 +2311,31 @@ export default function OwnerManagementWorkspace({
                                 <div>
                                     <label className="font-bold text-[#172033]">Password</label>
                                     <input
-                                        type="text"
-                                        value={manageAdminData.admin?.raw_password || ''}
+                                        type="password"
+                                        value={manageAdminData.admin?.newPassword || ''}
                                         onChange={(e) =>
                                             setManageAdminData({
                                                 ...manageAdminData,
-                                                admin: { ...manageAdminData.admin, raw_password: e.target.value }
+                                                admin: { ...manageAdminData.admin, newPassword: e.target.value }
                                             })
                                         }
-                                        placeholder="Set password"
+                                        placeholder="Leave blank to keep existing"
                                         className="mt-1 w-full p-2.5 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-mono"
                                     />
                                 </div>
                                 <div>
                                     <label className="font-bold text-[#172033]">Security PIN</label>
                                     <input
-                                        type="text"
+                                        type="password"
                                         maxLength={4}
-                                        value={manageAdminData.admin?.raw_pin || ''}
+                                        value={manageAdminData.admin?.newPin || ''}
                                         onChange={(e) =>
                                             setManageAdminData({
                                                 ...manageAdminData,
-                                                admin: { ...manageAdminData.admin, raw_pin: e.target.value }
+                                                admin: { ...manageAdminData.admin, newPin: e.target.value }
                                             })
                                         }
+                                        placeholder="Leave blank to keep existing"
                                         className="mt-1 w-full p-2.5 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-mono"
                                     />
                                 </div>
@@ -2564,8 +2565,8 @@ export default function OwnerManagementWorkspace({
                                             mobile: editUserData.mobile,
                                             role: editUserData.role,
                                             status: editUserData.status,
-                                            pin: editUserData.raw_pin,
-                                            password: editUserData.raw_password,
+                                            pin: editUserData.newPin || undefined,
+                                            password: editUserData.newPassword || undefined,
                                             targetRestaurantId: editUserData.targetRestaurantId
                                         })
                                     });
@@ -2653,10 +2654,11 @@ export default function OwnerManagementWorkspace({
                                 <div>
                                     <label className="font-bold text-[#172033]">Security PIN</label>
                                     <input
-                                        type="text"
+                                        type="password"
                                         maxLength={4}
-                                         value={editUserData.raw_pin || ''}
-                                        onChange={(e) => setEditUserData({ ...editUserData, raw_pin: e.target.value })}
+                                        value={editUserData.newPin || ''}
+                                        onChange={(e) => setEditUserData({ ...editUserData, newPin: e.target.value })}
+                                        placeholder="Leave blank to keep existing"
                                         className="mt-1 w-full p-2.5 bg-[#F5F7FC] border border-[#E4E7EC] rounded-xl font-mono"
                                     />
                                 </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { BackupService } from '@/services/backup.service';
+import { isCloudflareWorkers } from '@/lib/runtime';
 
 export async function GET(request: Request) {
     try {
@@ -15,6 +16,15 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        if (isCloudflareWorkers() && process.env.ALLOW_WORKERS_IN_MEMORY_BACKUP !== 'true') {
+            return NextResponse.json(
+                {
+                    error: 'In-memory database backups are disabled on Cloudflare Workers (128 MB RAM limit). Run backups from the VPS cron or pg_dump pipeline.',
+                },
+                { status: 501 }
+            );
+        }
+
         if (!['daily', 'weekly', 'monthly'].includes(type)) {
             return NextResponse.json({ error: 'Invalid backup type' }, { status: 400 });
         }
@@ -26,8 +36,11 @@ export async function GET(request: Request) {
         }
 
         return NextResponse.json({ success: true, filename: result.filename });
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Backup cron route error:', err);
-        return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+        return NextResponse.json(
+            { error: err instanceof Error ? err.message : 'Internal server error' },
+            { status: 500 }
+        );
     }
 }

@@ -29,7 +29,15 @@ export async function GET(req: NextRequest) {
             const ids = (owner.restaurantIds?.length ? owner.restaurantIds : [owner.restaurantId]).filter(Boolean);
             if (ids.length) {
                 const claims: RealtimeClaims = { sub: owner.userId, scope: 'staff', restaurant_ids: ids.map(String) };
-                return NextResponse.json(await signRealtimeToken(claims), { headers: { 'Cache-Control': 'no-store' } });
+                const signed = await signRealtimeToken(claims);
+                return NextResponse.json(
+                    {
+                        ...signed,
+                        restaurantId: String(ids[0]),
+                        role: 'owner',
+                    },
+                    { headers: { 'Cache-Control': 'no-store' } }
+                );
             }
         }
 
@@ -56,7 +64,15 @@ export async function GET(req: NextRequest) {
                     }
                 }
                 const claims: RealtimeClaims = { sub: String(payload.userId || payload.sub || 'staff'), scope: 'staff', restaurant_ids: [String(restaurantId)] };
-                return NextResponse.json(await signRealtimeToken(claims), { headers: { 'Cache-Control': 'no-store' } });
+                const signed = await signRealtimeToken(claims);
+                return NextResponse.json(
+                    {
+                        ...signed,
+                        restaurantId: String(restaurantId),
+                        role: String(payload.role || 'staff').toLowerCase().trim(),
+                    },
+                    { headers: { 'Cache-Control': 'no-store' } }
+                );
             }
         }
 
@@ -69,7 +85,16 @@ export async function GET(req: NextRequest) {
                 restaurant_ids: [String(session.restaurant_id)],
                 table_id: String(session.table_id),
             };
-            return NextResponse.json(await signRealtimeToken(claims), { headers: { 'Cache-Control': 'no-store' } });
+            const signed = await signRealtimeToken(claims);
+            return NextResponse.json(
+                {
+                    ...signed,
+                    restaurantId: String(session.restaurant_id),
+                    role: 'customer',
+                    tableNumber: String(session.table_number || session.table_id),
+                },
+                { headers: { 'Cache-Control': 'no-store' } }
+            );
         }
 
         return new NextResponse(null, { status: 204 });

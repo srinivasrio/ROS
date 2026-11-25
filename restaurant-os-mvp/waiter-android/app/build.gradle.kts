@@ -19,17 +19,32 @@ android {
         versionName = "1.0.0"
         vectorDrawables { useSupportLibrary = true }
 
-        // Backend endpoints — reuse existing Dine in One infra.
-        // ponytail: LAN dev URL; override per build env if needed.
-        val supabaseUrl = System.getenv("SUPABASE_URL") ?: "https://jmcsygpphwdubnanwjwz.supabase.co"
-        val supabaseAnonKey = System.getenv("SUPABASE_ANON_KEY") ?: ""
+        // Backend endpoints — override via Gradle property (-PSUPABASE_URL=...) or env vars.
+        val supabaseUrl = (project.findProperty("SUPABASE_URL") as String?)
+            ?: System.getenv("SUPABASE_URL")
+            ?: "https://db.dineinone.com"
+        val supabaseAnonKey = (project.findProperty("SUPABASE_ANON_KEY") as String?)
+            ?: System.getenv("SUPABASE_ANON_KEY")
+            ?: ""
+
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
-        buildConfigField("String", "BASE_API_URL", "\"http://127.0.0.1:3000\"")
     }
 
     buildTypes {
+        debug {
+            val debugApiUrl = (project.findProperty("BASE_API_URL") as String?)
+                ?: System.getenv("BASE_API_URL")
+                ?: "http://10.0.2.2:3000"
+            buildConfigField("String", "BASE_API_URL", "\"$debugApiUrl\"")
+        }
         release {
+            val releaseApiUrl = (project.findProperty("RELEASE_BASE_API_URL") as String?)
+                ?: System.getenv("RELEASE_BASE_API_URL")
+                ?: (project.findProperty("BASE_API_URL") as String?)
+                ?: System.getenv("BASE_API_URL")
+                ?: "https://waiter.dineinone.com"
+            buildConfigField("String", "BASE_API_URL", "\"$releaseApiUrl\"")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

@@ -17,14 +17,14 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY && fs.existsSync('.env.local')) {
     }
 }
 
-const VPS_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://72.61.250.231:8010';
+const VPS_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL;
 const VPS_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const CLOUD_URL = process.env.SECONDARY_SUPABASE_URL || 'https://jmcsygpphwdubnanwjwz.supabase.co';
+const CLOUD_URL = process.env.SECONDARY_SUPABASE_URL;
 const CLOUD_KEY = process.env.SECONDARY_SUPABASE_SERVICE_ROLE_KEY;
 
-if (!VPS_KEY || !CLOUD_KEY) {
-    console.error("ERROR: Missing SUPABASE_SERVICE_ROLE_KEY or SECONDARY_SUPABASE_SERVICE_ROLE_KEY in environment.");
+if (!VPS_URL || !VPS_KEY || !CLOUD_URL || !CLOUD_KEY) {
+    console.error("ERROR: Missing NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SECONDARY_SUPABASE_URL, or SECONDARY_SUPABASE_SERVICE_ROLE_KEY in environment.");
     process.exit(1);
 }
 
@@ -124,7 +124,9 @@ async function run() {
 
     for (const file of pending) {
         console.log(`\nExecuting: ${file}...`);
-        const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+        const rawSql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+        // PL/pgSQL EXECUTE (inside exec_migration_sql) forbids explicit BEGIN;/COMMIT;; each RPC call is already atomic.
+        const sql = rawSql.replace(/^\s*(BEGIN|COMMIT)\s*;\s*$/gim, '');
 
         // Apply on VPS
         if (!vpsApplied.has(file)) {
@@ -142,7 +144,9 @@ async function run() {
         }
 
         // Apply on Cloud
-        if (!cloudApplied.has(file)) {
+        if (CLOUD_URL === VPS_URL) {
+            console.log("  -> Cloud target matches VPS target; already applied.");
+        } else if (!cloudApplied.has(file)) {
             process.stdout.write("  -> Applying to Cloud Supabase... ");
             const { error: cloudErr } = await cloud.rpc('exec_migration_sql', { query: sql });
             if (cloudErr) {

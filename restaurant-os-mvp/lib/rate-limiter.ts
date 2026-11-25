@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isCloudflareWorkers } from './runtime';
 
 export interface RateLimitResult {
     success: boolean;
@@ -23,6 +24,7 @@ const memoryBuckets = new Map<string, WindowBucket>();
 // Cloudflare Workers forbid timers at module (global) scope. Same behaviour on Node.
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 let lastSweepMs = Date.now();
+let warnedMissingUpstashOnWorkers = false;
 
 function sweepExpiredBuckets(now: number) {
     if (now - lastSweepMs < SWEEP_INTERVAL_MS) return;
@@ -124,6 +126,10 @@ export const RateLimiter = {
         // NOTE: on Cloudflare Workers this map is per-isolate, not global.
         // Set UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN in production
         // so login/OTP limits are enforced across all Workers instances.
+        if (!warnedMissingUpstashOnWorkers && isCloudflareWorkers()) {
+            warnedMissingUpstashOnWorkers = true;
+            console.error('[RateLimiter] UPSTASH_REDIS_REST_URL/TOKEN not configured on Cloudflare Workers; rate limits are per-isolate only.');
+        }
         sweepExpiredBuckets(now);
         let bucket = memoryBuckets.get(key);
 

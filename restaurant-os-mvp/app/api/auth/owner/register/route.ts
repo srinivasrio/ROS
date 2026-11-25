@@ -27,8 +27,8 @@ export async function POST(request: Request) {
         }
 
         // Verify both OTPs were validated
-        const isMobileVerified = OtpManager.isVerified(cleanPhone);
-        const isEmailVerified = OtpManager.isVerified(cleanEmail);
+        const isMobileVerified = await OtpManager.isVerified(cleanPhone);
+        const isEmailVerified = await OtpManager.isVerified(cleanEmail);
 
         if (!isMobileVerified || !isEmailVerified) {
             return NextResponse.json({ 
@@ -241,8 +241,8 @@ export async function POST(request: Request) {
         cookieStore.set('dine_auth_token_admin', token, cookieOpts);
 
         // Clear OTPs from store
-        OtpManager.clear(cleanPhone);
-        OtpManager.clear(cleanEmail);
+        await OtpManager.clear(cleanPhone);
+        await OtpManager.clear(cleanEmail);
 
         return NextResponse.json({
             success: true,

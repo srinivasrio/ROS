@@ -5,9 +5,6 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || '.next',
   outputFileTracingRoot: path.resolve(__dirname),
   allowedDevOrigins: ['192.168.1.6', '*.local'],
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   compress: true,
   experimental: {
     optimizePackageImports: [
