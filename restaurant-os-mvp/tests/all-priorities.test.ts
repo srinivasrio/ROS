@@ -56,7 +56,7 @@ test('P0-4: OtpManager has no module-level setInterval and all callers await it'
     const otpStore = read('lib/otp-store.ts');
     assert.doesNotMatch(otpStore, /setInterval\s*\(/);
     assert.match(otpStore, /email_otp_verifications/);
-    assert.match(otpStore, /UPSTASH_REDIS_REST_URL/);
+    assert.match(otpStore, /SECURITY_DO/);
 
     const callers = [
         'app/api/auth/owner/send-otp/route.ts',

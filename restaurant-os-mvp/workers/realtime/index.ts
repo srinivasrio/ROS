@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+export { SecurityRoom } from './security-do.ts';
 import {
     authorizeWebSocketClaims,
     constantTimeEqualStrings,

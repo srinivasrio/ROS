@@ -59,8 +59,7 @@ cp .dev.vars.example .dev.vars      # fill in real values (never commit .dev.var
 npx wrangler secret bulk .dev.vars  # uploads them all as Worker secrets
 ```
 
-**Set `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`.** On Workers the in-memory
-rate limiter is per instance, so login/OTP brute-force limits are only reliable with Upstash.
+**Rate limiting & OTP state (`SECURITY_DO` + native `ratelimits`):** Public endpoints use Cloudflare's native Rate Limiting bindings (`RL_*` in `wrangler.jsonc`), and auth/OTP rate limits + temporary OTPs use the strongly consistent `SECURITY_DO` Durable Object hosted in `workers/realtime`. Always deploy `npm run cf:deploy:realtime` before `npm run cf:deploy`.
 
 ## 4. Test locally in the Workers runtime
 

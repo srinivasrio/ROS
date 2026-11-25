@@ -1,12 +1,6 @@
 import crypto from 'crypto';
+import { getCloudflareSecurityEnv } from './cloudflare-bindings';
 import { supabaseAdmin } from './supabase-admin';
-
-interface RedisOtpEntry {
-    otpHash: string;
-    expiresAt: number;
-    verified: boolean;
-    attempts: number;
-}
 
 const MAX_ATTEMPTS = 5;
 const VERIFIED_WINDOW_MS = 30 * 60 * 1000; // 30 minutes to complete registration after OTP verification
@@ -41,42 +35,31 @@ function constantTimeHexEqual(aHex: string, bHex: string): boolean {
     }
 }
 
-function getUpstashConfig(): { url: string; token: string } | null {
-    const url = process.env.UPSTASH_REDIS_REST_URL?.replace(/\/+$/, '');
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-    if (url && token) return { url, token };
-    return null;
-}
-
-async function upstashCommand(config: { url: string; token: string }, args: (string | number)[]): Promise<unknown> {
-    const res = await fetch(config.url, {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${config.token}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(args),
-        signal: AbortSignal.timeout(2000),
-    });
-    if (!res.ok) {
-        throw new Error(`Upstash HTTP ${res.status}`);
-    }
-    const json = await res.json();
-    return json?.result;
-}
-
 function dbKey(identifier: string): string {
     return `otp_mgr:${identifier.toLowerCase().trim()}`;
 }
 
-function redisKey(identifier: string): string {
-    return `dine:otp_mgr:${identifier.toLowerCase().trim()}`;
+async function callSecurityDoOtp<T>(cleanKey: string, path: string, payload: Record<string, unknown> = {}): Promise<T | null> {
+    const cfEnv = await getCloudflareSecurityEnv();
+    if (!cfEnv?.SECURITY_DO) return null;
+
+    const stub = cfEnv.SECURITY_DO.get(cfEnv.SECURITY_DO.idFromName(`otp:${cleanKey}`));
+    const res = await stub.fetch(`https://security-do.internal${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) {
+        throw new Error(`SECURITY_DO ${path} HTTP ${res.status}`);
+    }
+    return (await res.json()) as T;
 }
 
 /**
  * Distributed OTP Manager compatible with stateless Cloudflare Workers isolates.
- * Uses Upstash Redis when configured, and falls back to Supabase (`email_otp_verifications`)
- * with HMAC-SHA256 hashed codes. No module-level timers or process-local state.
+ * Uses SECURITY_DO Durable Object storage when bound, and falls back to Supabase
+ * (`email_otp_verifications`) with HMAC-SHA256 hashed codes.
  */
 export const OtpManager = {
     async setOtp(identifier: string, code: string, ttlSeconds: number = 600): Promise<void> {
@@ -85,20 +68,14 @@ export const OtpManager = {
         const now = Date.now();
         const expiresAt = now + ttlSeconds * 1000;
 
-        const upstash = getUpstashConfig();
-        if (upstash) {
-            try {
-                const entry: RedisOtpEntry = {
-                    otpHash,
-                    expiresAt,
-                    verified: false,
-                    attempts: 0,
-                };
-                await upstashCommand(upstash, ['SET', redisKey(cleanKey), JSON.stringify(entry), 'EX', Math.max(60, ttlSeconds)]);
-                return;
-            } catch (err) {
-                console.warn('[OtpManager] Upstash setOtp failed, falling back to Supabase:', err);
-            }
+        try {
+            const doResult = await callSecurityDoOtp<{ ok: boolean }>(cleanKey, '/otp/set', {
+                otpHash,
+                ttlSeconds,
+            });
+            if (doResult?.ok) return;
+        } catch (err) {
+            console.warn('[OtpManager] SECURITY_DO setOtp failed, falling back to Supabase:', err);
         }
 
         const namespacedKey = dbKey(cleanKey);
@@ -134,41 +111,19 @@ export const OtpManager = {
         if (!cleanKey || !cleanCode) return false;
 
         const now = Date.now();
-        const upstash = getUpstashConfig();
-        if (upstash) {
-            try {
-                const rKey = redisKey(cleanKey);
-                const raw = await upstashCommand(upstash, ['GET', rKey]);
-                if (!raw) return false;
+        const candidateHash = hashOtpCode(cleanKey, cleanCode);
 
-                const entry = JSON.parse(String(raw)) as RedisOtpEntry;
-                if (!entry || entry.expiresAt < now || entry.attempts >= MAX_ATTEMPTS) {
-                    await upstashCommand(upstash, ['DEL', rKey]);
-                    return false;
-                }
-
-                const candidateHash = hashOtpCode(cleanKey, cleanCode);
-                if (constantTimeHexEqual(candidateHash, entry.otpHash)) {
-                    const updated: RedisOtpEntry = {
-                        ...entry,
-                        verified: true,
-                        expiresAt: Math.max(entry.expiresAt, now + VERIFIED_WINDOW_MS),
-                    };
-                    await upstashCommand(upstash, ['SET', rKey, JSON.stringify(updated), 'EX', Math.ceil(VERIFIED_WINDOW_MS / 1000)]);
-                    return true;
-                }
-
-                entry.attempts += 1;
-                if (entry.attempts >= MAX_ATTEMPTS) {
-                    await upstashCommand(upstash, ['DEL', rKey]);
-                } else {
-                    const remainingSec = Math.max(1, Math.ceil((entry.expiresAt - now) / 1000));
-                    await upstashCommand(upstash, ['SET', rKey, JSON.stringify(entry), 'EX', remainingSec]);
-                }
-                return false;
-            } catch (err) {
-                console.warn('[OtpManager] Upstash verifyOtp failed, falling back to Supabase:', err);
+        try {
+            const doResult = await callSecurityDoOtp<{ ok: boolean }>(cleanKey, '/otp/verify', {
+                candidateHash,
+                maxAttempts: MAX_ATTEMPTS,
+                verifiedWindowMs: VERIFIED_WINDOW_MS,
+            });
+            if (doResult !== null) {
+                return Boolean(doResult.ok);
             }
+        } catch (err) {
+            console.warn('[OtpManager] SECURITY_DO verifyOtp failed, falling back to Supabase:', err);
         }
 
         const namespacedKey = dbKey(cleanKey);
@@ -193,7 +148,6 @@ export const OtpManager = {
             return false;
         }
 
-        const candidateHash = hashOtpCode(cleanKey, cleanCode);
         if (!constantTimeHexEqual(candidateHash, record.otp_hash)) {
             const nextAttempts = record.attempt_count + 1;
             await supabaseAdmin
@@ -225,16 +179,13 @@ export const OtpManager = {
         if (!cleanKey) return false;
 
         const now = Date.now();
-        const upstash = getUpstashConfig();
-        if (upstash) {
-            try {
-                const raw = await upstashCommand(upstash, ['GET', redisKey(cleanKey)]);
-                if (!raw) return false;
-                const entry = JSON.parse(String(raw)) as RedisOtpEntry;
-                return Boolean(entry?.verified && entry.expiresAt >= now);
-            } catch (err) {
-                console.warn('[OtpManager] Upstash isVerified failed, falling back to Supabase:', err);
+        try {
+            const doResult = await callSecurityDoOtp<{ verified: boolean }>(cleanKey, '/otp/is-verified');
+            if (doResult !== null) {
+                return Boolean(doResult.verified);
             }
+        } catch (err) {
+            console.warn('[OtpManager] SECURITY_DO isVerified failed, falling back to Supabase:', err);
         }
 
         const namespacedKey = dbKey(cleanKey);
@@ -257,13 +208,10 @@ export const OtpManager = {
         const cleanKey = identifier.toLowerCase().trim();
         if (!cleanKey) return;
 
-        const upstash = getUpstashConfig();
-        if (upstash) {
-            try {
-                await upstashCommand(upstash, ['DEL', redisKey(cleanKey)]);
-            } catch (err) {
-                console.warn('[OtpManager] Upstash clear failed:', err);
-            }
+        try {
+            await callSecurityDoOtp<{ ok: boolean }>(cleanKey, '/otp/clear');
+        } catch (err) {
+            console.warn('[OtpManager] SECURITY_DO clear failed:', err);
         }
 
         await supabaseAdmin

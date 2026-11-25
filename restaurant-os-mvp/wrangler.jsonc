@@ -25,6 +25,42 @@
 			"service": "dine-in-one-auth-hash"
 		}
 	],
+	"ratelimits": [
+		{
+			// /api/lookup-phone (Cloudflare simple period supports 10 or 60s)
+			"name": "RL_LOOKUP_PHONE",
+			"namespace_id": "1001",
+			"simple": { "limit": 5, "period": 60 }
+		},
+		{
+			// /api/customer/active-order
+			"name": "RL_ACTIVE_ORDER",
+			"namespace_id": "1002",
+			"simple": { "limit": 5, "period": 60 }
+		},
+		{
+			// /api/customer/orders/status
+			"name": "RL_ORDER_STATUS",
+			"namespace_id": "1003",
+			"simple": { "limit": 30, "period": 60 }
+		},
+		{
+			// /api/upload
+			"name": "RL_UPLOAD",
+			"namespace_id": "1004",
+			"simple": { "limit": 10, "period": 60 }
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				// Hosted inside dine-in-one-realtime (deploy realtime worker before dine-in-one)
+				"name": "SECURITY_DO",
+				"class_name": "SecurityRoom",
+				"script_name": "dine-in-one-realtime"
+			}
+		]
+	},
 	"r2_buckets": [
 		{
 			// Next.js incremental (ISR/data) cache. Create once:
