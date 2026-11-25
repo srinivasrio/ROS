@@ -49,8 +49,6 @@
 		{ "pattern": "kds.dineinone.com", "custom_domain": true },
 		{ "pattern": "kitchen.dineinone.com", "custom_domain": true },
 		{ "pattern": "delivery.dineinone.com", "custom_domain": true },
-		{ "pattern": "employee.dineinone.com", "custom_domain": true },
-		{ "pattern": "staff.dineinone.com", "custom_domain": true },
 		{ "pattern": "customer.dineinone.com", "custom_domain": true }
 	]
 	// Secrets (Supabase keys, JWT_SECRET, R2, SES, Upstash) are NOT stored here.
