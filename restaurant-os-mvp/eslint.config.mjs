@@ -12,6 +12,22 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Cloudflare Workers, backups, subprojects, and non-app artifacts:
+    ".open-next/**",
+    ".wrangler/**",
+    ".cf-migration-backup/**",
+    ".cleanup_backup_20260929/**",
+    "brag-output/**",
+    "Claude outputs/**",
+    "scratch/**",
+    "marketing-repo/**",
+    "super-admin/**",
+    "dineinone-landing/**",
+    "waiter-android/**",
+    "workers/**",
+    "vps/**",
+    "public/**",
+    "scripts/**",
   ]),
 ]);
 

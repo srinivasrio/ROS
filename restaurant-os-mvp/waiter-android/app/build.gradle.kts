@@ -19,15 +19,32 @@ android {
         versionName = "1.0.0"
         vectorDrawables { useSupportLibrary = true }
 
-        // Backend endpoints — reuse existing Dine in One infra.
-        // ponytail: LAN dev URL; override per build env if needed.
-        buildConfigField("String", "SUPABASE_URL", "\"http://72.61.250.231:8010\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzkxMjI2NjM2LCJleHAiOjIyNjQyNjY2MzZ9.rIDeqMJlDAGOCMPZh3gQs_zM_g4FMqB8eVY0Vw4spA0\"")
-        buildConfigField("String", "BASE_API_URL", "\"http://127.0.0.1:3000\"")
+        // Backend endpoints — override via Gradle property (-PSUPABASE_URL=...) or env vars.
+        val supabaseUrl = (project.findProperty("SUPABASE_URL") as String?)
+            ?: System.getenv("SUPABASE_URL")
+            ?: "https://jmcsygpphwdubnanwjwz.supabase.co"
+        val supabaseAnonKey = (project.findProperty("SUPABASE_ANON_KEY") as String?)
+            ?: System.getenv("SUPABASE_ANON_KEY")
+            ?: ""
+
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     buildTypes {
+        debug {
+            val debugApiUrl = (project.findProperty("BASE_API_URL") as String?)
+                ?: System.getenv("BASE_API_URL")
+                ?: "http://10.0.2.2:3000"
+            buildConfigField("String", "BASE_API_URL", "\"$debugApiUrl\"")
+        }
         release {
+            val releaseApiUrl = (project.findProperty("RELEASE_BASE_API_URL") as String?)
+                ?: System.getenv("RELEASE_BASE_API_URL")
+                ?: (project.findProperty("BASE_API_URL") as String?)
+                ?: System.getenv("BASE_API_URL")
+                ?: "https://waiter.dineinone.com"
+            buildConfigField("String", "BASE_API_URL", "\"$releaseApiUrl\"")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

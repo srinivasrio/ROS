@@ -117,6 +117,44 @@ export interface RestaurantArea {
 // Helper to generate BigInt-ish IDs (since DB is bigint and no serial)
 const generateId = () => Math.floor(Date.now() + Math.random() * 1000);
 
+/**
+ * True when running in a tokenless customer dining context (no staff dine token).
+ * Such requests must go through service-role customer API routes instead of
+ * direct PostgREST, so they survive the removal of the broad anon RLS (DIO-C04).
+ */
+const isCustomerBrowserContext = (): boolean =>
+    typeof window !== 'undefined' && !getDineToken();
+
+/**
+ * POST a customer dining action to its service-role route.
+ * Returns the parsed JSON on success. Throws on an authoritative 4xx (the caller
+ * should surface it, not silently fall back). Returns null on network/5xx so the
+ * caller can fall back to the legacy direct path while the RLS lockdown is staged.
+ */
+async function postCustomerAction(path: string, body: Record<string, unknown>): Promise<any | null> {
+    try {
+        const res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (res.ok) {
+            return await res.json().catch(() => ({ success: true }));
+        }
+        if (res.status >= 400 && res.status < 500) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.error || `Request failed (${res.status})`);
+        }
+        return null; // 5xx -> allow legacy fallback
+    } catch (err) {
+        if (err instanceof Error && !err.message.startsWith('NetworkError') && !/fetch/i.test(err.message)) {
+            // Re-throw authoritative errors (thrown above); swallow genuine network failures.
+            if (!(err instanceof TypeError)) throw err;
+        }
+        return null; // network failure -> allow legacy fallback
+    }
+}
+
 const generateUUID = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         return crypto.randomUUID();
@@ -477,6 +515,13 @@ export const OrderService = {
      */
     async holdTable(tableIdentifier: string | number, restaurantId: string, waiterId?: string) {
         if (!tableIdentifier || typeof tableIdentifier === 'object' || String(tableIdentifier).trim() === '{}') return;
+        // Customer context: hold the caller's own table via the service-role route
+        // (table id is taken from the signed session server-side, not from here).
+        if (isCustomerBrowserContext()) {
+            const result = await postCustomerAction('/api/customer/table/hold', {});
+            if (result) return;
+            // null => network/5xx: fall through to the legacy direct path.
+        }
         const actualRestaurantId = await this.resolveRestaurantId(restaurantId);
         if (!actualRestaurantId) return;
 
@@ -3674,6 +3719,10 @@ export const OrderService = {
      * Updates an existing order with a coupon code and discount amount.
      */
     async updateOrderCoupon(orderId: string, restaurantId: string, couponCode: string, _discountAmount?: number) {
+        if (isCustomerBrowserContext()) {
+            const result = await postCustomerAction('/api/customer/orders/coupon', { orderId, couponCode });
+            if (result) return result;
+        }
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
         const ceil2 = (num: number) => {
             const n = Number(num || 0);
@@ -3849,6 +3898,10 @@ export const OrderService = {
      * Delete an entire order (Cancellation).
      */
     async deleteOrder(orderId: string, restaurantId: string) {
+        if (isCustomerBrowserContext()) {
+            const result = await postCustomerAction('/api/customer/orders/cancel', { orderId });
+            if (result) return;
+        }
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
         // 1. Delete items first (Cascade usually handles this, but good to be explicit)
         await supabase.from('order_items').delete().eq('order_id', orderId);
@@ -3866,6 +3919,10 @@ export const OrderService = {
      * Delete a specific order item.
      */
     async deleteOrderItem(itemId: string, restaurantId: string) {
+        if (isCustomerBrowserContext()) {
+            const result = await postCustomerAction('/api/customer/orders/item/remove', { itemId });
+            if (result) return;
+        }
         const actualRestaurantId = (await this.resolveRestaurantId(restaurantId)) || restaurantId;
         // 1. Get Item details for price calculation
         const { data: item } = await supabase
@@ -4406,9 +4463,19 @@ export const OrderService = {
             }
         }
 
+        let dbClient: any = supabase;
+        if (typeof window === 'undefined') {
+            try {
+                const adminMod = await import('@/lib/supabase-admin');
+                if (adminMod?.supabaseAdmin) {
+                    dbClient = adminMod.supabaseAdmin;
+                }
+            } catch (_) {}
+        }
+
         // 2. Settle fully based on DB total (which is already net of discount) AND set completed_at
         const payableAmount = Math.max(0, Number(order.total_amount || 0));
-        const { error } = await supabase
+        const { error } = await dbClient
             .from('orders')
             .update({
                 status: 'paid',
@@ -4438,22 +4505,22 @@ export const OrderService = {
 
         // Also ensure orders table retains waiter_id if it was missing
         if (!order.waiter_id && finalWaiterId) {
-            await supabase.from('orders').update({ waiter_id: finalWaiterId }).eq('id', orderId);
+            await dbClient.from('orders').update({ waiter_id: finalWaiterId }).eq('id', orderId);
         }
 
         const actualTableId = physicalTable?.id || order.table_id;
         const updatePromises: PromiseLike<any>[] = [
-            supabase.from('order_items').update({ status: 'paid' }).eq('order_id', orderId)
+            dbClient.from('order_items').update({ status: 'paid' }).eq('order_id', orderId)
         ];
 
         if (order.merge_group_id) {
             updatePromises.push(
-                supabase.from('table_merge_groups').update(tableUpdate).eq('id', order.merge_group_id).eq('restaurant_id', actualRestaurantId),
-                supabase.from('tables').update(tableUpdate).eq('merged_group_id', order.merge_group_id).eq('restaurant_id', actualRestaurantId)
+                dbClient.from('table_merge_groups').update(tableUpdate).eq('id', order.merge_group_id).eq('restaurant_id', actualRestaurantId),
+                dbClient.from('tables').update(tableUpdate).eq('merged_group_id', order.merge_group_id).eq('restaurant_id', actualRestaurantId)
             );
         } else if (actualTableId) {
             updatePromises.push(
-                supabase.from('tables').update(tableUpdate).eq('id', actualTableId).eq('restaurant_id', actualRestaurantId)
+                dbClient.from('tables').update(tableUpdate).eq('id', actualTableId).eq('restaurant_id', actualRestaurantId)
             );
         }
 
@@ -4897,6 +4964,26 @@ export const OrderService = {
         const groupId = isGroup ? physicalTable.id : physicalTable.merged_group_id;
         const assignedWaiterId = (physicalTable as any).assigned_waiter_id;
 
+        // Every physical table this clear covers (a merged group covers all its member
+        // tables). Collected BEFORE unmerging, so their customer sessions can be closed.
+        const sessionTableIds = new Set<string>();
+        const sessionTableNumbers = new Set<string>();
+        const collectTable = (t: any) => {
+            if (!t) return;
+            if (t.id != null && !('display_name' in t)) sessionTableIds.add(String(t.id));
+            if (t.table_number != null && String(t.table_number).trim() !== '') sessionTableNumbers.add(String(t.table_number).trim());
+        };
+        collectTable(physicalTable);
+        if (groupId) {
+            try {
+                const { data: memberTables } = await supabase
+                    .from('tables')
+                    .select('id, table_number')
+                    .eq('merged_group_id', groupId);
+                (memberTables || []).forEach(collectTable);
+            } catch (_) {}
+        }
+
         if (groupId) {
             // Check active orders on merge group before archiving
             const { data: activeGroupOrders, error: orderFetchErr } = await supabase
@@ -4979,44 +5066,67 @@ export const OrderService = {
             } catch (_) {}
         }
 
-        // Deactivate and close active table session so subsequent diners can start a fresh session
+        // Close the customers' table sessions so they can scan another table, and so
+        // the next diners at this table start fresh. Sessions may be stored under the
+        // restaurant code or its UUID, and the table under its number ("5", "Table 5")
+        // or its id, so match every form.
         try {
-            const tableNum = String(physicalTable.table_number || '');
-            const tId = String(physicalTable.id || '');
-            const closureReason = requestingStaffId ? `STAFF_CLEARED_${requestingStaffId}` : 'STAFF_CLEARED';
+            const nowIso = new Date().toISOString();
+            const closureReason = requestingStaffId ? `STAFF_CLEARED_${requestingStaffId}` : 'PAID_AND_CLEARED';
+            const restaurantIds = Array.from(new Set([restaurantId, actualRestaurantId].filter(Boolean)));
 
-            let sessQuery = supabase
-                .from('table_active_sessions')
-                .update({ 
-                    is_active: false,
-                    status: 'CLOSED',
-                    closed_at: new Date().toISOString(),
-                    closure_reason: closureReason,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('restaurant_id', actualRestaurantId)
-                .eq('is_active', true);
-
-            if (tableNum && tId) {
-                sessQuery = sessQuery.or(`table_number.eq.${tableNum},table_id.eq.${tId}`);
-            } else if (tableNum) {
-                sessQuery = sessQuery.eq('table_number', tableNum);
-            } else if (tId) {
-                sessQuery = sessQuery.eq('table_id', tId);
+            const tableConditions = new Set<string>();
+            for (const num of sessionTableNumbers) {
+                tableConditions.add(`table_number.eq.${num}`);
+                const norm = normalizeTableNumber(num);
+                if (norm) {
+                    tableConditions.add(`table_number.eq.${norm}`);
+                    tableConditions.add(`table_number.ilike.Table ${norm}`);
+                }
             }
-            await sessQuery;
+            for (const id of sessionTableIds) {
+                tableConditions.add(`table_id.eq.${id}`);
+            }
+            if ((physicalTable as any)?.table_token) {
+                tableConditions.add(`table_token.eq.${(physicalTable as any).table_token}`);
+            }
 
-            // Expire member join requests for this table
-            if (tableNum) {
-                await supabase
-                    .from('table_join_requests')
+            let dbClient: any = supabase;
+            if (typeof window === 'undefined') {
+                try {
+                    const adminMod = await import('@/lib/supabase-admin');
+                    if (adminMod?.supabaseAdmin) {
+                        dbClient = adminMod.supabaseAdmin;
+                    }
+                } catch (_) {}
+            }
+
+            if (tableConditions.size > 0) {
+                const { data: closedSessions, error: closeErr } = await dbClient
+                    .from('table_active_sessions')
                     .update({
-                        membership_status: 'EXPIRED',
-                        updated_at: new Date().toISOString()
+                        is_active: false,
+                        status: 'EXPIRED',
+                        expired_at: nowIso,
+                        closed_at: nowIso,
+                        closure_reason: closureReason,
+                        updated_at: nowIso
                     })
-                    .eq('restaurant_id', actualRestaurantId)
-                    .eq('table_number', tableNum)
-                    .eq('membership_status', 'ACTIVE');
+                    .in('restaurant_id', restaurantIds)
+                    .eq('is_active', true)
+                    .or(Array.from(tableConditions).join(','))
+                    .select('id');
+
+                if (closeErr) console.warn('[clearTable] Closing table sessions failed:', closeErr);
+
+                const closedIds = (closedSessions || []).map((row: any) => row.id).filter(Boolean);
+                if (closedIds.length > 0) {
+                    await dbClient
+                        .from('table_join_requests')
+                        .update({ membership_status: 'EXPIRED', updated_at: nowIso })
+                        .in('session_id', closedIds)
+                        .eq('membership_status', 'ACTIVE');
+                }
             }
         } catch (sessErr) {
             console.warn('[clearTable] Deactivating active session error:', sessErr);
@@ -5024,7 +5134,13 @@ export const OrderService = {
 
         // Invalidate customer cache for this table
         try {
-            CustomerCache.clear(actualRestaurantId, 'orders', String(physicalTable.table_number || tableId));
+            for (const rId of Array.from(new Set([restaurantId, actualRestaurantId].filter(Boolean)))) {
+                for (const tNum of sessionTableNumbers) {
+                    CustomerCache.clear(rId, 'orders', tNum);
+                    CustomerCache.clear(rId, 'table-session', tNum);
+                }
+                CustomerCache.clear(rId, 'orders', String(physicalTable.table_number || tableId));
+            }
         } catch (_) {}
     },
 

@@ -17,14 +17,15 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY && fs.existsSync('.env.local')) {
     }
 }
 
-const VPS_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://72.61.250.231:8010';
-const VPS_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const PRIMARY_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL;
+const PRIMARY_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const CLOUD_URL = process.env.SECONDARY_SUPABASE_URL || 'https://jmcsygpphwdubnanwjwz.supabase.co';
-const CLOUD_KEY = process.env.SECONDARY_SUPABASE_SERVICE_ROLE_KEY;
+const SECONDARY_URL = process.env.SECONDARY_SUPABASE_URL;
+const SECONDARY_KEY = process.env.SECONDARY_SUPABASE_SERVICE_ROLE_KEY;
+const HAS_SECONDARY = Boolean(SECONDARY_URL && SECONDARY_KEY && SECONDARY_URL !== PRIMARY_URL);
 
-if (!VPS_KEY || !CLOUD_KEY) {
-    console.error("ERROR: Missing SUPABASE_SERVICE_ROLE_KEY or SECONDARY_SUPABASE_SERVICE_ROLE_KEY in environment.");
+if (!PRIMARY_URL || !PRIMARY_KEY) {
+    console.error("ERROR: Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
     process.exit(1);
 }
 
@@ -50,8 +51,8 @@ if (!sql.trim()) {
     process.exit(1);
 }
 
-const vps = createClient(VPS_URL, VPS_KEY, { auth: { persistSession: false } });
-const cloud = createClient(CLOUD_URL, CLOUD_KEY, { auth: { persistSession: false } });
+const primaryClient = createClient(PRIMARY_URL, PRIMARY_KEY, { auth: { persistSession: false } });
+const secondaryClient = HAS_SECONDARY ? createClient(SECONDARY_URL, SECONDARY_KEY, { auth: { persistSession: false } }) : null;
 
 async function executeOnDb(name, client, query) {
     process.stdout.write(`Executing on ${name}... `);
@@ -78,25 +79,28 @@ async function executeOnDb(name, client, query) {
 
 async function run() {
     console.log("=================================================================");
-    console.log("⚡  DUAL DATABASE SQL EXECUTOR (VPS + CLOUD)");
+    console.log("⚡  SUPABASE SQL EXECUTOR");
     console.log("=================================================================");
-    console.log(`VPS:   ${VPS_URL}`);
-    console.log(`Cloud: ${CLOUD_URL}`);
+    console.log(`Primary:   ${PRIMARY_URL}`);
+    if (HAS_SECONDARY) {
+        console.log(`Secondary: ${SECONDARY_URL}`);
+    }
     console.log("-----------------------------------------------------------------");
     console.log("SQL Query:\n" + sql.trim());
     console.log("-----------------------------------------------------------------");
 
-    const [vpsRes, cloudRes] = await Promise.all([
-        executeOnDb("VPS Database", vps, sql),
-        executeOnDb("Cloud Database", cloud, sql)
-    ]);
+    const tasks = [executeOnDb("Primary Supabase", primaryClient, sql)];
+    if (secondaryClient) {
+        tasks.push(executeOnDb("Secondary Supabase", secondaryClient, sql));
+    }
+    const results = await Promise.all(tasks);
 
     console.log("=================================================================");
-    if (vpsRes.success && cloudRes.success) {
-        console.log("🎉  SQL EXECUTED SUCCESSFULLY ON BOTH DATABASES!");
+    if (results.every((r) => r.success)) {
+        console.log("🎉  SQL EXECUTED SUCCESSFULLY!");
         process.exit(0);
     } else {
-        console.error("⚠️   ONE OR MORE DATABASES FAILED TO EXECUTE SQL.");
+        console.error("⚠️   FAILED TO EXECUTE SQL.");
         process.exit(1);
     }
 }

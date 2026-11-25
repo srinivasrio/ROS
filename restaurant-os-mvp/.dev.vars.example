@@ -1,0 +1,47 @@
+# Runtime secrets for Cloudflare Workers.
+# Local preview (npm run cf:preview): copy to .dev.vars and fill in.
+# Production: set each one with  npx wrangler secret put NAME
+# (or upload all at once:        npx wrangler secret bulk .dev.vars)
+#
+# NEXT_PUBLIC_* values are baked into the browser bundle at BUILD time, so they
+# must also be in .env.local / .env.production on the machine that runs
+# `npm run cf:deploy`. Setting them only as Worker secrets is not enough.
+
+# --- Auth ---
+JWT_SECRET=
+OTP_HASH_SECRET=
+CRON_SECRET=
+
+# --- Supabase Cloud ---
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_REALTIME_JWT_SECRET=
+
+# --- Cloudflare R2 ---
+CLOUDFLARE_R2_ACCESS_KEY_ID=
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=
+CLOUDFLARE_R2_ENDPOINT=
+CLOUDFLARE_R2_BUCKET_NAME=
+NEXT_PUBLIC_R2_PUBLIC_URL=
+CLOUDFLARE_ZONE_ID=
+CLOUDFLARE_API_TOKEN=
+
+# --- Email (Amazon SES) ---
+AWS_SES_REGION=
+AWS_SES_ACCESS_KEY_ID=
+AWS_SES_SECRET_ACCESS_KEY=
+SES_FROM_EMAIL=
+
+# --- SMS / phone verification ---
+SMS_GATEWAY_API_KEY=
+FAST2SMS_API_KEY=
+PHONE_EMAIL_CLIENT_ID=
+PHONE_EMAIL_API_KEY=
+NEXT_PUBLIC_PHONE_EMAIL_CLIENT_ID=
+NEXT_PUBLIC_PHONE_EMAIL_API_KEY=
+
+# --- App URLs ---
+NEXT_PUBLIC_APP_URL=
+NEXT_PUBLIC_SUPER_ADMIN_URL=
+NEXT_PUBLIC_APP_VERSION=

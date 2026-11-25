@@ -142,7 +142,7 @@ export const CustomerOtpService = {
             .eq('is_used', false);
 
         // 4. Generate cryptographically secure OTP
-        const isExplicitDev = process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEV_OTP === 'true';
+        const isExplicitDev = process.env.NODE_ENV === 'development';
         const rawOtp = isExplicitDev && process.env.TEST_FIXED_CUSTOMER_OTP ? process.env.TEST_FIXED_CUSTOMER_OTP : generateCryptoOtp();
         const otpHash = hashCustomerOtp(cleanRestId, cleanPhone, rawOtp);
 
@@ -193,10 +193,11 @@ export const CustomerOtpService = {
             }
         }
 
-        // Log verification code generation for development and diagnostics
-        console.log(`[CustomerOtpService] Generated verification code for +91 ${cleanPhone}: ${rawOtp}`);
+        if (isExplicitDev) {
+            console.log(`[CustomerOtpService] Generated verification code for +91 ${cleanPhone}: ${rawOtp}`);
+        }
 
-        const devOtp = isExplicitDev ? rawOtp : undefined;
+        const devOtp = isExplicitDev && process.env.ALLOW_DEV_OTP === 'true' ? rawOtp : undefined;
 
         return {
             success: true,

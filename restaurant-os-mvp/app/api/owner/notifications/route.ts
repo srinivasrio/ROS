@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin, secondaryAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getAuthenticatedOwner } from '@/lib/owner-auth';
 
 export async function GET(request: NextRequest) {
@@ -40,24 +40,6 @@ export async function GET(request: NextRequest) {
             console.warn('[OwnerNotifications] service_requests fetch error:', e);
         }
 
-        // Also check secondaryAdmin if available
-        if (secondaryAdmin) {
-            try {
-                const { data: secReqs } = await secondaryAdmin
-                    .from('service_requests')
-                    .select('id, table_id, request_type, request_status, notes, custom_note, created_at, restaurant_id, tables:table_id(table_number)')
-                    .in('restaurant_id', restaurantIds)
-                    .order('created_at', { ascending: false })
-                    .limit(20);
-                if (secReqs) {
-                    const existingIds = new Set(serviceReqs.map(r => r.id));
-                    secReqs.forEach(r => {
-                        if (!existingIds.has(r.id)) serviceReqs.push(r);
-                    });
-                }
-            } catch (_) {}
-        }
-
         // 2. Fetch critical order alerts across branches (e.g. cancelled, queued, placed)
         let orderAlerts: any[] = [];
         try {
@@ -71,24 +53,6 @@ export async function GET(request: NextRequest) {
             orderAlerts = data || [];
         } catch (e) {
             console.warn('[OwnerNotifications] orders fetch error:', e);
-        }
-
-        if (secondaryAdmin) {
-            try {
-                const { data: secOrders } = await secondaryAdmin
-                    .from('orders')
-                    .select('id, order_number, status, total_amount, created_at, restaurant_id, tables:table_id(table_number)')
-                    .in('restaurant_id', restaurantIds)
-                    .in('status', ['cancelled', 'queued', 'placed'])
-                    .order('created_at', { ascending: false })
-                    .limit(20);
-                if (secOrders) {
-                    const existingIds = new Set(orderAlerts.map(o => o.id));
-                    secOrders.forEach(o => {
-                        if (!existingIds.has(o.id)) orderAlerts.push(o);
-                    });
-                }
-            } catch (_) {}
         }
 
         // Format combined notifications

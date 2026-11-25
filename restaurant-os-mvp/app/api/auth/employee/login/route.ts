@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifyPin } from '@/lib/auth-utils';
+import { upgradeEmployeePinIfNeeded } from '@/lib/credential-upgrade';
 import { signJwt } from '@/lib/jwt-utils';
 import {
     checkRateLimitAndLockout,
@@ -116,6 +117,11 @@ export async function POST(req: NextRequest) {
                 error: `Incorrect employee PIN. (${5 - failResult.failedAttempts} attempt${5 - failResult.failedAttempts === 1 ? '' : 's'} remaining)`
             }, { status: 401 });
         }
+
+        // Silently upgrade legacy Argon2 or plaintext PIN to Web Crypto PBKDF2
+        const roleForMirror = String(employee.role || '').toLowerCase().trim();
+        const isPrivilegeAccount = ['owner', 'admin', 'restaurant_admin', 'branch_admin', 'super_admin'].includes(roleForMirror);
+        await upgradeEmployeePinIfNeeded(employee.id, storedHash, rawPin, 'employee/login', !isPrivilegeAccount);
 
         // 4. STATUS CHECKS
         if (employee.is_deleted) {

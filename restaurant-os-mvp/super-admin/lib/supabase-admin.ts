@@ -1,16 +1,31 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://jmcsygpphwdubnanwjwz.supabase.co';
-const supabaseServiceRoleKey = 
-    process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder_service_role_key';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL || '';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.warn('⚠️ Super Admin: SUPABASE_SERVICE_ROLE_KEY is missing. Privileged operations may fail.');
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyDatabase = { public: any };
+type AdminClient = SupabaseClient<AnyDatabase>;
+
+function createFailClosedAdminProxy(reason: string): AdminClient {
+    return new Proxy({} as AdminClient, {
+        get(_target, prop) {
+            if (prop === 'then') return undefined;
+            return () => {
+                throw new Error(reason);
+            };
+        },
+    });
 }
 
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: {
-        autoRefreshToken: false,
-        persistSession: false
-    }
-});
+export const supabaseAdmin: AdminClient =
+    supabaseUrl && supabaseServiceRoleKey
+        ? createClient<AnyDatabase>(supabaseUrl, supabaseServiceRoleKey, {
+            auth: {
+                autoRefreshToken: false,
+                persistSession: false,
+            },
+        })
+        : createFailClosedAdminProxy(
+            'Super Admin: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured.'
+        );

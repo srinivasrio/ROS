@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
         restaurantIds.length > 0
             ? supabaseAdmin
                 .from('employees')
-                .select('id, name, email, mobile, role, restaurant_id, branch_id, pin, raw_password, raw_pin, status, approval_status')
+                .select('id, name, email, mobile, role, restaurant_id, branch_id, pin, status, approval_status')
                 .in('restaurant_id', restaurantIds)
                 .in('role', ['restaurant_admin', 'admin'])
                 .neq('id', auth.userId)
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
         restaurantIds.length > 0
             ? supabaseAdmin
                 .from('restaurant_registration_requests')
-                .select('restaurant_id, admin_name, admin_email, admin_mobile, admin_password, admin_pin')
+                .select('restaurant_id, admin_name, admin_email, admin_mobile, admin_password, admin_pin') // password/pin used only to compute has* flags, never returned
                 .in('restaurant_id', restaurantIds)
             : Promise.resolve({ data: [], error: null })
     ]);
@@ -113,8 +113,9 @@ export async function GET(request: NextRequest) {
         const isMain = hasAnyMain ? Boolean(r.is_main_branch) : idx === 0;
 
         const matchedRegReq = allRegRequests.find((rr: any) => rr.restaurant_id === r.id);
-        const resolvedPassword = admin?.raw_password || matchedRegReq?.admin_password || null;
-        const resolvedPin = admin?.raw_pin || matchedRegReq?.admin_pin || (admin?.pin ? '••••' : null);
+        // Never return credentials to the browser (DIO-C06): expose only whether one is set.
+        const resolvedPassword = null;
+        const resolvedPin = null;
 
         return {
             id: r.id, // primary identifier
@@ -138,7 +139,7 @@ export async function GET(request: NextRequest) {
             adminPin: resolvedPin,
             adminId: admin?.id || null,
             adminStatus: admin?.status || 'active',
-            hasPin: Boolean(admin?.pin || resolvedPin)
+            hasPin: Boolean(admin?.pin || matchedRegReq?.admin_pin)
         };
     });
 
@@ -197,7 +198,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter pending requests to only those actively awaiting review / payment (strictly exclude CANCELLED, DELETED, REJECTED, ACTIVE, APPROVED, and deleted restaurants)
-    const pendingRegRequests = regRequests.filter((req: any) => {
+    const pendingRegRequests = regRequests.map(({ admin_password: _p, admin_pin: _n, ...safe }: any) => safe).filter((req: any) => {
         const isPending = ['PENDING_APPROVAL', 'PENDING_PAYMENT', 'PENDING'].includes((req.approval_status || '').toUpperCase());
         if (!isPending) return false;
         if (req.restaurant_id && deletedRestIds.has(req.restaurant_id)) return false;
@@ -209,14 +210,14 @@ export async function GET(request: NextRequest) {
         .filter(a => ['restaurant_admin', 'admin'].includes(String(a.role || '').toLowerCase()) && a.id !== auth.userId)
         .map(a => {
             const matchedRegReq = allRegRequests.find((rr: any) => rr.restaurant_id === a.restaurant_id);
-            const resolvedPassword = a.raw_password || matchedRegReq?.admin_password || null;
-            const resolvedPin = a.raw_pin || matchedRegReq?.admin_pin || (a.pin ? '••••' : null);
+            const resolvedPassword = null;
+            const resolvedPin = null;
             return {
                 ...a,
                 branch_id: a.restaurant_id,
                 adminPassword: resolvedPassword,
                 adminPin: resolvedPin,
-                hasPin: Boolean(a.pin || resolvedPin)
+                hasPin: Boolean(a.pin || matchedRegReq?.admin_pin)
             };
         });
 
@@ -976,8 +977,8 @@ export async function PUT(request: NextRequest) {
                 mobile: empUpdates.mobile || existingAdmin.mobile,
                 restaurant_id: targetRestaurantId,
                 branch_id: targetBranchId,
-                adminPassword: adminPassword?.trim() || existingAdmin.raw_password || null,
-                adminPin: adminPin?.trim() || existingAdmin.raw_pin || null,
+                adminPassword: null,
+                adminPin: null,
                 hasPin: Boolean(empUpdates.pin || existingAdmin.pin)
             };
         } else if (cleanEmail || cleanMobile || adminName?.trim()) {
@@ -1126,8 +1127,8 @@ export async function PUT(request: NextRequest) {
                     mobile: cleanMobile || candidateAdmin.mobile,
                     restaurant_id: targetRestaurantId,
                     branch_id: targetBranchId,
-                    adminPassword: adminPassword?.trim() || candidateAdmin.raw_password || null,
-                    adminPin: rawPin || candidateAdmin.raw_pin || null,
+                    adminPassword: null,
+                    adminPin: null,
                     hasPin: Boolean(hashedPin || rawPin)
                 };
             } else {

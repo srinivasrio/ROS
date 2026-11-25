@@ -367,7 +367,8 @@ export default function CustomerLayout({
     // Real-time listener: Auto-logout and session termination when waiter or admin clears the table
     useEffect(() => {
         if (!isCleanTable || isVirtualMode || !tableNumber) return;
-        if (isCustomerEntryPage || isWelcomePage || isTableRedirectPage || isOrderStatusPage || isOrderTypePage) return;
+        // Keep listening even on order status page so when table is cleared/paid the customer is immediately notified
+        if (isCustomerEntryPage || isWelcomePage || isTableRedirectPage || isOrderTypePage) return;
 
         const effectiveRestId = restaurantId || restaurantCode;
         if (!effectiveRestId) return;
@@ -466,7 +467,7 @@ export default function CustomerLayout({
             isSubscribed = false;
             supabase.removeChannel(channel);
         };
-    }, [isCleanTable, isVirtualMode, tableNumber, restaurantId, restaurantCode, currentSessionId, isCustomerEntryPage, isWelcomePage, isTableRedirectPage, isOrderStatusPage, isOrderTypePage]);
+    }, [isCleanTable, isVirtualMode, tableNumber, restaurantId, restaurantCode, currentSessionId, isCustomerEntryPage, isWelcomePage, isTableRedirectPage, isOrderTypePage]);
 
     // Realtime: Table has been cleared by waiter or admin
     if (isTableCleared) {

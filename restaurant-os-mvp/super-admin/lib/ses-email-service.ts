@@ -153,8 +153,9 @@ If you did not request this email, please ignore it.
         options: VerificationEmailOptions = {}
     ): Promise<EmailSendResult> {
         const cleanEmail = toEmail.toLowerCase().trim();
+        const isProd = process.env.NODE_ENV === 'production';
 
-        if (options.forceFail || process.env.SIMULATE_SES_FAILURE === 'true') {
+        if (!isProd && (options.forceFail || process.env.SIMULATE_SES_FAILURE === 'true')) {
             console.error(`[Amazon SES] Simulated delivery failure to ${cleanEmail}`);
             throw new Error(`Amazon SES delivery failure: MessageRejected - Simulated email delivery failure to ${cleanEmail}`);
         }
@@ -164,7 +165,7 @@ If you did not request this email, please ignore it.
         const textBody = this.generateVerificationEmailText(otp);
 
         // If live SES client is configured with credentials and not an automated test domain, send through AWS SES
-        if (this.client && !cleanEmail.endsWith('@dineinone.test') && !options.simulate) {
+        if (this.client && (!cleanEmail.endsWith('@dineinone.test') || isProd) && (isProd || !options.simulate)) {
             try {
                 const params: SendEmailCommandInput = {
                     Source: this.fromEmail,
@@ -208,6 +209,10 @@ If you did not request this email, please ignore it.
                 }
                 throw new Error(`Amazon SES delivery failure: ${rawMsg || 'Unknown SES error'}`);
             }
+        }
+
+        if (isProd) {
+            throw new Error('Amazon SES email delivery is not configured.');
         }
 
         // Development/Test fallback when AWS credentials are not yet set

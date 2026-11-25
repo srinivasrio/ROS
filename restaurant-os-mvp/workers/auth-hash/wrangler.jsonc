@@ -1,0 +1,18 @@
+{
+	// Private Argon2 helper for the Dine In One app Workers.
+	// Deploy BEFORE the app Workers:  npm run cf:deploy:authhash
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "dine-in-one-auth-hash",
+	"main": "index.ts",
+	"compatibility_date": "2026-11-01",
+	// No public URL: reachable only through the AUTH_HASH service binding
+	"workers_dev": false,
+	"preview_urls": false,
+	// Argon2 needs ~1.5 s CPU for old 64 MiB hashes; requires Workers Paid (free plan = 10 ms)
+	"limits": {
+		"cpu_ms": 30000
+	},
+	"observability": {
+		"enabled": true
+	}
+}

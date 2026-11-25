@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifyPassword } from '@/lib/auth-utils';
+import { upgradePasswordHashIfNeeded } from '@/lib/credential-upgrade';
 import { signJwt } from '@/lib/jwt-utils';
 import { RateLimiter } from '@/lib/rate-limiter';
 import { recordAuthAuditLog, getAuthCookieOptions } from '@/lib/panel-auth';
@@ -181,6 +182,9 @@ export async function POST(req: NextRequest) {
                 { status: 401 }
             );
         }
+
+        // Silently upgrade legacy Argon2 or weak hashes to Web Crypto PBKDF2
+        await upgradePasswordHashIfNeeded(userId, authRecord.password_hash, rawPassword, 'auth/login');
 
         // ------------------------------------------------------------------
         // 7. Secure Backend Status Validations (Never trust frontend state!)

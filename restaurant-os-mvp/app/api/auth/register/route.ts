@@ -246,9 +246,7 @@ export async function POST(request: Request) {
         }
 
         // 4, 5 & 6: Generate 6-digit OTP, store hashed in DB (5-min expiry), send via Amazon SES
-        const otpResult = await EmailOtpService.createAndSendOtp(email, clientIp, {
-            forceFailSes: body.forceFailSes === true,
-        });
+        const otpResult = await EmailOtpService.createAndSendOtp(email, clientIp);
 
         if (!otpResult.success) {
             return NextResponse.json(
@@ -261,7 +259,7 @@ export async function POST(request: Request) {
             success: true,
             email,
             expiresAt: otpResult.expiresAt,
-            devOtp: otpResult.devOtp,
+            ...(otpResult.devOtp ? { devOtp: otpResult.devOtp } : {}),
             message: 'Verification code sent to your email address.',
         });
 

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifyPassword, verifyPin, hashPassword } from '@/lib/auth-utils';
+import { upgradeEmployeePinIfNeeded, upgradePasswordHashIfNeeded } from '@/lib/credential-upgrade';
 import { signJwt } from '@/lib/jwt-utils';
 import {
     checkRateLimitAndLockout,
@@ -281,6 +282,9 @@ export async function POST(req: NextRequest) {
             }, { status: 401 });
         }
 
+        // Silently upgrade legacy Argon2 password hash to Web Crypto PBKDF2
+        await upgradePasswordHashIfNeeded(adminUser.id, passwordHash, rawPassword, 'admin/login');
+
         // 4. SECURITY PIN VERIFICATION (Compulsory for Restaurant Admin)
         if (!isOwnerPanel) {
             if (!adminUser.pin) {
@@ -311,6 +315,9 @@ export async function POST(req: NextRequest) {
                     error: `Invalid Security PIN. (${5 - failResult.failedAttempts} attempt${5 - failResult.failedAttempts === 1 ? '' : 's'} remaining)`
                 }, { status: 401 });
             }
+
+            // Silently upgrade legacy Argon2 or plaintext PIN to Web Crypto PBKDF2 (keep password separate in auth)
+            await upgradeEmployeePinIfNeeded(adminUser.id, adminUser.pin, rawPin, 'admin/login', false);
         }
 
         // 4. ROLE-BASED ACCESS CONTROL (Separation between Owner and Restaurant Admin)

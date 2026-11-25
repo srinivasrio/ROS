@@ -158,7 +158,9 @@ async function runSecurityTests() {
             restaurantId: RESTAURANT_A
         }, -100); // Expired 100 seconds ago
 
-        const invalidToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJub2JvZHkifQ.invalid_signature_here';
+        const invalidHeader = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+        const invalidPayload = Buffer.from(JSON.stringify({ userId: 'nobody' })).toString('base64url');
+        const invalidToken = `${invalidHeader}.${invalidPayload}.invalid_signature_here`;
 
         // -------------------------------------------------------------
         // TEST 1: Unauthenticated GET → 401

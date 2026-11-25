@@ -1,34 +1,32 @@
-import { createClient } from '@supabase/supabase-js';
-import { createDualSupabaseClient } from './dual-supabase';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseKey = 
-    process.env.SUPABASE_SERVICE_ROLE_KEY || 
-    'placeholder_service_role_key';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyDatabase = { public: any };
+type AdminClient = SupabaseClient<AnyDatabase>;
 
-const primaryAdmin = createClient(
-    supabaseUrl,
-    supabaseKey,
-    {
+function createFailClosedAdminProxy(reason: string): AdminClient {
+    return new Proxy({} as AdminClient, {
+        get(_target, prop) {
+            if (prop === 'then') return undefined;
+            return () => {
+                throw new Error(reason);
+            };
+        },
+    });
+}
+
+const isConfigured = Boolean(supabaseUrl && supabaseKey);
+
+export const supabaseAdmin: AdminClient = isConfigured
+    ? createClient<AnyDatabase>(supabaseUrl, supabaseKey, {
         auth: {
             persistSession: false,
-            autoRefreshToken: false
-        }
-    }
-);
-
-const secondaryUrl = process.env.SECONDARY_SUPABASE_URL;
-const secondaryKey = process.env.SECONDARY_SUPABASE_SERVICE_ROLE_KEY;
-
-const secondaryAdmin = (secondaryUrl && secondaryKey)
-    ? createClient(secondaryUrl, secondaryKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false
-        }
+            autoRefreshToken: false,
+        },
     })
-    : null;
-
-export const supabaseAdmin = createDualSupabaseClient(primaryAdmin, secondaryAdmin);
-export { primaryAdmin, secondaryAdmin };
+    : createFailClosedAdminProxy(
+        'NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured for server admin queries.'
+    );

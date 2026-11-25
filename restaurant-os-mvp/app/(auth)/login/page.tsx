@@ -1,16 +1,13 @@
-import { redirect } from 'next/navigation';
-import { headers } from 'next/headers';
+import MarketingLoginClient from '@/components/auth/MarketingLoginClient';
+import { Metadata } from 'next';
 
-export default async function UniversalLoginPage() {
-    const headersList = await headers();
-    const host = headersList.get('host') || '';
-    const hostWithoutPort = host.split(':')[0].toLowerCase();
-    const isProductionMarketingApex = hostWithoutPort === 'dineinone.com' || hostWithoutPort === 'www.dineinone.com';
+export const metadata: Metadata = {
+  title: 'Log In — Dine in One',
+  description: 'Sign in to access your Dine in One restaurant dashboard and live panels.',
+};
 
-    if (isProductionMarketingApex) {
-        redirect('https://owner.dineinone.com/login');
-    } else {
-        redirect('/login/owner');
-    }
+export const dynamic = 'force-dynamic';
+
+export default function LoginPage() {
+  return <MarketingLoginClient />;
 }
-

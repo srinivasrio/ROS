@@ -65,11 +65,12 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'SMS verification is not configured. Please contact your administrator.' }, { status: 503 });
         }
 
-        const otp = process.env.NODE_ENV === 'development'
-            ? '123456' 
-            : crypto.randomInt(100000, 999999).toString();
+        const allowDevOtp = process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_OTP === 'true';
+        const otp = allowDevOtp
+            ? '123456'
+            : crypto.randomInt(100000, 1000000).toString();
 
-        OtpManager.setOtp(cleanMobile, otp, 5 * 60);
+        await OtpManager.setOtp(cleanMobile, otp, 5 * 60);
 
         console.log(`[send-otp] OTP generated for waiter ${validEmployee.name} (${cleanMobile.slice(-4)})`);
 

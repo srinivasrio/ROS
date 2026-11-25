@@ -122,7 +122,6 @@ export async function POST(request: Request) {
                 mobile: mobile ? String(mobile).trim().replace(/[^0-9]/g, '').slice(-10) : null,
                 role: role.toLowerCase(),
                 pin: hashedPin,
-                raw_pin: cleanPin || '1234',
                 status: 'active',
                 approval_status: 'approved',
                 activation_token: null,
