@@ -22,7 +22,7 @@ android {
         // Backend endpoints — override via Gradle property (-PSUPABASE_URL=...) or env vars.
         val supabaseUrl = (project.findProperty("SUPABASE_URL") as String?)
             ?: System.getenv("SUPABASE_URL")
-            ?: "https://db.dineinone.com"
+            ?: "https://jmcsygpphwdubnanwjwz.supabase.co"
         val supabaseAnonKey = (project.findProperty("SUPABASE_ANON_KEY") as String?)
             ?: System.getenv("SUPABASE_ANON_KEY")
             ?: ""

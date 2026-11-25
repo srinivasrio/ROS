@@ -9,8 +9,8 @@ JWT_SECRET=
 OTP_HASH_SECRET=
 SUPER_ADMIN_BOOTSTRAP_TOKEN=
 
-# Supabase: must be an HTTPS hostname, not a bare IP
-NEXT_PUBLIC_SUPABASE_URL=https://db.dineinone.com
+# Supabase Cloud URL
+NEXT_PUBLIC_SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 
 # Cloudflare R2

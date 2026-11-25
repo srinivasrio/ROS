@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin, secondaryAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { sesEmailService } from '@/services/ses-email.service';
 
 // CORS response helper
@@ -47,25 +47,11 @@ export async function POST(request: Request) {
         };
 
         // 1. Insert into Supabase table `demo_requests`
-        // Prefer live secondaryAdmin first to avoid any offline VPS timeouts
-        const client = secondaryAdmin || supabaseAdmin;
-        let { data: record, error: dbError } = await client
+        const { data: record, error: dbError } = await supabaseAdmin
             .from('demo_requests')
             .insert(insertPayload)
             .select()
             .maybeSingle();
-
-        if (dbError && secondaryAdmin && client !== secondaryAdmin) {
-            const fallback = await secondaryAdmin
-                .from('demo_requests')
-                .insert(insertPayload)
-                .select()
-                .maybeSingle();
-            if (!fallback.error) {
-                record = fallback.data;
-                dbError = null;
-            }
-        }
 
         if (dbError) {
             console.error('[Demo Request] Database insert error:', dbError);

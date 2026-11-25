@@ -154,7 +154,8 @@ test('P1: next.config enforces TS, ESLint ignores subprojects, and Android confi
     assert.match(saEslint, /\.open-next\/\*\*/);
 
     const gradle = read('waiter-android/app/build.gradle.kts');
-    assert.match(gradle, /https:\/\/db\.dineinone\.com/);
+    assert.match(gradle, /https:\/\/jmcsygpphwdubnanwjwz\.supabase\.co/);
+    assert.doesNotMatch(gradle, /72\.61\.250\.231|db\.dineinone\.com/);
     assert.match(gradle, /https:\/\/waiter\.dineinone\.com/);
     assert.doesNotMatch(gradle, /127\.0\.0\.1:3000/);
 });

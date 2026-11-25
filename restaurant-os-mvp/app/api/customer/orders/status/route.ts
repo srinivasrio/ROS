@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin, secondaryAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { resolveRestaurantId } from '@/services/utils.service';
 import { getCategoryMenuItemImage } from '@/lib/utils';
 import { RateLimiter } from '@/lib/rate-limiter';
@@ -70,22 +70,12 @@ export async function GET(req: NextRequest) {
         `;
 
         // Fetch minimal order fields strictly scoped to this restaurant
-        let { data: order, error: orderErr } = await supabaseAdmin
+        const { data: order, error: orderErr } = await supabaseAdmin
             .from('orders')
             .select(orderSelectFields)
             .eq('id', orderId)
             .eq('restaurant_id', actualRestaurantId)
             .maybeSingle();
-
-        if (!order && secondaryAdmin) {
-            const { data: secOrder } = await secondaryAdmin
-                .from('orders')
-                .select(orderSelectFields)
-                .eq('id', orderId)
-                .eq('restaurant_id', actualRestaurantId)
-                .maybeSingle();
-            if (secOrder) order = secOrder;
-        }
 
         if (orderErr && !order) {
             console.error('[OrderStatus] DB error:', orderErr);
@@ -223,54 +213,37 @@ export async function POST(req: NextRequest) {
 
         const actualRestaurantId = restaurantCode ? await resolveRestaurantId(restaurantCode) : null;
 
-        // 1. Verify order exists across primary and secondary databases
-        let targetAdmins = [supabaseAdmin];
-        if (secondaryAdmin) {
-            targetAdmins.push(secondaryAdmin);
+        // 1. Verify order exists
+        let orderQuery = supabaseAdmin
+            .from('orders')
+            .select('id, restaurant_id, table_id, status')
+            .eq('id', orderId);
+
+        if (actualRestaurantId) {
+            orderQuery = orderQuery.eq('restaurant_id', actualRestaurantId);
         }
 
-        let existingOrder: any = null;
-        let matchedAdmin = supabaseAdmin;
-
-        for (const admin of targetAdmins) {
-            let orderQuery = admin
-                .from('orders')
-                .select('id, restaurant_id, table_id, status')
-                .eq('id', orderId);
-
-            if (actualRestaurantId) {
-                orderQuery = orderQuery.eq('restaurant_id', actualRestaurantId);
-            }
-
-            const { data, error } = await orderQuery.maybeSingle();
-            if (data) {
-                existingOrder = data;
-                matchedAdmin = admin;
-                break;
-            }
-        }
+        const { data: existingOrder } = await orderQuery.maybeSingle();
 
         if (!existingOrder) {
             return NextResponse.json({ error: 'Order not found' }, { status: 404 });
         }
 
-        // 2. Cascade update to all queued order items across all active admins (ensuring both stay in sync)
+        // 2. Cascade update to all queued order items
         // Confirming ('placed') must only touch items still waiting for confirmation. Updating every
         // item here used to push ready/preparing/served items back to "Incoming" when a customer
         // added new items to an order the kitchen had already finished.
-        for (const admin of targetAdmins) {
-            let itemsUpdate = admin.from('order_items').update({ status: newStatus }).eq('order_id', orderId);
-            if (newStatus === 'placed') {
-                itemsUpdate = itemsUpdate.or('status.eq.queued,status.is.null,status.eq.pending,status.eq.created') as any;
-            }
-            await itemsUpdate;
+        let itemsUpdate = supabaseAdmin.from('order_items').update({ status: newStatus }).eq('order_id', orderId);
+        if (newStatus === 'placed') {
+            itemsUpdate = itemsUpdate.or('status.eq.queued,status.is.null,status.eq.pending,status.eq.created') as any;
         }
+        await itemsUpdate;
 
         // For 'placed', derive the order status from its items (same rules as the KDS) so an order with
         // ready/preparing items stays in its kitchen stage instead of returning to Incoming.
         let orderStatusToSet = newStatus;
         if (newStatus === 'placed') {
-            const { data: itemRows } = await matchedAdmin.from('order_items').select('status').eq('order_id', orderId);
+            const { data: itemRows } = await supabaseAdmin.from('order_items').select('status').eq('order_id', orderId);
             const st = (itemRows || []).map((i: any) => String(i.status || '').toLowerCase()).filter((x: string) => x !== 'cancelled');
             if (st.length > 0) {
                 if (st.every(x => x === 'served' || x === 'paid')) orderStatusToSet = 'served';
@@ -279,19 +252,16 @@ export async function POST(req: NextRequest) {
             }
         }
 
-        // 3. Update orders status across active admins
-        let updatedOrder: any = null;
-        for (const admin of targetAdmins) {
-            const { data, error } = await admin
-                .from('orders')
-                .update({ status: orderStatusToSet })
-                .eq('id', orderId)
-                .select('id, status, table_id, restaurant_id')
-                .maybeSingle();
+        // 3. Update order status
+        const { data: updatedOrder, error: orderUpdateErr } = await supabaseAdmin
+            .from('orders')
+            .update({ status: orderStatusToSet })
+            .eq('id', orderId)
+            .select('id, status, table_id, restaurant_id')
+            .maybeSingle();
 
-            if (data && !updatedOrder) {
-                updatedOrder = data;
-            }
+        if (orderUpdateErr) {
+            console.error('[OrderStatus POST] Update order error:', orderUpdateErr);
         }
 
         return NextResponse.json({

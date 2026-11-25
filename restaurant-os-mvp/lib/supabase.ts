@@ -4,17 +4,7 @@ import { refreshRealtimeAuth } from './realtime-auth';
 const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_ANON_KEY || 'placeholder-anon-key';
 
-function resolveClientSupabaseUrl(url: string): string {
-    if (typeof window !== 'undefined') {
-        // Prevent browser Mixed Content blocking: on HTTPS pages, ensure Supabase connects over HTTPS
-        if (window.location.protocol === 'https:' && (url.startsWith('http://') || url.includes('72.61.250.231'))) {
-            return 'https://db.dineinone.com';
-        }
-    }
-    return url;
-}
-
-const supabaseUrl = resolveClientSupabaseUrl(rawSupabaseUrl);
+const supabaseUrl = rawSupabaseUrl;
 
 let inMemoryToken: string | null = null;
 
@@ -107,12 +97,6 @@ export async function syncClientSession(panel?: string | null, restaurantId?: st
 }
 
 const customFetch: typeof fetch = async (url, options = {}) => {
-    let targetUrl = url;
-    if (typeof url === 'string' && typeof window !== 'undefined' && window.location.protocol === 'https:') {
-        if (url.startsWith('http://72.61.250.231:8010')) {
-            targetUrl = url.replace('http://72.61.250.231:8010', 'https://db.dineinone.com');
-        }
-    }
     const headers = new Headers(options.headers || {});
     if (typeof window !== 'undefined') {
         const token = getDineToken();
@@ -121,41 +105,15 @@ const customFetch: typeof fetch = async (url, options = {}) => {
         }
     }
 
-    try {
-        const res = await fetch(targetUrl, { ...options, headers });
-        return res;
-    } catch (err: any) {
-        // If primary URL failed to fetch (e.g. Mixed Content, CORS, DNS failure),
-        // gracefully fall back to secondary Supabase cloud URL when configured
-        if (typeof url === 'string' && (err?.message?.includes('fetch') || err?.name === 'TypeError')) {
-            const fallbackBase = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_URL || '';
-            const fallbackKey = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_ANON_KEY || '';
-            if (fallbackBase && fallbackKey) {
-                try {
-                    const parsed = new URL(typeof targetUrl === 'string' ? targetUrl : url.toString());
-                    const fallbackUrl = `${fallbackBase}${parsed.pathname}${parsed.search}`;
-                    headers.set('apikey', fallbackKey);
-                    if (headers.has('authorization') && headers.get('authorization')?.startsWith('Bearer eyJhbGciOiJIUzI1Ni')) {
-                        headers.set('authorization', `Bearer ${fallbackKey}`);
-                    }
-                    return await fetch(fallbackUrl, { ...options, headers });
-                } catch (_) {}
-            }
-        }
-        throw err;
-    }
+    return fetch(url, { ...options, headers });
 };
 
 export type AnyDatabase = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     public: any;
 };
 
-import { createDualSupabaseClient } from './dual-supabase';
-
-const secondaryUrl = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_URL || process.env.SECONDARY_SUPABASE_URL;
-const secondaryAnonKey = process.env.NEXT_PUBLIC_SECONDARY_SUPABASE_ANON_KEY || process.env.SECONDARY_SUPABASE_ANON_KEY;
-
-const primaryBaseClient = createSupabaseClient<AnyDatabase>(
+const baseClient = createSupabaseClient<AnyDatabase>(
     supabaseUrl,
     supabaseAnonKey,
     {
@@ -177,31 +135,11 @@ const primaryBaseClient = createSupabaseClient<AnyDatabase>(
     }
 );
 
-const secondaryBaseClient = (secondaryUrl && secondaryAnonKey)
-    ? createSupabaseClient<AnyDatabase>(secondaryUrl, secondaryAnonKey, {
-        auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-            detectSessionInUrl: false
-        },
-        global: {
-            fetch: customFetch
-        },
-        realtime: {
-            params: {
-                eventsPerSecond: 10
-            },
-            heartbeatIntervalMs: 15000,
-            timeout: 10000
-        }
-    })
-    : null;
-
 const globalForSupabase = globalThis as unknown as {
     __supabaseClient?: ReturnType<typeof createSupabaseClient<AnyDatabase>>;
 };
 
-export const supabase = globalForSupabase.__supabaseClient ?? createDualSupabaseClient(primaryBaseClient, secondaryBaseClient);
+export const supabase = globalForSupabase.__supabaseClient ?? baseClient;
 
 if (process.env.NODE_ENV !== 'production') {
     globalForSupabase.__supabaseClient = supabase;
@@ -216,7 +154,7 @@ if (typeof window !== 'undefined') syncRealtimeAuth();
 
 export function createClient(customHeaders?: Record<string, string>) {
     if (customHeaders && Object.keys(customHeaders).length > 0) {
-        const pClient = createSupabaseClient<AnyDatabase>(
+        return createSupabaseClient<AnyDatabase>(
             supabaseUrl,
             supabaseAnonKey,
             {
@@ -236,31 +174,6 @@ export function createClient(customHeaders?: Record<string, string>) {
                 }
             }
         );
-
-        const sClient = (secondaryUrl && secondaryAnonKey)
-            ? createSupabaseClient<AnyDatabase>(
-                secondaryUrl,
-                secondaryAnonKey,
-                {
-                    auth: {
-                        persistSession: false,
-                        autoRefreshToken: false,
-                        detectSessionInUrl: false
-                    },
-                    global: {
-                        fetch: (url, options = {}) => {
-                            const headers = new Headers(options.headers || {});
-                            for (const [k, v] of Object.entries(customHeaders)) {
-                                headers.set(k, v);
-                            }
-                            return customFetch(url, { ...options, headers });
-                        }
-                    }
-                }
-            )
-            : null;
-
-        return createDualSupabaseClient(pClient, sClient);
     }
     return supabase;
 }

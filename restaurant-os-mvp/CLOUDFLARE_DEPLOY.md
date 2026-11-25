@@ -17,27 +17,9 @@ so you can run both side by side and switch DNS when ready.
   It replaces `sharp`, which can't run on Workers.
 - **Node 22** on the machine you deploy from.
 
-## 1. Give the primary Supabase an HTTPS hostname (blocking)
+## 1. Configure Supabase Cloud (Single Primary Database)
 
-Today the app uses `http://72.61.250.231:8010`. Workers **cannot call a bare IP address**,
-and this also sends the service-role key unencrypted.
-
-1. In Cloudflare DNS for your domain, add an `A` record:
-   `db` → `72.61.250.231`, **Proxied (orange cloud)**.
-2. On the VPS, put a reverse proxy (Caddy or Nginx) on port 80/443 that forwards
-   `db.dineinone.com` → `127.0.0.1:8010` (the Supabase Kong gateway).
-   Caddy example (`/etc/caddy/Caddyfile`):
-   ```
-   db.dineinone.com {
-       reverse_proxy 127.0.0.1:8010
-   }
-   ```
-   With Cloudflare proxying, set SSL/TLS mode to **Full (strict)**, or use a Cloudflare Origin Certificate.
-3. Make sure WebSocket upgrades pass through (Caddy does this by default). Supabase Realtime needs them.
-4. Check: `curl https://db.dineinone.com/rest/v1/ -H "apikey: <anon key>"` returns JSON.
-5. Update `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_PRIMARY_SUPABASE_URL` to `https://db.dineinone.com`
-   everywhere: `.env.local`, Worker secrets, and the waiter Android app's `SUPABASE_URL` in
-   `waiter-android/app/build.gradle.kts`.
+The app connects over HTTPS directly to your Supabase Cloud project (`NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`). Set these in `.env.local` (for build-time `NEXT_PUBLIC_*`), `super-admin/.env.local`, and Cloudflare Worker secrets (`npx wrangler secret put`), and remove any legacy VPS / `SECONDARY_SUPABASE_*` overrides.
 
 ## 2. One-time Cloudflare setup
 

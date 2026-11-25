@@ -17,19 +17,20 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY && fs.existsSync('.env.local')) {
     }
 }
 
-const VPS_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL;
-const VPS_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const PRIMARY_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_PRIMARY_SUPABASE_URL;
+const PRIMARY_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const CLOUD_URL = process.env.SECONDARY_SUPABASE_URL;
-const CLOUD_KEY = process.env.SECONDARY_SUPABASE_SERVICE_ROLE_KEY;
+const SECONDARY_URL = process.env.SECONDARY_SUPABASE_URL;
+const SECONDARY_KEY = process.env.SECONDARY_SUPABASE_SERVICE_ROLE_KEY;
+const HAS_SECONDARY = Boolean(SECONDARY_URL && SECONDARY_KEY && SECONDARY_URL !== PRIMARY_URL);
 
-if (!VPS_URL || !VPS_KEY || !CLOUD_URL || !CLOUD_KEY) {
-    console.error("ERROR: Missing NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SECONDARY_SUPABASE_URL, or SECONDARY_SUPABASE_SERVICE_ROLE_KEY in environment.");
+if (!PRIMARY_URL || !PRIMARY_KEY) {
+    console.error("ERROR: Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
     process.exit(1);
 }
 
-const vps = createClient(VPS_URL, VPS_KEY, { auth: { persistSession: false } });
-const cloud = createClient(CLOUD_URL, CLOUD_KEY, { auth: { persistSession: false } });
+const primaryClient = createClient(PRIMARY_URL, PRIMARY_KEY, { auth: { persistSession: false } });
+const secondaryClient = HAS_SECONDARY ? createClient(SECONDARY_URL, SECONDARY_KEY, { auth: { persistSession: false } }) : null;
 
 async function initMigrationLog(client, dbName) {
     const createTableSql = `
@@ -70,15 +71,19 @@ async function recordMigrationsBulk(client, filenames) {
 
 async function run() {
     console.log("=================================================================");
-    console.log("🚀  DUAL DATABASE MIGRATION RUNNER (VPS + CLOUD)");
+    console.log("🚀  SUPABASE MIGRATION RUNNER");
     console.log("=================================================================");
-    console.log(`VPS Target:   ${VPS_URL}`);
-    console.log(`Cloud Target: ${CLOUD_URL}`);
+    console.log(`Primary Target:   ${PRIMARY_URL}`);
+    if (HAS_SECONDARY) {
+        console.log(`Secondary Target: ${SECONDARY_URL}`);
+    }
     console.log("");
 
-    console.log("1. Initializing migration logs on both databases...");
-    await initMigrationLog(vps, "VPS Database");
-    await initMigrationLog(cloud, "Cloud Database");
+    console.log("1. Initializing migration logs...");
+    await initMigrationLog(primaryClient, "Primary Supabase");
+    if (secondaryClient) {
+        await initMigrationLog(secondaryClient, "Secondary Supabase");
+    }
 
     const migrationsDir = path.resolve(process.cwd(), 'supabase/migrations');
     if (!fs.existsSync(migrationsDir)) {
@@ -92,27 +97,29 @@ async function run() {
 
     const isBaselineCmd = process.argv.includes('--baseline');
 
-    let vpsApplied = new Set(await getAppliedMigrations(vps));
-    let cloudApplied = new Set(await getAppliedMigrations(cloud));
+    const primaryApplied = new Set(await getAppliedMigrations(primaryClient));
+    const secondaryApplied = secondaryClient ? new Set(await getAppliedMigrations(secondaryClient)) : new Set();
 
     console.log(`Found ${files.length} total migration files in repository.`);
-    console.log(`VPS has ${vpsApplied.size} recorded migrations.`);
-    console.log(`Cloud has ${cloudApplied.size} recorded migrations.`);
+    console.log(`Primary has ${primaryApplied.size} recorded migrations.`);
+    if (secondaryClient) {
+        console.log(`Secondary has ${secondaryApplied.size} recorded migrations.`);
+    }
 
     // If explicit --baseline or if any existing repo migration was never recorded in a newly initialized DB:
     if (isBaselineCmd) {
-        console.log("\n[--baseline] Recording all existing repo migrations as applied on both DBs...");
-        await recordMigrationsBulk(vps, files);
-        await recordMigrationsBulk(cloud, files);
+        console.log("\n[--baseline] Recording all existing repo migrations as applied...");
+        await recordMigrationsBulk(primaryClient, files);
+        if (secondaryClient) await recordMigrationsBulk(secondaryClient, files);
         console.log("✅ Baseline established for all existing files.");
         process.exit(0);
     }
 
     // Find pending migrations
-    const pending = files.filter(f => !vpsApplied.has(f) || !cloudApplied.has(f));
+    const pending = files.filter(f => !primaryApplied.has(f) || (secondaryClient && !secondaryApplied.has(f)));
 
     if (pending.length === 0) {
-        console.log("\n✅ Both databases are completely UP TO DATE! No pending migrations.");
+        console.log("\n✅ Database is completely UP TO DATE! No pending migrations.");
         console.log("=================================================================");
         process.exit(0);
     }
@@ -128,41 +135,41 @@ async function run() {
         // PL/pgSQL EXECUTE (inside exec_migration_sql) forbids explicit BEGIN;/COMMIT;; each RPC call is already atomic.
         const sql = rawSql.replace(/^\s*(BEGIN|COMMIT)\s*;\s*$/gim, '');
 
-        // Apply on VPS
-        if (!vpsApplied.has(file)) {
-            process.stdout.write("  -> Applying to VPS Supabase... ");
-            const { error: vpsErr } = await vps.rpc('exec_migration_sql', { query: sql });
-            if (vpsErr) {
+        // Apply on Primary
+        if (!primaryApplied.has(file)) {
+            process.stdout.write("  -> Applying to Primary Supabase... ");
+            const { error: primaryErr } = await primaryClient.rpc('exec_migration_sql', { query: sql });
+            if (primaryErr) {
                 console.log("FAILED ❌");
-                console.error("VPS Error:", vpsErr.message);
+                console.error("Primary Error:", primaryErr.message);
                 process.exit(1);
             }
-            await recordMigration(vps, file);
+            await recordMigration(primaryClient, file);
             console.log("DONE ✅");
         } else {
-            console.log("  -> VPS already has this migration.");
+            console.log("  -> Primary already has this migration.");
         }
 
-        // Apply on Cloud
-        if (CLOUD_URL === VPS_URL) {
-            console.log("  -> Cloud target matches VPS target; already applied.");
-        } else if (!cloudApplied.has(file)) {
-            process.stdout.write("  -> Applying to Cloud Supabase... ");
-            const { error: cloudErr } = await cloud.rpc('exec_migration_sql', { query: sql });
-            if (cloudErr) {
-                console.log("FAILED ❌");
-                console.error("Cloud Error:", cloudErr.message);
-                process.exit(1);
+        // Apply on Secondary (if configured)
+        if (secondaryClient) {
+            if (!secondaryApplied.has(file)) {
+                process.stdout.write("  -> Applying to Secondary Supabase... ");
+                const { error: secErr } = await secondaryClient.rpc('exec_migration_sql', { query: sql });
+                if (secErr) {
+                    console.log("FAILED ❌");
+                    console.error("Secondary Error:", secErr.message);
+                    process.exit(1);
+                }
+                await recordMigration(secondaryClient, file);
+                console.log("DONE ✅");
+            } else {
+                console.log("  -> Secondary already has this migration.");
             }
-            await recordMigration(cloud, file);
-            console.log("DONE ✅");
-        } else {
-            console.log("  -> Cloud already has this migration.");
         }
     }
 
     console.log("\n=================================================================");
-    console.log("🎉  ALL PENDING MIGRATIONS APPLIED TO BOTH DATABASES SUCCESSFULLY!");
+    console.log("🎉  ALL PENDING MIGRATIONS APPLIED SUCCESSFULLY!");
     console.log("=================================================================");
 }
 
